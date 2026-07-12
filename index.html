@@ -8291,7 +8291,6 @@ function renderStats() {
             <button class="btn btn-ghost btn-sm" onclick="exportWafflePNG()" style="font-size:0.65rem">📥 下载 PNG</button>
           </div>
       <div id="waffleLegend" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;font-size:0.72rem"></div>
-      <div id="waffleTooltip" style="display:none;position:fixed;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:0.75rem;pointer-events:none;z-index:100;box-shadow:var(--shadow-md)"></div>
     </div>
 
     <!-- Month-over-month comparison chart -->
@@ -9636,7 +9635,12 @@ function startHoverAnim(canvas, cells, cellSize, gap, offsetX, offsetY, cols, ro
 
 function bindWaffleHover(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount) {
   var tooltip = document.getElementById('waffleTooltip');
-  if (!tooltip) return;
+  if (!tooltip) {
+    tooltip = document.createElement('div');
+    tooltip.id = 'waffleTooltip';
+    tooltip.style.cssText = 'display:none;position:fixed;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:0.75rem;pointer-events:none;z-index:1000;box-shadow:var(--shadow-md)';
+    document.body.appendChild(tooltip);
+  }
   var currentHoverTag = -1;
 
   canvas.onmousemove = function(e) {
