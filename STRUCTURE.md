@@ -24,8 +24,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 ├── index.html                  # 构建产物（不手动编辑）
 ├── src/
 │   ├── index.html              # HTML 骨架
-│   ├── css/                    # 12 个 CSS 文件
-│   └── js/                     # 22 个 JS 文件
+│   ├── css/                    # 13 个 CSS 文件
+│   └── js/                     # 24 个 JS 文件
 ├── features/                   # 功能文档
 │   └── budget-app-feature-catalog.md  # 完整功能目录
 ├── logs/                       # 开发日志
@@ -51,6 +51,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `10-bills.css` | 月账单中心 | `.bills-*`, `.picker-bill-item`, `.bill-toggle`, `.percent-base-group` |
 | `11-print.css` | 打印样式 | `@media print` |
 | `12-responsive.css` | 响应式 + 图表弹窗 | `@media (min-width: 1024px)`, `.chart-expand-*`, `.settings-nav-card` |
+| `13-guides.css` | 页面引导 | `.guide-btn`, `.guide-section`, `.guide-feature-grid`, `.guide-tip`, `.guide-mode-toggle` |
 
 ---
 
@@ -579,6 +580,30 @@ IIFE 自执行，暴露 `window.SyncUI` 和 `window.LANSync`。
 
 ---
 
+### 24. `24-diagnostics.js` — 数据诊断工具
+
+| 符号 | 说明 |
+|------|------|
+| `DIAG.logOperation(code, details)` | 记录操作日志 |
+| `DIAG.compareWithStorage()` | 对比内存与 localStorage 数据一致性 |
+| `DIAG.getStorageInfo()` | 获取存储用量信息 |
+| `DIAG.exportDiagnosticReport()` | 导出诊断报告文本 |
+| `DIAG.showRecordRaw(id)` | 显示记录的原始 JSON 数据 |
+| `DIAG.getDiagnosticLog()` | 获取操作日志 |
+| `DIAG.exportDiagnosticLog()` | 导出操作日志文件 |
+
+---
+
+### 25. `25-page-guides.js` — 页面引导系统
+
+| 符号 | 说明 |
+|------|------|
+| `PAGE_GUIDES` | 8 个页面的引导内容（含 simple/detailed 双模式） |
+| `function showPageGuide(pageKey)` | 打开指定页面的引导弹窗（默认简洁模式） |
+| `function toggleGuideMode()` | 切换简洁/详尽模式 |
+
+---
+
 ## 数据流
 
 ```
@@ -611,6 +636,8 @@ Canvas Drawing Functions / DOM innerHTML
 | `whatIfExpandStates`, `whatIfCompareExpandStates` | `20-what-if.js` | 假设分析展开状态 |
 | `reportMonth` | `19-render-report.js` | 报告月份 |
 | `_expandedChart` | `17-stats-charts.js` | 图表展开弹窗状态 |
+| `_guidePageKey`, `_guideShowDetailed` | `25-page-guides.js` | 引导弹窗状态 |
+| `DIAG` | `24-diagnostics.js` | 诊断工具单例 |
 
 ---
 
@@ -622,7 +649,7 @@ Canvas Drawing Functions / DOM innerHTML
   "categories": [{ "id", "name", "icon", "color", "parentId", "sortOrder" }],
   "budgets": { "YYYY-MM": amount },
   "categoryBudgets": { "catId:YYYY-MM": { "value": number, "type": "fixed"|"percent" } },
-  "savingsTarget": { "type": "fixed"|"percent"|"both", "fixedAmount": number, "percent": number },
+  "savingsTarget": { "type": "fixed"|"percent", "fixedAmount": number, "percent": number },
   "colorIndex": number,
   "billCategories": [{ "id", "name", "icon", "color", "sortOrder" }],
   "billAmounts": { "YYYY-MM": { "billId": amount } },

@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v2.3.1
+# 记账软件 · Budget App v2.6.0
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -86,7 +86,7 @@ Monthly spending summary with budget and savings progress rings rendered on Canv
 Quick expense entry with automatic RM currency prefix, a tree-based category picker (emoji + color), date/time fields, and notes. Input validation with shake animation feedback.
 
 ### 📋 流水 Records
-Advanced multi-filter system supporting keyword, category, date range, amount range, and overspent-only filters. Toggle between compact and card views. Batch operations for delete and recategorization. Soft delete with a 5-second undo window.
+Advanced multi-filter system supporting keyword, category, date range, amount range, and overspent-only filters. Multi-level sorting (by date, amount, note, or category name). Toggle between compact and card views. Batch operations for delete and recategorization. Soft delete with a 5-second undo window.
 
 ### 🗂️ 分类 Categories
 Infinite nesting tree with accordion UI. Set per-category budgets in RM or percentage. Inline budget editing with parent-child budget validation. Merge categories, move nodes with cycle detection, pick from 14 preset colors, and choose emoji icons.
@@ -101,7 +101,7 @@ Print-optimized monthly summary featuring budget and savings rings, a category b
 Adjust future spending assumptions per category with modes: keep trend, set daily limit, fix remaining total, percentage change, adjust by amount, or zero out. Compare projections against current trends with visual savings bars and ring charts. Supports hypothetical new categories and global adjustments.
 
 ### ⚙️ 设置 Settings
-Dark/light mode toggle, monthly budget configuration, 3-mode savings target (fixed amount, percentage, or both). Export and import data via JSON (replace or merge), CSV, or Excel (XML Spreadsheet 2003 with 5 sheets and live formulas). Clear all data option available. LAN sync via WebRTC (same Wi-Fi, zero server).
+Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fixed amount or percentage). Export and import data via JSON (replace or merge), CSV, or Excel (XML Spreadsheet 2003 with 5 sheets and live formulas). Clear all data option available. LAN sync via WebRTC (same Wi-Fi, zero server).
 
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
@@ -112,12 +112,13 @@ Dark/light mode toggle, monthly budget configuration, 3-mode savings target (fix
 ### 🔥 Highlights
 
 - **Zero external dependencies** — Pure HTML, CSS, and JavaScript. No CDN, no frameworks, no libraries.
-- **Modular source structure** — 12 CSS + 22 JS files organized by domain in `src/`, built into a single deployable HTML via `build.sh`.
-- **IIFE scope isolation** — 22 JS files each wrapped in an IIFE, only explicitly exported symbols (`window.*`) are shared across files, preventing global namespace pollution.
+- **Modular source structure** — 13 CSS + 24 JS files organized by domain in `src/`, built into a single deployable HTML via `build.sh`.
+- **IIFE scope isolation** — 24 JS files each wrapped in an IIFE, only explicitly exported symbols (`window.*`) are shared across files, preventing global namespace pollution.
 - **Elastic animated pie chart** — Smooth hover pop-out effects and full drill-down navigation.
 - **Calendar heatmap** — Spending ratio visualized with a 6-color gradient across the month.
 - **Soft delete with 5-second undo** — Accidentally deleted a record? Undo it within 5 seconds.
 - **Native Excel export** — Generates real XML SpreadsheetML 2003 with SUM, AVERAGE, and IF formulas — no library required.
+- **Page guide system** — Each page has a ❓ guide button explaining features, usage, and parameters. Supports simple/detailed toggle mode.
 - **Responsive design** — Desktop sidebar layout with a mobile bottom tab navigation bar, including safe-area support.
 - **Dark mode throughout** — All Canvas charts, UI elements, and exports adapt automatically.
 - **CSP & XSS protection** — Content Security Policy headers and HTML injection sanitization (`escHtml`) built in.
@@ -191,8 +192,8 @@ budget-app/
 ├── build.sh                 # 构建脚本：拼接 src/ → index.html
 ├── src/
 │   ├── index.html           # HTML 骨架（含 <!--build:css--> / <!--build:js--> 标记）
-│   ├── css/                 # 12 个 CSS 文件（变量、布局、组件、动画、响应式…）
-│   └── js/                  # 22 个 JS 文件（按功能域拆分）
+│   ├── css/                 # 13 个 CSS 文件（变量、布局、组件、动画、响应式、引导…）
+│   └── js/                  # 24 个 JS 文件（按功能域拆分）
 │       ├── 01-constants.js       # 颜色表、默认分类
 │       ├── 02-datastore.js       # DataStore（localStorage CRUD）
 │       ├── 03-excel-export.js    # Excel XML 导出
@@ -214,7 +215,9 @@ budget-app/
 │       ├── 20-what-if.js         # 假设分析
 │       ├── 21-month-rollover.js  # 月初结转
 │       ├── 22-init.js            # 初始化
-│       └── 23-lan-sync.js        # WebRTC 局域网同步
+│       ├── 23-lan-sync.js        # WebRTC 局域网同步
+│       ├── 24-diagnostics.js    # 数据诊断工具（一致性检查、存储用量、审计日志）
+│       └── 25-page-guides.js    # 页面引导系统（8 页简明/详尽双模式引导文案）
 ├── money-wise-mobile.html   # 手机版：轻量记账，支持导入导出JSON (~1,384 lines)
 ├── STRUCTURE.md             # 完整函数地图（供 AI Agent 使用）
 ├── features/                # Feature documentation
