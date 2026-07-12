@@ -11318,6 +11318,7 @@ function showPageGuide(pageKey) {
   html += '<div class="modal-actions"><button class="btn btn-primary" onclick="closeModal()">我知道了</button></div>';
 
   showModal(html);
+  document.getElementById('modalContent').scrollTop = 0;
 }
 
 // Export
