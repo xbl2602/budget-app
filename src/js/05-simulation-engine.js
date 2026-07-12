@@ -11,13 +11,17 @@ const SimulationEngine = {
    * @param {object} params - user's what-if assumptions
    * @returns {object} projection result with comparison to current trend
    */
-  run(month, params) {
+  run(month, params, opts) {
     if (!params) return null;
     const now = new Date();
+    const periodOpts = (opts && opts.period) || null;
+    const isRolling = periodOpts && periodOpts.key === 'rolling30';
     const isCurrentMonth = month === getMonthKey(now.toISOString());
     const today = now.getDate();
-    const daysInMonth = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
-    const daysPassed = isCurrentMonth ? today : daysInMonth;
+    const daysInMonth = isRolling
+      ? periodOpts.daysInPeriod
+      : new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
+    const daysPassed = isRolling ? periodOpts.daysPassed : (isCurrentMonth ? today : daysInMonth);
     const remainingDays = Math.max(0, daysInMonth - daysPassed);
 
     // Override params with actuals if not specified
@@ -33,8 +37,14 @@ const SimulationEngine = {
     const spendable = Math.max(0, netDisposable - targetAmount);
 
     // Get actual spending to date (variable categories only)
-    const allRecords = DataStore.getRecords()
-      .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
+    const allRecords = isRolling
+      ? DataStore.getRecords()
+          .filter(r => {
+            const d = new Date(r.date || r.createdAt);
+            return d >= periodOpts.start && d <= periodOpts.end && !StatsEngine.isBillCategory(r.categoryId);
+          })
+      : DataStore.getRecords()
+          .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
     const actualSpent = allRecords.reduce((s, r) => s + r.amount, 0);
     const categoryTotals = {};
     const categoryDays = {};
@@ -188,10 +198,10 @@ const SimulationEngine = {
     const savingsAttained = projectedSavings >= targetAmount;
 
     // Current trend (for comparison) — use StatsEngine to match Overview exactly
-    const trendTotal = StatsEngine.getPredictedTotal(month);
-    const trendDailyAvg = StatsEngine.getDailyAverage(month);
-    const unpaidBills = Math.max(0, DataStore.getBillTotal(month) - StatsEngine.getBillSpendingActual(month));
-    const trendSavings = StatsEngine.getSavingsPrediction(month) - unpaidBills;
+    const trendTotal = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month);
+    const trendDailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month);
+    const unpaidBills = Math.max(0, DataStore.getBillTotal(month) - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month)));
+    const trendSavings = isRolling ? (income - trendTotal - unpaidBills) : (StatsEngine.getSavingsPrediction(month) - unpaidBills);
 
     console.log('[SimEngine] result:', {
       month,

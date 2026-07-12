@@ -49,6 +49,18 @@ const DataStore = {
   },
 
   init() {
+    // Check if data is encrypted and needs PIN
+    const isProtected = !!localStorage.getItem('budgetAppPinHash');
+    const hasEncrypted = !!localStorage.getItem('budgetAppDataEncrypted');
+    const hasPlaintext = !!localStorage.getItem('budgetAppData');
+    if (isProtected && hasEncrypted && !hasPlaintext) {
+      // Data is encrypted and not yet decrypted - don't load, show PIN prompt
+      this._data = this._defaults();
+      // Signal to app that PIN is needed
+      window._pinRequired = true;
+      this._log('init', 'pin_required_data_encrypted');
+      return;
+    }
     // Restore diagnostic log from localStorage (survives page reload)
     try {
       this.__log = JSON.parse(localStorage.getItem('budgetAppLog') || '[]');
@@ -512,6 +524,16 @@ const DataStore = {
     this.save();
   },
 
+  // Stats Range
+  getStatsRange() {
+    return localStorage.getItem('budgetStatsRange') || 'month';
+  },
+  setStatsRange(val) {
+    if (val !== 'month' && val !== 'rolling30') return;
+    localStorage.setItem('budgetStatsRange', val);
+    this.save();
+  },
+
   // Data hash for sync verification
   getLastUpdateTime() {
     const records = this._data.records;
@@ -548,11 +570,191 @@ const DataStore = {
     // Convert to base36 uppercase, take 6 chars
     return Math.abs(hash).toString(36).toUpperCase().substring(0, 6).padStart(6, '0');
   },
+
+  // === PIN Protection ===
+  _arrayBufferToHex(buf) {
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  },
+  _hexToArrayBuffer(hex) {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes[i/2] = parseInt(hex.substr(i, 2), 16);
+    }
+    return bytes.buffer;
+  },
+  _stringToUtf8ArrayBuffer(str) {
+    return new TextEncoder().encode(str).buffer;
+  },
+  _utf8ArrayBufferToString(buf) {
+    return new TextDecoder().decode(buf);
+  },
+  async _deriveKey(pin, salt) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw', enc.encode(pin),
+      'PBKDF2', false, ['deriveKey']
+    );
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false, ['encrypt', 'decrypt']
+    );
+  },
+  async _hashPin(pin, salt) {
+    const enc = new TextEncoder();
+    const combined = new Uint8Array([...new Uint8Array(salt), ...enc.encode(pin)]);
+    const hash = await crypto.subtle.digest('SHA-256', combined);
+    return this._arrayBufferToHex(hash);
+  },
+  async isPinProtected() {
+    return !!localStorage.getItem('budgetAppPinHash');
+  },
+  async verifyPin(pin) {
+    const saltHex = localStorage.getItem('budgetAppSalt');
+    const storedHash = localStorage.getItem('budgetAppPinHash');
+    if (!saltHex || !storedHash) return true; // no PIN set
+    const salt = this._hexToArrayBuffer(saltHex);
+    const hash = await this._hashPin(pin, salt);
+    return hash === storedHash;
+  },
+  async setPin(pin) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const hash = await this._hashPin(pin, salt);
+    localStorage.setItem('budgetAppSalt', this._arrayBufferToHex(salt));
+    localStorage.setItem('budgetAppPinHash', hash);
+    // Encrypt existing data
+    await this._encryptData(pin, salt);
+    // Remove plaintext data
+    localStorage.removeItem('budgetAppData');
+  },
+  async changePin(oldPin, newPin) {
+    const valid = await this.verifyPin(oldPin);
+    if (!valid) return false;
+    // Decrypt with old pin first
+    const saltHex = localStorage.getItem('budgetAppSalt');
+    const salt = this._hexToArrayBuffer(saltHex);
+    const plaintext = await this._decryptData(oldPin, salt);
+    if (plaintext) {
+      localStorage.setItem('budgetAppData', plaintext);
+      localStorage.removeItem('budgetAppDataEncrypted');
+    }
+    // Set new pin (re-encrypts)
+    await this.setPin(newPin);
+    return true;
+  },
+  async clearPin(oldPin) {
+    const valid = await this.verifyPin(oldPin);
+    if (!valid) return false;
+    const saltHex = localStorage.getItem('budgetAppSalt');
+    const salt = this._hexToArrayBuffer(saltHex);
+    const plaintext = await this._decryptData(oldPin, salt);
+    localStorage.removeItem('budgetAppSalt');
+    localStorage.removeItem('budgetAppPinHash');
+    localStorage.removeItem('budgetAppDataEncrypted');
+    if (plaintext) {
+      localStorage.setItem('budgetAppData', plaintext);
+    }
+    return true;
+  },
+  async _encryptData(pin, salt) {
+    const key = await this._deriveKey(pin, salt);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const data = localStorage.getItem('budgetAppData');
+    if (!data) return;
+    const encoded = new TextEncoder().encode(data);
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key, encoded
+    );
+    // Store iv + ciphertext together
+    const combined = new Uint8Array([...iv, ...new Uint8Array(encrypted)]);
+    localStorage.setItem('budgetAppDataEncrypted', this._arrayBufferToHex(combined));
+  },
+  async _decryptData(pin, salt) {
+    const key = await this._deriveKey(pin, salt);
+    const combinedHex = localStorage.getItem('budgetAppDataEncrypted');
+    if (!combinedHex) return null;
+    const combined = new Uint8Array(this._hexToArrayBuffer(combinedHex));
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    try {
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv },
+        key, ciphertext
+      );
+      return new TextDecoder().decode(decrypted);
+    } catch(e) {
+      return null; // wrong pin or corrupted data
+    }
+  },
+  async unlockData(pin) {
+    const saltHex = localStorage.getItem('budgetAppSalt');
+    if (!saltHex) return false;
+    const salt = this._hexToArrayBuffer(saltHex);
+    const plaintext = await this._decryptData(pin, salt);
+    if (!plaintext) return false;
+    localStorage.setItem('budgetAppData', plaintext);
+    this.init();
+    return true;
+  },
+  lockData() {
+    // Remove plaintext data from memory and storage
+    this._data = null;
+    localStorage.removeItem('budgetAppData');
+  },
+
+  // === Tags ===
+  getAllTags() {
+    if (!this._data.allTags) this._data.allTags = [];
+    return this._data.allTags;
+  },
+  addTagUsage(tag) {
+    if (!this._data.allTags) this._data.allTags = [];
+    const trimmed = tag.trim();
+    if (trimmed && !this._data.allTags.includes(trimmed)) {
+      this._data.allTags.push(trimmed);
+      this._data.allTags.sort();
+      this.save();
+    }
+  },
+  getRecordsByTag(tag) {
+    return this._data.records.filter(r => r.tags && r.tags.includes(tag) && !r._deleted);
+  },
+  getTagStats(tag) {
+    const records = this.getRecordsByTag(tag);
+    const total = records.reduce((s, r) => s + r.amount, 0);
+    return { count: records.length, total, records };
+  },
+  cleanUnusedTags() {
+    if (!this._data.allTags) return;
+    const usedTags = new Set();
+    this._data.records.forEach(r => {
+      if (r.tags) r.tags.forEach(t => usedTags.add(t));
+    });
+    this._data.allTags = this._data.allTags.filter(t => usedTags.has(t));
+    this.save();
+  },
 };
 
   // === EXPORTS ===
   window.DataStore = DataStore;
+  window.DataStore.getStatsRange = DataStore.getStatsRange.bind(DataStore);
+  window.DataStore.setStatsRange = DataStore.setStatsRange.bind(DataStore);
   window.logEvent = function(action, detail) {
     DataStore._log(action, detail);
   };
+  // PIN Protection async exports
+  window.DataStore.isPinProtected = DataStore.isPinProtected.bind(DataStore);
+  window.DataStore.verifyPin = DataStore.verifyPin.bind(DataStore);
+  window.DataStore.setPin = DataStore.setPin.bind(DataStore);
+  window.DataStore.changePin = DataStore.changePin.bind(DataStore);
+  window.DataStore.clearPin = DataStore.clearPin.bind(DataStore);
+  window.DataStore.unlockData = DataStore.unlockData.bind(DataStore);
+  window.DataStore.lockData = DataStore.lockData.bind(DataStore);
+  window.DataStore.getAllTags = DataStore.getAllTags.bind(DataStore);
+  window.DataStore.addTagUsage = DataStore.addTagUsage.bind(DataStore);
+  window.DataStore.getRecordsByTag = DataStore.getRecordsByTag.bind(DataStore);
+  window.DataStore.getTagStats = DataStore.getTagStats.bind(DataStore);
+  window.DataStore.cleanUnusedTags = DataStore.cleanUnusedTags.bind(DataStore);
 })();

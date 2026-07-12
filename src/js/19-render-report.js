@@ -8,19 +8,28 @@ let reportMonth = '';
 function renderReport() {
   const el = document.getElementById('page-report');
   const now = new Date();
-  reportMonth = reportMonth || getMonthKey(now.toISOString());
+  const isRolling = getStatsRange() === 'rolling30';
+  if (!reportMonth) {
+    if (isRolling) {
+      const { start, end, label } = getPeriodDateRange();
+      reportMonth = label; // Use label as pseudo month identifier
+    } else {
+      reportMonth = getMonthKey(now.toISOString());
+    }
+  }
   const month = reportMonth;
+  const periodRange = isRolling ? getPeriodDateRange() : null;
 
-  const monthTotal = StatsEngine.getMonthTotal(month);
+  const monthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month);
   const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
   const savingsTarget = DataStore.getSavingsTarget();
-  const dailyTotals = StatsEngine.getDailyTotals(month);
-  const catTotals = StatsEngine.getCategoryTotals(month);
+  const dailyTotals = isRolling ? StatsEngine.getPeriodDailyTotals({ excludeBills: false }) : StatsEngine.getDailyTotals(month);
+  const catTotals = isRolling ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month);
 
   // Savings target amount
   const percentBase = DataStore.getPercentBase();
   const totalBills = DataStore.getBillTotal(month);
-  const paidBillsRep = StatsEngine.getBillSpendingActual(month);
+  const paidBillsRep = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
   const unpaidPlannedBillsRep = Math.max(0, totalBills - paidBillsRep);
   const netDisposable = Math.max(0, budget - totalBills);
   const baseAmount = percentBase === 'net' ? netDisposable : budget;
@@ -31,11 +40,11 @@ function renderReport() {
     return 0;
   })();
   const spendableBudget = Math.max(0, netDisposable - targetAmount);
-  const variableSpending = StatsEngine.getVariableSpending(month);
+  const variableSpending = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month);
   const actualSavings = Math.max(0, budget - (monthTotal + unpaidPlannedBillsRep));
   const savingsRate = budget > 0 ? (actualSavings / budget * 100) : 0;
-  const predicted = StatsEngine.getPredictedTotal(month);
-  const savingsPred = StatsEngine.getSavingsPrediction(month) - unpaidPlannedBillsRep;
+  const predicted = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month);
+  const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(month) - unpaidPlannedBillsRep);
 
   // Aggregate to root categories for table
   const rootTotals = {};
@@ -65,8 +74,8 @@ function renderReport() {
       <div class="card mb-16 report-header-buttons">
         <div class="flex items-center gap-12" style="flex-wrap:wrap">
           <div class="flex items-center gap-8">
-            <label class="text-sm text-secondary">选择月份</label>
-            <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${month}" onchange="changeReportMonth(this.value)">
+          <label class="text-sm text-secondary">${isRolling ? '统计周期' : '选择月份'}</label>
+          <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${isRolling ? month : month}" onchange="changeReportMonth(this.value)">
           </div>
           <button class="btn btn-outline" onclick="printReport()">🖨️ 打印报告</button>
         </div>
@@ -165,7 +174,7 @@ function renderReport() {
 
       <!-- Daily trend sparkline -->
       <div class="card mb-16">
-        <div class="card-title">每日消费趋势 (${year}年${mon}月)</div>
+        <div class="card-title">${isRolling ? '每日消费趋势 (' + periodRange.label + ')' : '每日消费趋势 (' + year + '年' + mon + '月)'}</div>
         <canvas id="reportSparkline" width="600" height="160" style="width:100%;height:80px"></canvas>
       </div>
 

@@ -1915,12 +1915,46 @@ function getMonthKey(dateStr) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
 }
 
+function getStatsRange() {
+  return localStorage.getItem('budgetStatsRange') || 'month';
+}
+
+function getPeriodDateRange() {
+  const range = getStatsRange();
+  const now = new Date();
+  if (range === 'month') {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { 
+      start, end, 
+      daysInPeriod: end.getDate(), 
+      daysPassed: now.getDate(),
+      label: now.getFullYear() + '年' + (now.getMonth()+1) + '月',
+      key: now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0')
+    };
+  } else {
+    const end = new Date(now);
+    const start = new Date(now);
+    start.setDate(start.getDate() - 29);
+    const diffDays = Math.floor((end - start) / 86400000) + 1;
+    return {
+      start, end,
+      daysInPeriod: 30,
+      daysPassed: diffDays,
+      label: start.toISOString().substr(5,5) + ' → ' + end.toISOString().substr(5,5),
+      key: 'rolling30'
+    };
+  }
+}
+
   // === EXPORTS ===
   window.COLORS = COLORS;
   window.DEFAULT_CATEGORIES = DEFAULT_CATEGORIES;
   window.escHtml = escHtml;
   window.uuid = uuid;
   window.getMonthKey = getMonthKey;
+  window.getStatsRange = getStatsRange;
+  window.getPeriodDateRange = getPeriodDateRange;
 })();
 /* ============================================================
    DataStore
@@ -1973,6 +2007,18 @@ const DataStore = {
   },
 
   init() {
+    // Check if data is encrypted and needs PIN
+    const isProtected = !!localStorage.getItem('budgetAppPinHash');
+    const hasEncrypted = !!localStorage.getItem('budgetAppDataEncrypted');
+    const hasPlaintext = !!localStorage.getItem('budgetAppData');
+    if (isProtected && hasEncrypted && !hasPlaintext) {
+      // Data is encrypted and not yet decrypted - don't load, show PIN prompt
+      this._data = this._defaults();
+      // Signal to app that PIN is needed
+      window._pinRequired = true;
+      this._log('init', 'pin_required_data_encrypted');
+      return;
+    }
     // Restore diagnostic log from localStorage (survives page reload)
     try {
       this.__log = JSON.parse(localStorage.getItem('budgetAppLog') || '[]');
@@ -2436,6 +2482,16 @@ const DataStore = {
     this.save();
   },
 
+  // Stats Range
+  getStatsRange() {
+    return localStorage.getItem('budgetStatsRange') || 'month';
+  },
+  setStatsRange(val) {
+    if (val !== 'month' && val !== 'rolling30') return;
+    localStorage.setItem('budgetStatsRange', val);
+    this.save();
+  },
+
   // Data hash for sync verification
   getLastUpdateTime() {
     const records = this._data.records;
@@ -2472,13 +2528,193 @@ const DataStore = {
     // Convert to base36 uppercase, take 6 chars
     return Math.abs(hash).toString(36).toUpperCase().substring(0, 6).padStart(6, '0');
   },
+
+  // === PIN Protection ===
+  _arrayBufferToHex(buf) {
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  },
+  _hexToArrayBuffer(hex) {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes[i/2] = parseInt(hex.substr(i, 2), 16);
+    }
+    return bytes.buffer;
+  },
+  _stringToUtf8ArrayBuffer(str) {
+    return new TextEncoder().encode(str).buffer;
+  },
+  _utf8ArrayBufferToString(buf) {
+    return new TextDecoder().decode(buf);
+  },
+  async _deriveKey(pin, salt) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw', enc.encode(pin),
+      'PBKDF2', false, ['deriveKey']
+    );
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false, ['encrypt', 'decrypt']
+    );
+  },
+  async _hashPin(pin, salt) {
+    const enc = new TextEncoder();
+    const combined = new Uint8Array([...new Uint8Array(salt), ...enc.encode(pin)]);
+    const hash = await crypto.subtle.digest('SHA-256', combined);
+    return this._arrayBufferToHex(hash);
+  },
+  async isPinProtected() {
+    return !!localStorage.getItem('budgetAppPinHash');
+  },
+  async verifyPin(pin) {
+    const saltHex = localStorage.getItem('budgetAppSalt');
+    const storedHash = localStorage.getItem('budgetAppPinHash');
+    if (!saltHex || !storedHash) return true; // no PIN set
+    const salt = this._hexToArrayBuffer(saltHex);
+    const hash = await this._hashPin(pin, salt);
+    return hash === storedHash;
+  },
+  async setPin(pin) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const hash = await this._hashPin(pin, salt);
+    localStorage.setItem('budgetAppSalt', this._arrayBufferToHex(salt));
+    localStorage.setItem('budgetAppPinHash', hash);
+    // Encrypt existing data
+    await this._encryptData(pin, salt);
+    // Remove plaintext data
+    localStorage.removeItem('budgetAppData');
+  },
+  async changePin(oldPin, newPin) {
+    const valid = await this.verifyPin(oldPin);
+    if (!valid) return false;
+    // Decrypt with old pin first
+    const saltHex = localStorage.getItem('budgetAppSalt');
+    const salt = this._hexToArrayBuffer(saltHex);
+    const plaintext = await this._decryptData(oldPin, salt);
+    if (plaintext) {
+      localStorage.setItem('budgetAppData', plaintext);
+      localStorage.removeItem('budgetAppDataEncrypted');
+    }
+    // Set new pin (re-encrypts)
+    await this.setPin(newPin);
+    return true;
+  },
+  async clearPin(oldPin) {
+    const valid = await this.verifyPin(oldPin);
+    if (!valid) return false;
+    const saltHex = localStorage.getItem('budgetAppSalt');
+    const salt = this._hexToArrayBuffer(saltHex);
+    const plaintext = await this._decryptData(oldPin, salt);
+    localStorage.removeItem('budgetAppSalt');
+    localStorage.removeItem('budgetAppPinHash');
+    localStorage.removeItem('budgetAppDataEncrypted');
+    if (plaintext) {
+      localStorage.setItem('budgetAppData', plaintext);
+    }
+    return true;
+  },
+  async _encryptData(pin, salt) {
+    const key = await this._deriveKey(pin, salt);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const data = localStorage.getItem('budgetAppData');
+    if (!data) return;
+    const encoded = new TextEncoder().encode(data);
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key, encoded
+    );
+    // Store iv + ciphertext together
+    const combined = new Uint8Array([...iv, ...new Uint8Array(encrypted)]);
+    localStorage.setItem('budgetAppDataEncrypted', this._arrayBufferToHex(combined));
+  },
+  async _decryptData(pin, salt) {
+    const key = await this._deriveKey(pin, salt);
+    const combinedHex = localStorage.getItem('budgetAppDataEncrypted');
+    if (!combinedHex) return null;
+    const combined = new Uint8Array(this._hexToArrayBuffer(combinedHex));
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    try {
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv },
+        key, ciphertext
+      );
+      return new TextDecoder().decode(decrypted);
+    } catch(e) {
+      return null; // wrong pin or corrupted data
+    }
+  },
+  async unlockData(pin) {
+    const saltHex = localStorage.getItem('budgetAppSalt');
+    if (!saltHex) return false;
+    const salt = this._hexToArrayBuffer(saltHex);
+    const plaintext = await this._decryptData(pin, salt);
+    if (!plaintext) return false;
+    localStorage.setItem('budgetAppData', plaintext);
+    this.init();
+    return true;
+  },
+  lockData() {
+    // Remove plaintext data from memory and storage
+    this._data = null;
+    localStorage.removeItem('budgetAppData');
+  },
+
+  // === Tags ===
+  getAllTags() {
+    if (!this._data.allTags) this._data.allTags = [];
+    return this._data.allTags;
+  },
+  addTagUsage(tag) {
+    if (!this._data.allTags) this._data.allTags = [];
+    const trimmed = tag.trim();
+    if (trimmed && !this._data.allTags.includes(trimmed)) {
+      this._data.allTags.push(trimmed);
+      this._data.allTags.sort();
+      this.save();
+    }
+  },
+  getRecordsByTag(tag) {
+    return this._data.records.filter(r => r.tags && r.tags.includes(tag) && !r._deleted);
+  },
+  getTagStats(tag) {
+    const records = this.getRecordsByTag(tag);
+    const total = records.reduce((s, r) => s + r.amount, 0);
+    return { count: records.length, total, records };
+  },
+  cleanUnusedTags() {
+    if (!this._data.allTags) return;
+    const usedTags = new Set();
+    this._data.records.forEach(r => {
+      if (r.tags) r.tags.forEach(t => usedTags.add(t));
+    });
+    this._data.allTags = this._data.allTags.filter(t => usedTags.has(t));
+    this.save();
+  },
 };
 
   // === EXPORTS ===
   window.DataStore = DataStore;
+  window.DataStore.getStatsRange = DataStore.getStatsRange.bind(DataStore);
+  window.DataStore.setStatsRange = DataStore.setStatsRange.bind(DataStore);
   window.logEvent = function(action, detail) {
     DataStore._log(action, detail);
   };
+  // PIN Protection async exports
+  window.DataStore.isPinProtected = DataStore.isPinProtected.bind(DataStore);
+  window.DataStore.verifyPin = DataStore.verifyPin.bind(DataStore);
+  window.DataStore.setPin = DataStore.setPin.bind(DataStore);
+  window.DataStore.changePin = DataStore.changePin.bind(DataStore);
+  window.DataStore.clearPin = DataStore.clearPin.bind(DataStore);
+  window.DataStore.unlockData = DataStore.unlockData.bind(DataStore);
+  window.DataStore.lockData = DataStore.lockData.bind(DataStore);
+  window.DataStore.getAllTags = DataStore.getAllTags.bind(DataStore);
+  window.DataStore.addTagUsage = DataStore.addTagUsage.bind(DataStore);
+  window.DataStore.getRecordsByTag = DataStore.getRecordsByTag.bind(DataStore);
+  window.DataStore.getTagStats = DataStore.getTagStats.bind(DataStore);
+  window.DataStore.cleanUnusedTags = DataStore.cleanUnusedTags.bind(DataStore);
 })();
 /* ============================================================
    EXCEL EXPORT — Generates a real .xlsx-compatible XML Spreadsheet
@@ -3191,6 +3427,66 @@ const StatsEngine = {
       result.push({ month: key, total, label: key });
     }
     return result;
+  },
+
+  // ===== Period-Aware Methods (Stats Range: month or rolling30) =====
+  getPeriodRecords() {
+    const { start, end } = getPeriodDateRange();
+    return DataStore.getRecords().filter(r => {
+      const d = new Date(r.date || r.createdAt);
+      return d >= start && d <= end && !r._deleted;
+    });
+  },
+  getPeriodTotal() {
+    return this.getPeriodRecords().reduce((s, r) => s + r.amount, 0);
+  },
+  getPeriodDailyAverage() {
+    const { daysPassed } = getPeriodDateRange();
+    return daysPassed > 0 ? this.getPeriodTotal() / daysPassed : 0;
+  },
+  getPeriodPredictedTotal() {
+    const { daysPassed, daysInPeriod } = getPeriodDateRange();
+    if (daysPassed === 0) return 0;
+    const avg = this.getPeriodTotal() / daysPassed;
+    return Math.round(avg * daysInPeriod * 100) / 100;
+  },
+  getPeriodCategoryTotals() {
+    const records = this.getPeriodRecords();
+    const totals = {};
+    records.forEach(r => {
+      totals[r.categoryId] = (totals[r.categoryId] || 0) + r.amount;
+    });
+    return totals;
+  },
+  getPeriodRemainingDailyLimit() {
+    const { daysPassed, daysInPeriod } = getPeriodDateRange();
+    const income = DataStore.getMonthlyIncome(getMonthKey(new Date().toISOString())) || DataStore.getBudget(getMonthKey(new Date().toISOString()));
+    if (!income || income <= 0) return 0;
+    const spent = this.getPeriodTotal();
+    const remainingDays = daysInPeriod - daysPassed;
+    if (remainingDays <= 0) return 0;
+    const remainingAmt = income - spent;
+    return Math.max(0, remainingAmt / remainingDays);
+  },
+  getPeriodBillSpending() {
+    const records = this.getPeriodRecords();
+    const billCatIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
+    return records.filter(r => billCatIds.has(r.categoryId)).reduce((s, r) => s + r.amount, 0);
+  },
+  getPeriodVariableSpending() {
+    return this.getPeriodTotal() - this.getPeriodBillSpending();
+  },
+  getPeriodDailyTotals(options = {}) {
+    const daily = {};
+    const records = options.excludeBills
+      ? this.getPeriodRecords().filter(r => !this.isBillCategory(r.categoryId))
+      : this.getPeriodRecords();
+    records.forEach(r => {
+      const d = new Date(r.date || r.createdAt);
+      const dayKey = d.toISOString().substr(0, 10);
+      daily[dayKey] = (daily[dayKey] || 0) + r.amount;
+    });
+    return Object.entries(daily).sort((a,b) => a[0].localeCompare(b[0])).map(([day, total]) => ({ day, total }));
   }
 };
 
@@ -3210,13 +3506,17 @@ const SimulationEngine = {
    * @param {object} params - user's what-if assumptions
    * @returns {object} projection result with comparison to current trend
    */
-  run(month, params) {
+  run(month, params, opts) {
     if (!params) return null;
     const now = new Date();
+    const periodOpts = (opts && opts.period) || null;
+    const isRolling = periodOpts && periodOpts.key === 'rolling30';
     const isCurrentMonth = month === getMonthKey(now.toISOString());
     const today = now.getDate();
-    const daysInMonth = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
-    const daysPassed = isCurrentMonth ? today : daysInMonth;
+    const daysInMonth = isRolling
+      ? periodOpts.daysInPeriod
+      : new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
+    const daysPassed = isRolling ? periodOpts.daysPassed : (isCurrentMonth ? today : daysInMonth);
     const remainingDays = Math.max(0, daysInMonth - daysPassed);
 
     // Override params with actuals if not specified
@@ -3232,8 +3532,14 @@ const SimulationEngine = {
     const spendable = Math.max(0, netDisposable - targetAmount);
 
     // Get actual spending to date (variable categories only)
-    const allRecords = DataStore.getRecords()
-      .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
+    const allRecords = isRolling
+      ? DataStore.getRecords()
+          .filter(r => {
+            const d = new Date(r.date || r.createdAt);
+            return d >= periodOpts.start && d <= periodOpts.end && !StatsEngine.isBillCategory(r.categoryId);
+          })
+      : DataStore.getRecords()
+          .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
     const actualSpent = allRecords.reduce((s, r) => s + r.amount, 0);
     const categoryTotals = {};
     const categoryDays = {};
@@ -3387,10 +3693,10 @@ const SimulationEngine = {
     const savingsAttained = projectedSavings >= targetAmount;
 
     // Current trend (for comparison) — use StatsEngine to match Overview exactly
-    const trendTotal = StatsEngine.getPredictedTotal(month);
-    const trendDailyAvg = StatsEngine.getDailyAverage(month);
-    const unpaidBills = Math.max(0, DataStore.getBillTotal(month) - StatsEngine.getBillSpendingActual(month));
-    const trendSavings = StatsEngine.getSavingsPrediction(month) - unpaidBills;
+    const trendTotal = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month);
+    const trendDailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month);
+    const unpaidBills = Math.max(0, DataStore.getBillTotal(month) - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month)));
+    const trendSavings = isRolling ? (income - trendTotal - unpaidBills) : (StatsEngine.getSavingsPrediction(month) - unpaidBills);
 
     console.log('[SimEngine] result:', {
       month,
@@ -3849,6 +4155,300 @@ function refreshCurrentPage() {
   else if (tab === 'settings') { if (typeof renderSettings === 'function') renderSettings(); }
 }
 
+// ===== PIN PROTECTION UI =====
+function showPinModal() {
+  showModal(`
+    <div class="modal-title">🔐 应用已锁定</div>
+    <div style="padding:12px 0">
+      <p class="text-sm text-muted" style="margin-bottom:12px">请输入PIN码解锁应用</p>
+      <input type="password" id="pinInput" class="input-field" placeholder="输入PIN码" 
+        style="font-size:1.2rem;text-align:center;letter-spacing:4px" 
+        autocomplete="off" inputmode="numeric"
+        onkeydown="if(event.key==='Enter') submitPin()">
+      <div id="pinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px;text-align:center">PIN码错误，请重试</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary btn-block" onclick="submitPin()">🔓 解锁</button>
+    </div>
+  `);
+  // Focus the input after modal is shown
+  setTimeout(() => {
+    const inp = document.getElementById('pinInput');
+    if (inp) inp.focus();
+  }, 100);
+}
+
+async function submitPin() {
+  const pin = document.getElementById('pinInput').value;
+  if (!pin) return;
+  const btn = document.querySelector('#modalContent .btn-primary');
+  if (btn) btn.disabled = true;
+  const valid = await DataStore.verifyPin(pin);
+  if (valid) {
+    const unlocked = await DataStore.unlockData(pin);
+    if (unlocked) {
+      closeModal();
+      window._pinRequired = false;
+      // Re-init the app
+      initApp();
+    } else {
+      document.getElementById('pinError').style.display = 'block';
+      if (btn) btn.disabled = false;
+    }
+  } else {
+    document.getElementById('pinError').style.display = 'block';
+    if (btn) btn.disabled = false;
+  }
+}
+
+function showSetPinModal() {
+  showModal(`
+    <div class="modal-title">🔐 设置PIN锁</div>
+    <div style="padding:12px 0">
+      <div class="input-group" style="margin-bottom:12px">
+        <label class="input-label">设置PIN码 (6位数字)</label>
+        <input type="password" id="newPinInput" class="input-field" placeholder="输入6位数字" 
+          maxlength="6" inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="input-group">
+        <label class="input-label">确认PIN码</label>
+        <input type="password" id="confirmPinInput" class="input-field" placeholder="再次输入" 
+          maxlength="6" inputmode="numeric" autocomplete="off">
+      </div>
+      <div id="setPinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveNewPin()">✅ 确认</button>
+    </div>
+  `);
+}
+
+async function saveNewPin() {
+  const pin = document.getElementById('newPinInput').value;
+  const confirm = document.getElementById('confirmPinInput').value;
+  const errEl = document.getElementById('setPinError');
+  if (!pin || pin.length < 4) {
+    errEl.textContent = 'PIN码至少4位';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (pin !== confirm) {
+    errEl.textContent = '两次输入不一致';
+    errEl.style.display = 'block';
+    return;
+  }
+  await DataStore.setPin(pin);
+  closeModal();
+  showToast('✅ PIN码设置成功，数据已加密');
+  if (typeof renderSettings === 'function') renderSettings();
+}
+
+function showChangePinModal() {
+  showModal(`
+    <div class="modal-title">🔐 修改PIN码</div>
+    <div style="padding:12px 0">
+      <div class="input-group" style="margin-bottom:8px">
+        <label class="input-label">当前PIN码</label>
+        <input type="password" id="oldPinInput" class="input-field" placeholder="输入当前PIN" 
+          inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="input-group" style="margin-bottom:8px">
+        <label class="input-label">新PIN码 (6位数字)</label>
+        <input type="password" id="newPinInput2" class="input-field" placeholder="输入新PIN" 
+          inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="input-group">
+        <label class="input-label">确认新PIN码</label>
+        <input type="password" id="confirmPinInput2" class="input-field" placeholder="再次输入" 
+          inputmode="numeric" autocomplete="off">
+      </div>
+      <div id="changePinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveChangedPin()">✅ 确认</button>
+    </div>
+  `);
+}
+
+async function saveChangedPin() {
+  const old = document.getElementById('oldPinInput').value;
+  const pin = document.getElementById('newPinInput2').value;
+  const confirm = document.getElementById('confirmPinInput2').value;
+  const errEl = document.getElementById('changePinError');
+  if (!old) { errEl.textContent = '请输入当前PIN码'; errEl.style.display = 'block'; return; }
+  if (!pin || pin.length < 4) { errEl.textContent = '新PIN码至少4位'; errEl.style.display = 'block'; return; }
+  if (pin !== confirm) { errEl.textContent = '两次输入不一致'; errEl.style.display = 'block'; return; }
+  const ok = await DataStore.changePin(old, pin);
+  if (!ok) { errEl.textContent = '当前PIN码错误'; errEl.style.display = 'block'; return; }
+  closeModal();
+  showToast('✅ PIN码已修改');
+  if (typeof renderSettings === 'function') renderSettings();
+}
+
+function showClearPinModal() {
+  showModal(`
+    <div class="modal-title">🔓 关闭PIN锁</div>
+    <div style="padding:12px 0">
+      <p class="text-sm text-muted" style="margin-bottom:12px">关闭后数据将恢复为明文存储</p>
+      <div class="input-group">
+        <label class="input-label">输入当前PIN码确认</label>
+        <input type="password" id="clearPinInput" class="input-field" placeholder="输入PIN码" 
+          inputmode="numeric" autocomplete="off">
+      </div>
+      <div id="clearPinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-danger" onclick="confirmClearPin()">🔓 关闭</button>
+    </div>
+  `);
+}
+
+async function confirmClearPin() {
+  const pin = document.getElementById('clearPinInput').value;
+  const errEl = document.getElementById('clearPinError');
+  if (!pin) { errEl.textContent = '请输入PIN码'; errEl.style.display = 'block'; return; }
+  const ok = await DataStore.clearPin(pin);
+  if (!ok) { errEl.textContent = 'PIN码错误'; errEl.style.display = 'block'; return; }
+  closeModal();
+  showToast('✅ PIN锁已关闭，数据已解密');
+  if (typeof renderSettings === 'function') renderSettings();
+}
+
+// ===== TAG PICKER =====
+function openTagPicker(selectedTags, callback) {
+  const allTags = DataStore.getAllTags();
+  const selected = new Set(selectedTags || []);
+  
+  let html = `
+    <div class="modal-title">🏷️ 选择标签</div>
+    <div style="padding:8px 0">
+      <input type="text" id="tagSearchInput" class="input-field" placeholder="搜索或创建标签..." 
+        style="margin-bottom:8px" oninput="filterTagList()" autocomplete="off">
+      <div id="tagListContainer" style="max-height:40vh;overflow-y:auto">`;
+  
+  if (allTags.length === 0) {
+    html += `<div class="text-sm text-muted" style="padding:12px;text-align:center">暂无标签，在上方输入新标签名称创建</div>`;
+  } else {
+    allTags.forEach(tag => {
+      const stats = DataStore.getTagStats(tag);
+      html += `
+        <div class="flex items-center gap-8" style="padding:6px 4px;cursor:pointer;border-radius:6px;hover:background:var(--bg)"
+          onclick="toggleTagPick('${escHtml(tag)}')" id="tag-item-${escHtml(tag)}" data-tag="${escHtml(tag)}">
+          <span id="tag-check-${escHtml(tag)}" style="width:20px;text-align:center">
+            ${selected.has(tag) ? '✅' : '⬜'}
+          </span>
+          <span style="flex:1">${escHtml(tag)}</span>
+          <span class="text-xs text-muted">${stats.count}次 · ${formatMoney(stats.total)}</span>
+        </div>`;
+    });
+  }
+  
+  html += `</div>
+      <div id="createTagSection" style="display:none;margin-top:8px">
+        <div class="flex items-center gap-8">
+          <span>创建标签: "</span><span id="newTagNameDisplay" style="font-weight:700"></span><span>"</span>
+          <button class="btn btn-primary btn-sm" onclick="createAndSelectTag()">创建</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="confirmTagPick()">✅ 完成 (已选 ${selected.size})</button>
+    </div>`;
+  
+  // Store callback
+  window._tagPickerCallback = callback;
+  window._tagPickerSelected = selected;
+  
+  showModal(html);
+  
+  // Bind search
+  setTimeout(() => {
+    const searchInput = document.getElementById('tagSearchInput');
+    if (searchInput) searchInput.focus();
+  }, 100);
+}
+
+function filterTagList() {
+  const query = (document.getElementById('tagSearchInput').value || '').toLowerCase().trim();
+  const container = document.getElementById('tagListContainer');
+  if (!container) return;
+  
+  const items = container.querySelectorAll('[data-tag]');
+  let hasVisible = false;
+  items.forEach(item => {
+    const tag = item.getAttribute('data-tag').toLowerCase();
+    if (tag.includes(query)) {
+      item.style.display = 'flex';
+      hasVisible = true;
+    } else {
+      item.style.display = 'none';
+    }
+  });
+  
+  // Show create section if no match and query not empty
+  const createSection = document.getElementById('createTagSection');
+  const nameDisplay = document.getElementById('newTagNameDisplay');
+  if (query && !hasVisible) {
+    // Check if it's actually a new tag
+    const allTags = DataStore.getAllTags();
+    if (!allTags.includes(query)) {
+      createSection.style.display = 'block';
+      if (nameDisplay) nameDisplay.textContent = query;
+      window._pendingNewTag = query;
+    } else {
+      createSection.style.display = 'none';
+    }
+  } else {
+    createSection.style.display = 'none';
+    window._pendingNewTag = null;
+  }
+}
+
+function toggleTagPick(tag) {
+  const selected = window._tagPickerSelected;
+  if (!selected) return;
+  if (selected.has(tag)) {
+    selected.delete(tag);
+    const check = document.getElementById('tag-check-' + tag);
+    if (check) check.textContent = '⬜';
+  } else {
+    selected.add(tag);
+    const check = document.getElementById('tag-check-' + tag);
+    if (check) check.textContent = '✅';
+  }
+  // Update button text
+  const btn = document.querySelector('#modalContent .btn-primary');
+  if (btn) btn.textContent = `✅ 完成 (已选 ${selected.size})`;
+}
+
+function createAndSelectTag() {
+  const tag = window._pendingNewTag;
+  if (!tag) return;
+  DataStore.addTagUsage(tag);
+  window._tagPickerSelected.add(tag);
+  // Refresh picker
+  const cb = window._tagPickerCallback;
+  const sel = window._tagPickerSelected;
+  closeModal();
+  openTagPicker([...sel], cb);
+}
+
+function confirmTagPick() {
+  const selected = window._tagPickerSelected;
+  const callback = window._tagPickerCallback;
+  closeModal();
+  if (callback && selected) {
+    callback([...selected]);
+  }
+  window._tagPickerSelected = null;
+  window._tagPickerCallback = null;
+  window._pendingNewTag = null;
+}
+
   // === EXPORTS ===
   window.applyTheme = applyTheme;
   window.toggleTheme = toggleTheme;
@@ -3870,6 +4470,21 @@ function refreshCurrentPage() {
   window.getRootAncestorId = getRootAncestorId;
   window.getRootAncestor = getRootAncestor;
   window.refreshCurrentPage = refreshCurrentPage;
+  // PIN Protection UI exports
+  window.showPinModal = showPinModal;
+  window.submitPin = submitPin;
+  window.showSetPinModal = showSetPinModal;
+  window.saveNewPin = saveNewPin;
+  window.showChangePinModal = showChangePinModal;
+  window.saveChangedPin = saveChangedPin;
+  window.showClearPinModal = showClearPinModal;
+  window.confirmClearPin = confirmClearPin;
+  // Tag picker exports
+  window.openTagPicker = openTagPicker;
+  window.filterTagList = filterTagList;
+  window.toggleTagPick = toggleTagPick;
+  window.createAndSelectTag = createAndSelectTag;
+  window.confirmTagPick = confirmTagPick;
 })();
 (function() {
 'use strict';
@@ -3963,16 +4578,25 @@ function renderOverview() {
   const el = document.getElementById('page-overview');
   const now = new Date();
   const month = getMonthKey(now.toISOString());
+  const statsRange = getStatsRange();
+  const isRolling = statsRange === 'rolling30';
+  const periodRange = getPeriodDateRange();
   const includeBills = isBillToggleChecked('overviewBudget');
-  const monthTotal = includeBills ? StatsEngine.getMonthTotal(month) : StatsEngine.getVariableSpending(month);
+  const monthTotal = includeBills
+    ? (isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month))
+    : (isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month));
   const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
   const savingsTarget = DataStore.getSavingsTarget();
-  const dailyAvg = includeBills ? StatsEngine.getDailyAverage(month) : StatsEngine.getDailyAverageVariable(month);
-  const predicted = includeBills ? StatsEngine.getPredictedTotal(month) : (StatsEngine.getDailyAverageVariable(month) * new Date(now.getFullYear(), now.getMonth()+1, 0).getDate());
-  const remainingLimit = StatsEngine.getRemainingDailyLimit(month);
+  const dailyAvg = includeBills
+    ? (isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month))
+    : (isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(month));
+  const predicted = includeBills
+    ? (isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month))
+    : (isRolling ? StatsEngine.getPeriodPredictedTotal() : (StatsEngine.getDailyAverageVariable(month) * new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()));
+  const remainingLimit = isRolling ? StatsEngine.getPeriodRemainingDailyLimit() : StatsEngine.getRemainingDailyLimit(month);
   const last7 = StatsEngine.getLast7Days();
   const overspent = StatsEngine.getOverspentCategories(month);
-  const catTotals = StatsEngine.getCategoryTotals(month);
+  const catTotals = isRolling ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month);
 
   // Today's and yesterday's spending
   const todayKey = now.toISOString().substr(0, 10);
@@ -4056,10 +4680,13 @@ function renderOverview() {
     ` : ''}
     <div class="grid-4 mb-16">
       <div class="card">
-        <div class="card-title">本月总支出</div>
+        <div class="card-title" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span>${isRolling ? '近30天支出' : '本月总支出'}</span>
+          <span class="text-xs text-muted" style="font-weight:400">${periodRange.label}</span>
+        </div>
         <div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(monthTotal)}</div>
         ${(() => {
-          const billActual = StatsEngine.getBillSpendingActual(month);
+          const billActual = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
           const varSpending = monthTotal - billActual;
           if (billActual > 0) {
             return `<div class="text-xs text-muted mt-4">日常 ${formatMoney(varSpending)} · 账单 ${formatMoney(billActual)}</div>`;
@@ -4072,11 +4699,11 @@ function renderOverview() {
         <div class="text-xl font-bold" style="${totalBills > 0 ? 'font-size:1rem' : ''}">${budget ? formatMoney(budget) : '未设置'}${totalBills > 0 ? `<span class="text-xs text-muted" style="display:block;font-weight:400">净收入 ${formatMoney(netDisposable)}</span>` : ''}</div>
       </div>
       <div class="card">
-        <div class="card-title">日均支出</div>
+        <div class="card-title">${isRolling ? '日均支出' : '日均支出'}</div>
         <div class="text-xl font-bold">${formatMoney(dailyAvg)}</div>
       </div>
       <div class="card">
-        <div class="card-title">预测月总支出</div>
+        <div class="card-title">${isRolling ? '预测30天总支出' : '预测月总支出'}</div>
         <div class="text-xl font-bold">${formatMoney(predicted)}</div>
       </div>
     </div>
@@ -4878,6 +5505,15 @@ function renderAddPage() {
           <input type="text" id="addNote" class="input-field" placeholder="例如：Nasi Lemak" maxlength="200">
         </div>
 
+        <!-- Tags -->
+        <div class="input-group" style="margin-bottom:8px">
+          <label class="input-label">🏷️ 标签 <span class="text-xs text-muted">(可多选，场景标记)</span></label>
+          <div id="addTagsDisplay" style="display:flex;flex-wrap:wrap;gap:4px;min-height:32px;padding:4px 0">
+            <!-- Selected tags will appear here -->
+          </div>
+          <button type="button" class="btn btn-sm btn-outline" onclick="openTagPickerForAdd()">＋ 添加标签</button>
+        </div>
+
         <div class="input-group">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
             <input type="checkbox" id="addExcludeAvg" style="width:18px;height:18px;cursor:pointer">
@@ -4934,16 +5570,20 @@ function submitRecord(e) {
     return;
   }
 
+  const tags = window._addRecordTags || [];
   const record = {
     amount,
     categoryId,
     date: date || new Date().toISOString().slice(0, 16),
     note,
+    tags,
     excludeFromAvg: document.getElementById('addExcludeAvg').checked,
     createdAt: new Date().toISOString()
   };
 
   DataStore.addRecord(record);
+  // Track tag usage
+  tags.forEach(t => DataStore.addTagUsage(t));
   showToast('✅ 记录已保存');
 
   // Reset form
@@ -4952,15 +5592,51 @@ function submitRecord(e) {
   document.getElementById('addCategoryDisplay').textContent = '请选择分类';
   document.getElementById('addCategoryDisplay').style.color = 'var(--text-muted)';
   document.getElementById('addNote').value = '';
+  window._addRecordTags = [];
+  renderAddTagsDisplay();
   const now = new Date();
   const offset = now.getTimezoneOffset();
   const local = new Date(now.getTime() - offset * 60000);
   document.getElementById('addDateTime').value = local.toISOString().slice(0, 16);
 }
 
+// Tag picker for add page
+function openTagPickerForAdd() {
+  const current = window._addRecordTags || [];
+  openTagPicker(current, function(selected) {
+    window._addRecordTags = selected;
+    renderAddTagsDisplay();
+  });
+}
+
+function renderAddTagsDisplay() {
+  const container = document.getElementById('addTagsDisplay');
+  if (!container) return;
+  const tags = window._addRecordTags || [];
+  if (tags.length === 0) {
+    container.innerHTML = '<span class="text-xs text-muted">还未添加标签</span>';
+  } else {
+    container.innerHTML = tags.map(t => 
+      `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">
+        ${escHtml(t)}
+        <span style="cursor:pointer;opacity:0.7" onclick="removeAddTag('${escHtml(t)}')">✕</span>
+      </span>`
+    ).join('');
+  }
+}
+
+function removeAddTag(tag) {
+  const tags = window._addRecordTags || [];
+  window._addRecordTags = tags.filter(t => t !== tag);
+  renderAddTagsDisplay();
+}
+
   // === EXPORTS ===
   window.renderAddPage = renderAddPage;
   window.submitRecord = submitRecord;
+  window.openTagPickerForAdd = openTagPickerForAdd;
+  window.renderAddTagsDisplay = renderAddTagsDisplay;
+  window.removeAddTag = removeAddTag;
 })();
 
 /* ============================================================
@@ -4968,7 +5644,7 @@ function submitRecord(e) {
    ============================================================ */
 (function() {
 'use strict';
-let recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false };
+let recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, tags: [] };
 let recordsPage = 0;
 let compactRecordsView = JSON.parse(localStorage.getItem('budgetCompactView') || 'false');
 let recordsPerPage = window.recordsPerPage = parseInt(localStorage.getItem('budgetRecordsPerPage') || '20');
@@ -4981,6 +5657,17 @@ function renderRecords() {
   const el = document.getElementById('page-records');
   const cats = DataStore.getCategories();
 
+  // Set default date range for rolling30 mode
+  if (getStatsRange() === 'rolling30') {
+    const { start, end } = getPeriodDateRange();
+    if (!recordsFilter.dateStart) {
+      recordsFilter.dateStart = start.toISOString().substr(0, 10);
+    }
+    if (!recordsFilter.dateEnd) {
+      recordsFilter.dateEnd = end.toISOString().substr(0, 10);
+    }
+  }
+
   const filterCat = recordsFilter.categoryId ? DataStore.getCategory(recordsFilter.categoryId) : null;
 
   el.innerHTML = `
@@ -4988,6 +5675,15 @@ function renderRecords() {
       <div class="card-title mb-8">搜索筛选</div>
       <div class="input-group" style="margin-bottom:8px">
         <input type="text" id="filterKeyword" class="input-field" placeholder="🔍 搜索备注..." value="${escHtml(recordsFilter.keyword)}" oninput="applyRecordsFilter()">
+      </div>
+      <div class="input-group" style="margin-bottom:8px">
+        <label class="text-sm text-secondary">标签</label>
+        <div style="display:flex;flex-wrap:wrap;gap:4px" id="recordsTagFilterDisplay">
+          ${recordsFilter.tags && recordsFilter.tags.length > 0
+            ? recordsFilter.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 6px;background:var(--primary);color:white;border-radius:10px;font-size:0.7rem">${escHtml(t)}<span style="cursor:pointer" onclick="removeRecordsTagFilter('${escHtml(t)}')">✕</span></span>`).join('')
+            : '<span class="text-xs text-muted">全部</span>'}
+        </div>
+        <button type="button" class="btn btn-sm btn-outline" style="font-size:0.72rem" onclick="openTagPickerForRecords()">🏷️ 筛选标签</button>
       </div>
       <div class="input-group" style="margin-bottom:8px">
         <label class="text-sm text-secondary">分类</label>
@@ -5135,6 +5831,10 @@ function getFilteredRecords() {
       });
     }
   }
+  // Tag filter
+  if (f.tags && f.tags.length > 0) {
+    filtered = filtered.filter(r => r.tags && f.tags.some(t => r.tags.includes(t)));
+  }
   // Apply sorting
   if (recordsSort && recordsSort.length > 0) {
     records.sort((a, b) => {
@@ -5274,6 +5974,7 @@ function renderRecordsList() {
             <span class="compact-date">${dateStr.slice(0, 10)}</span>
             <span class="compact-cat">${cat ? escHtml(cat.icon) + escHtml(cat.name) : '❓未知'}</span>
             <span class="compact-note">${r.note ? '📝 ' + escHtml(r.note) : ''}</span>
+            ${r.tags && r.tags.length > 0 ? `<span style="display:inline-flex;flex-wrap:wrap;gap:2px;margin-left:4px">${r.tags.map(t => `<span style="padding:0 4px;background:var(--bg);border-radius:4px;font-size:0.6rem;color:var(--text-muted)">${escHtml(t)}</span>`).join('')}</span>` : ''}
             ${r.excludeFromAvg ? '<span class="text-xs text-muted" style="font-size:0.6rem;margin-left:2px" title="不计日均">📌</span>' : ''}
             <span class="compact-amount" style="color:var(--primary)">${formatMoney(r.amount)}</span>
             ${!batchMode ? `<button class="btn btn-ghost btn-sm record-del-btn" style="padding:0 4px;font-size:0.7rem;opacity:0.5;flex-shrink:0;background:none;border:none;cursor:pointer"
@@ -5295,6 +5996,7 @@ function renderRecordsList() {
               <div class="font-semibold">${cat ? escHtml(cat.name) : '未知分类'}</div>
               <div class="text-sm text-muted">${dateStr.slice(0, 16)}</div>
               ${r.note ? '<div class="text-sm text-secondary">' + escHtml(r.note) + '</div>' : ''}
+              ${r.tags && r.tags.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:2px">${r.tags.map(t => `<span style="padding:0 4px;background:var(--bg);border-radius:4px;font-size:0.65rem;color:var(--text-muted)">${escHtml(t)}</span>`).join('')}</div>` : ''}
               ${r.excludeFromAvg ? '<span class="text-xs text-muted" style="font-size:0.6rem;margin-left:4px" title="不计日均">📌</span>' : ''}
             </div>
           </div>
@@ -5807,6 +6509,24 @@ function applySort() {
   window.toggleSortDir = toggleSortDir;
   window.clearSort = clearSort;
   window.applySort = applySort;
+  // Tag filter helpers
+  window.openTagPickerForRecords = openTagPickerForRecords;
+  window.removeRecordsTagFilter = removeRecordsTagFilter;
+
+function openTagPickerForRecords() {
+  const current = recordsFilter.tags || [];
+  openTagPicker(current, function(selected) {
+    recordsFilter.tags = selected;
+    window.recordsPage = 0;
+    renderRecordsList();
+  });
+}
+
+function removeRecordsTagFilter(tag) {
+  recordsFilter.tags = (recordsFilter.tags || []).filter(t => t !== tag);
+  window.recordsPage = 0;
+  renderRecordsList();
+}
 })();
 
 /* ============================================================
@@ -6511,6 +7231,7 @@ let statsStartDate = '';
 let statsEndDate = '';
 let statsDrillStack = []; // stack of parent IDs for drill-down breadcrumb
 let showMonthCompare = false;
+let statsTagFilter = [];
 
 function getDrillCategory() {
   return statsDrillStack.length > 0 ? statsDrillStack[statsDrillStack.length - 1] : null;
@@ -7156,20 +7877,21 @@ function renderStats() {
   const now = new Date();
   statsMonth = statsMonth || getMonthKey(now.toISOString());
   window.statsMonth = statsMonth;
-  const monthTotal = StatsEngine.getMonthTotal(statsMonth);
-  const dailyAvg = StatsEngine.getDailyAverage(statsMonth);
-  const predicted = StatsEngine.getPredictedTotal(statsMonth);
+  const isRolling = getStatsRange() === 'rolling30' && statsMonth === getMonthKey(now.toISOString()) && !useCustomRange();
+  const monthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(statsMonth);
+  const dailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(statsMonth);
+  const predicted = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(statsMonth);
   const budget = DataStore.getMonthlyIncome(statsMonth) || DataStore.getBudget(statsMonth);
-  const remainingLimit = StatsEngine.getRemainingDailyLimit(statsMonth);
+  const remainingLimit = isRolling ? StatsEngine.getPeriodRemainingDailyLimit() : StatsEngine.getRemainingDailyLimit(statsMonth);
 
   // Spendable budget for stats page
   const savingsTargetStats = DataStore.getSavingsTarget();
   const percentBaseStats = DataStore.getPercentBase();
   const totalBillsStats = DataStore.getBillTotal(statsMonth);
-  const paidBillsStats = StatsEngine.getBillSpendingActual(statsMonth);
+  const paidBillsStats = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth);
   const unpaidPlannedBillsStats = Math.max(0, totalBillsStats - paidBillsStats);
   const effectiveTotalStats = monthTotal + unpaidPlannedBillsStats;
-  const savingsPred = StatsEngine.getSavingsPrediction(statsMonth) - unpaidPlannedBillsStats;
+  const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(statsMonth) - unpaidPlannedBillsStats);
   const netDisposableStats = Math.max(0, budget - totalBillsStats);
   const baseAmountStats = percentBaseStats === 'net' ? netDisposableStats : budget;
   const targetAmountStats = (() => {
@@ -7183,8 +7905,8 @@ function renderStats() {
     const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
     const remainingDays = daysInMonth - now.getDate();
     if (remainingDays <= 0) return 0;
-    const varSpending = StatsEngine.getVariableSpending(statsMonth);
-    const remainingAmt = spendableBudgetStats - varSpending;
+    const varSpendingStats = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(statsMonth);
+    const remainingAmt = spendableBudgetStats - varSpendingStats;
     return Math.max(0, remainingAmt / remainingDays);
   })();
 
@@ -7193,15 +7915,19 @@ function renderStats() {
   const actualSavings = Math.max(0, budget - monthTotal);
 
   // Compute extra stats
-  const records = isCustom
+  let records = isCustom
     ? DataStore.getRecords().filter(r => { const d = new Date(r.date || r.createdAt); return d >= new Date(statsStartDate) && d <= new Date(statsEndDate); })
-    : StatsEngine.getRecordsInMonth(statsMonth);
+    : (isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(statsMonth));
+  // Apply tag filter if any tags selected
+  if (statsTagFilter && statsTagFilter.length > 0) {
+    records = records.filter(r => r.tags && statsTagFilter.some(t => r.tags.includes(t)));
+  }
   const totalCount = records.length;
   const avgAmount = totalCount > 0 ? (isCustom ? rangeTotal.total : monthTotal) / totalCount : 0;
   const maxRecord = records.reduce((max, r) => (r.amount > (max?.amount || 0) ? r : max), null);
   const maxAmount = maxRecord ? maxRecord.amount : 0;
   const maxCat = maxRecord ? DataStore.getCategory(maxRecord.categoryId) : null;
-  const dailyTotals = isCustom ? (rangeTotal ? rangeTotal.daily : []) : StatsEngine.getDailyTotals(statsMonth);
+  const dailyTotals = isCustom ? (rangeTotal ? rangeTotal.daily : []) : (isRolling ? StatsEngine.getPeriodDailyTotals({ excludeBills: false }) : StatsEngine.getDailyTotals(statsMonth));
   const maxDay = dailyTotals.reduce((max, d) => (d.total > (max?.total || 0) ? d : max), null);
   const daysWithTxns = dailyTotals.filter(d => d.total > 0).length;
 
@@ -7226,11 +7952,26 @@ function renderStats() {
         </div>
       </div>
 
+    <!-- Tag filter -->
+    <div class="card mb-16">
+      <div class="flex items-center gap-8" style="flex-wrap:wrap">
+        <div class="input-group" style="margin-bottom:0">
+          <label class="text-sm text-secondary">🏷️ 标签筛选</label>
+          <div id="statsTagFilterDisplay" style="display:flex;flex-wrap:wrap;gap:4px">
+            ${statsTagFilter && statsTagFilter.length > 0
+              ? statsTagFilter.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 6px;background:var(--primary);color:white;border-radius:10px;font-size:0.7rem">${escHtml(t)}<span style="cursor:pointer" onclick="removeStatsTagFilter('${escHtml(t)}')">✕</span></span>`).join('')
+              : '<span class="text-xs text-muted">全部</span>'}
+          </div>
+          <button class="btn btn-sm btn-outline" style="font-size:0.72rem;margin-top:4px" onclick="openTagPickerForStats()">🏷️ 选择标签</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Stats cards row 1: Core summary -->
     <div class="grid-4 mb-16">
-      <div class="card"><div class="card-title">${isCustom ? '范围总支出' : '本月总支出'}</div><div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>${!isCustom && StatsEngine.getBillSpendingActual(statsMonth) > 0 ? `<div class="text-xs text-muted mt-4">日常 ${formatMoney(monthTotal - StatsEngine.getBillSpendingActual(statsMonth))} · 账单 ${formatMoney(StatsEngine.getBillSpendingActual(statsMonth))}</div>` : ''}</div>
-      <div class="card"><div class="card-title">${isCustom ? '记录数' : '日均支出'}</div><div class="text-xl font-bold">${isCustom ? rangeTotal.count : formatMoney(dailyAvg)}</div>${!isCustom && StatsEngine.getBillSpendingActual(statsMonth) > 0 ? `<div class="text-xs text-muted mt-4">日常日均 ${formatMoney(StatsEngine.getDailyAverageVariable(statsMonth))}</div>` : ''}</div>
-      <div class="card"><div class="card-title">预测月总支出</div><div class="text-xl font-bold">${formatMoney(predicted)}</div></div>
+      <div class="card"><div class="card-title">${isCustom ? '范围总支出' : (isRolling ? '近30天支出' : '本月总支出')}</div><div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">日常 ${formatMoney(monthTotal - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)))} · 账单 ${formatMoney(isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth))}</div>` : ''}</div>
+      <div class="card"><div class="card-title">${isCustom ? '记录数' : '日均支出'}</div><div class="text-xl font-bold">${isCustom ? rangeTotal.count : formatMoney(dailyAvg)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">日常日均 ${formatMoney(isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(statsMonth))}</div>` : ''}</div>
+      <div class="card"><div class="card-title">${isRolling ? '预测30天总支出' : '预测月总支出'}</div><div class="text-xl font-bold">${formatMoney(predicted)}</div></div>
       <div class="card"><div class="card-title">储蓄预测</div><div class="text-xl font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div></div>
     </div>
 
@@ -7451,7 +8192,8 @@ function getStatsCatTotals() {
     const range = StatsEngine.getCustomRangeTotals(statsStartDate, statsEndDate);
     return range.categoryTotals || {};
   }
-  return StatsEngine.getCategoryTotals(statsMonth);
+  const isRollingStats = getStatsRange() === 'rolling30' && statsMonth === getMonthKey(new Date().toISOString());
+  return isRollingStats ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(statsMonth);
 }
 
 function getStatsDailyTotals() {
@@ -7459,7 +8201,8 @@ function getStatsDailyTotals() {
     const range = StatsEngine.getCustomRangeTotals(statsStartDate, statsEndDate);
     return range.daily.map(d => ({ day: d.day.slice(8,10), total: d.total }));
   }
-  return StatsEngine.getDailyTotals(statsMonth);
+  const isRollingStats = getStatsRange() === 'rolling30' && statsMonth === getMonthKey(new Date().toISOString());
+  return isRollingStats ? StatsEngine.getPeriodDailyTotals({ excludeBills: false }) : StatsEngine.getDailyTotals(statsMonth);
 }
 
 function getChartData(month, startDate, endDate, options = {}) {
@@ -7469,7 +8212,10 @@ function getChartData(month, startDate, endDate, options = {}) {
     const range = StatsEngine.getCustomRangeTotals(startDate, endDate);
     catTotals = range.categoryTotals || {};
   } else {
-    catTotals = month ? StatsEngine.getCategoryTotals(month) : getStatsCatTotals();
+    const isRollingChart = getStatsRange() === 'rolling30' && month === getMonthKey(new Date().toISOString());
+    catTotals = month
+      ? (isRollingChart ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month))
+      : getStatsCatTotals();
   }
 
   // Filter out bill categories if excludeBills
@@ -7505,7 +8251,10 @@ function getRawChartData(month, startDate, endDate, options = {}) {
     const range = StatsEngine.getCustomRangeTotals(startDate, endDate);
     catTotals = range.categoryTotals || {};
   } else {
-    catTotals = month ? StatsEngine.getCategoryTotals(month) : getStatsCatTotals();
+    const isRollingChart = getStatsRange() === 'rolling30' && month === getMonthKey(new Date().toISOString());
+    catTotals = month
+      ? (isRollingChart ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month))
+      : getStatsCatTotals();
   }
   if (excludeBills) {
     const billCatIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
@@ -7938,8 +8687,9 @@ function drawLineChart(canvasId, month, startDate, endDate) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const excludeBills = true;
+  const isRollingLine = getStatsRange() === 'rolling30' && month === getMonthKey(new Date().toISOString()) && !startDate && !endDate;
   const dailyData = month
-    ? StatsEngine.getDailyTotals(month, { excludeBills })
+    ? (isRollingLine ? StatsEngine.getPeriodDailyTotals({ excludeBills }) : StatsEngine.getDailyTotals(month, { excludeBills }))
     : (startDate && endDate ? getStatsDailyTotals() : getStatsDailyTotals());
   if (!dailyData.length || dailyData.every(d => d.total === 0)) {
     ctx.fillStyle = tc.textMuted;
@@ -8439,6 +9189,24 @@ function downloadChart(canvasId) {
   window.drawMonthlyChart = drawMonthlyChart;
   window.drawSavingsChart = drawSavingsChart;
   window.downloadChart = downloadChart;
+  window.statsTagFilter = statsTagFilter;
+  window.openTagPickerForStats = openTagPickerForStats;
+  window.removeStatsTagFilter = removeStatsTagFilter;
+
+function openTagPickerForStats() {
+  const current = statsTagFilter || [];
+  openTagPicker(current, function(selected) {
+    statsTagFilter.length = 0;
+    selected.forEach(t => statsTagFilter.push(t));
+    renderStats();
+  });
+}
+
+function removeStatsTagFilter(tag) {
+  const idx = statsTagFilter.indexOf(tag);
+  if (idx !== -1) statsTagFilter.splice(idx, 1);
+  renderStats();
+}
 })();
 /* ============================================================
    RENDER: Settings Page
@@ -8461,6 +9229,29 @@ function renderSettings() {
         <button class="btn ${document.documentElement.getAttribute('data-theme') === 'dark' ? 'btn-primary' : 'btn-outline'}" onclick="toggleTheme()" id="themeToggleBtn">
           ${document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️ 浅色模式' : '🌙 深色模式'}
         </button>
+      </div>
+    </div>
+
+    <!-- Stats Range -->
+    <div class="card mb-16">
+      <div class="card-title">📊 统计范围</div>
+      <div class="flex items-center justify-between" style="margin-bottom:8px">
+        <span class="text-sm">数据统计基于</span>
+      </div>
+      <div class="flex gap-8" style="margin-bottom:8px">
+        <button class="btn btn-sm ${getStatsRange() === 'month' ? 'btn-primary' : 'btn-outline'}" 
+          onclick="DataStore.setStatsRange('month');renderSettings();refreshCurrentPage()">
+          📅 本月
+        </button>
+        <button class="btn btn-sm ${getStatsRange() === 'rolling30' ? 'btn-primary' : 'btn-outline'}"
+          onclick="DataStore.setStatsRange('rolling30');renderSettings();refreshCurrentPage()">
+          📆 近30天
+        </button>
+      </div>
+      <div class="text-xs text-muted" id="statsRangeHint">
+        ${getStatsRange() === 'month' 
+          ? '当前：按自然月统计（1日至月末）'
+          : '当前：按近30天滚动窗口统计'}
       </div>
     </div>
 
@@ -8507,6 +9298,66 @@ function renderSettings() {
         </div>
       </div>
       <button class="btn btn-primary" onclick="saveSavingsTarget()">💾 保存目标</button>
+    </div>
+
+    <!-- PIN Protection -->
+    <div class="card mb-16">
+      <div class="card-title">🔐 安全设置</div>
+      <div id="pinStatusSection">
+        ${(() => {
+          const hasPin = !!localStorage.getItem('budgetAppPinHash');
+          if (hasPin) {
+            return `
+              <div class="flex flex-col gap-8">
+                <div class="flex items-center gap-8">
+                  <span style="width:10px;height:10px;border-radius:50%;background:var(--success);display:inline-block"></span>
+                  <span class="text-sm">PIN锁已启用，数据已加密</span>
+                </div>
+                <div class="flex gap-8">
+                  <button class="btn btn-outline btn-sm" onclick="showChangePinModal()">修改PIN码</button>
+                  <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="showClearPinModal()">关闭PIN锁</button>
+                </div>
+              </div>
+            `;
+          } else {
+            return `
+              <div class="flex flex-col gap-8">
+                <div class="flex items-center gap-8">
+                  <span style="width:10px;height:10px;border-radius:50%;background:var(--text-muted);display:inline-block"></span>
+                  <span class="text-sm">PIN锁未启用，数据明文存储</span>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="showSetPinModal()">🔐 设置PIN锁</button>
+              </div>
+            `;
+          }
+        })()}
+      </div>
+    </div>
+
+    <!-- Tag Management -->
+    <div class="card mb-16">
+      <div class="card-title">🏷️ 标签管理</div>
+      <div id="tagList">
+        ${(() => {
+          const tags = DataStore.getAllTags();
+          if (tags.length === 0) return '<div class="text-sm text-muted">暂无标签</div>';
+          return tags.map(tag => {
+            const stats = DataStore.getTagStats(tag);
+            return `
+              <div class="flex items-center justify-between" style="padding:6px 0;border-bottom:1px solid var(--border)">
+                <span>${escHtml(tag)}</span>
+                <div class="flex items-center gap-8">
+                  <span class="text-xs text-muted">${stats.count}笔 · ${formatMoney(stats.total)}</span>
+                  <button class="btn btn-ghost btn-sm" style="color:var(--danger);font-size:0.65rem" onclick="deleteTag('${escHtml(tag)}')">删除</button>
+                </div>
+              </div>
+            `;
+          }).join('');
+        })()}
+      </div>
+      <div class="text-xs text-muted mt-8">
+        <span>💡 标签在添加记录时创建，此处可查看和清理无用标签</span>
+      </div>
     </div>
 
     <!-- Data Management -->
@@ -8949,6 +9800,20 @@ function refreshStatsAudit() {
   }
 }
 
+function deleteTag(tag) {
+  if (!confirm(`确认删除标签"${tag}"？此操作不会删除记录，只会移除标签引用。`)) return;
+  // Remove from all records
+  DataStore._data.records.forEach(r => {
+    if (r.tags) {
+      r.tags = r.tags.filter(t => t !== tag);
+    }
+  });
+  DataStore.cleanUnusedTags();
+  DataStore.save();
+  renderSettings();
+  showToast('已删除标签: ' + tag);
+}
+
   // === EXPORTS ===
   window.renderSettings = renderSettings;
   window.renderDataInspector = renderDataInspector;
@@ -8967,6 +9832,7 @@ function refreshStatsAudit() {
   window.refreshSyncFingerprint = refreshSyncFingerprint;
   window.repairData = repairData;
   window.refreshStatsAudit = refreshStatsAudit;
+  window.deleteTag = deleteTag;
 })();
 /* ============================================================
    RENDER: Report Page
@@ -8978,19 +9844,28 @@ let reportMonth = '';
 function renderReport() {
   const el = document.getElementById('page-report');
   const now = new Date();
-  reportMonth = reportMonth || getMonthKey(now.toISOString());
+  const isRolling = getStatsRange() === 'rolling30';
+  if (!reportMonth) {
+    if (isRolling) {
+      const { start, end, label } = getPeriodDateRange();
+      reportMonth = label; // Use label as pseudo month identifier
+    } else {
+      reportMonth = getMonthKey(now.toISOString());
+    }
+  }
   const month = reportMonth;
+  const periodRange = isRolling ? getPeriodDateRange() : null;
 
-  const monthTotal = StatsEngine.getMonthTotal(month);
+  const monthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month);
   const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
   const savingsTarget = DataStore.getSavingsTarget();
-  const dailyTotals = StatsEngine.getDailyTotals(month);
-  const catTotals = StatsEngine.getCategoryTotals(month);
+  const dailyTotals = isRolling ? StatsEngine.getPeriodDailyTotals({ excludeBills: false }) : StatsEngine.getDailyTotals(month);
+  const catTotals = isRolling ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month);
 
   // Savings target amount
   const percentBase = DataStore.getPercentBase();
   const totalBills = DataStore.getBillTotal(month);
-  const paidBillsRep = StatsEngine.getBillSpendingActual(month);
+  const paidBillsRep = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
   const unpaidPlannedBillsRep = Math.max(0, totalBills - paidBillsRep);
   const netDisposable = Math.max(0, budget - totalBills);
   const baseAmount = percentBase === 'net' ? netDisposable : budget;
@@ -9001,11 +9876,11 @@ function renderReport() {
     return 0;
   })();
   const spendableBudget = Math.max(0, netDisposable - targetAmount);
-  const variableSpending = StatsEngine.getVariableSpending(month);
+  const variableSpending = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month);
   const actualSavings = Math.max(0, budget - (monthTotal + unpaidPlannedBillsRep));
   const savingsRate = budget > 0 ? (actualSavings / budget * 100) : 0;
-  const predicted = StatsEngine.getPredictedTotal(month);
-  const savingsPred = StatsEngine.getSavingsPrediction(month) - unpaidPlannedBillsRep;
+  const predicted = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month);
+  const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(month) - unpaidPlannedBillsRep);
 
   // Aggregate to root categories for table
   const rootTotals = {};
@@ -9035,8 +9910,8 @@ function renderReport() {
       <div class="card mb-16 report-header-buttons">
         <div class="flex items-center gap-12" style="flex-wrap:wrap">
           <div class="flex items-center gap-8">
-            <label class="text-sm text-secondary">选择月份</label>
-            <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${month}" onchange="changeReportMonth(this.value)">
+          <label class="text-sm text-secondary">${isRolling ? '统计周期' : '选择月份'}</label>
+          <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${isRolling ? month : month}" onchange="changeReportMonth(this.value)">
           </div>
           <button class="btn btn-outline" onclick="printReport()">🖨️ 打印报告</button>
         </div>
@@ -9135,7 +10010,7 @@ function renderReport() {
 
       <!-- Daily trend sparkline -->
       <div class="card mb-16">
-        <div class="card-title">每日消费趋势 (${year}年${mon}月)</div>
+        <div class="card-title">${isRolling ? '每日消费趋势 (' + periodRange.label + ')' : '每日消费趋势 (' + year + '年' + mon + '月)'}</div>
         <canvas id="reportSparkline" width="600" height="160" style="width:100%;height:80px"></canvas>
       </div>
 
@@ -9213,17 +10088,18 @@ let whatIfCompareExpandStates = {};  // { 'wi-cmp-{catId}': true/false } — com
 
 function renderWhatIf() {
   const section = document.getElementById('page-whatif');
+  const isRolling = getStatsRange() === 'rolling30';
   const month = getMonthKey(new Date().toISOString());
   const savedParams = DataStore.getWhatIfParams();
   console.log('[WhatIf] render, month:', month, 'savedParams:', savedParams);
 
   // Log Overview baseline for comparison
-  const overviewPredicted = StatsEngine.getPredictedTotal(month);
-  const overviewDailyAvg = StatsEngine.getDailyAverage(month);
-  const overviewMonthTotal = StatsEngine.getMonthTotal(month);
-  const overviewBillsActual = StatsEngine.getBillSpendingActual(month);
+  const overviewPredicted = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month);
+  const overviewDailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month);
+  const overviewMonthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month);
+  const overviewBillsActual = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
   const overviewBillsPlanned = DataStore.getBillTotal(month);
-  const overviewVariable = StatsEngine.getVariableSpending(month);
+  const overviewVariable = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month);
   console.log('[WhatIf] Overview baseline:', {
     predicted: overviewPredicted,
     dailyAvg: overviewDailyAvg,
@@ -9257,17 +10133,18 @@ function renderWhatIf() {
 
   let html = `<div class="whatif-container">
     <div class="section-title">🔮 假设分析</div>
-    <p class="text-sm text-muted" style="margin-bottom:16px">调整未来消费假设，预测月末结果。当前月份：${month}，剩余 ${Math.max(0, new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate() - new Date().getDate())} 天</p>
+    <p class="text-sm text-muted" style="margin-bottom:16px">调整未来消费假设，预测月末结果。当前${isRolling ? '周期' : '月份'}：${isRolling ? periodOpts.label : month}，剩余 ${isRolling ? Math.max(0, periodOpts.daysInPeriod - periodOpts.daysPassed) : Math.max(0, new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate() - new Date().getDate())} 天</p>
     <div class="whatif-two-col">
       <div class="whatif-left">`;
 
-  html += renderWhatIfParams(month, savedParams);
+  const periodOpts = isRolling ? getPeriodDateRange() : null;
+  html += renderWhatIfParams(month, savedParams, periodOpts);
 
   html += `</div>
       <div class="whatif-right">`;
 
   if (savedParams) {
-    const result = SimulationEngine.run(month, savedParams);
+    const result = SimulationEngine.run(month, savedParams, { period: periodOpts });
     if (result) {
       html += renderWhatIfResults(result);
     } else {
@@ -9285,15 +10162,23 @@ function renderWhatIf() {
   attachWhatIfListeners(month);
 }
 
-function renderWhatIfParams(month, savedParams) {
+function renderWhatIfParams(month, savedParams, periodOpts) {
+  const isRolling = periodOpts && periodOpts.isRolling;
   const allCats = DataStore.getCategories();
   const today = new Date().getDate();
-  const daysInMonth = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
-  const daysPassed = today;
+  const daysInMonth = isRolling
+    ? periodOpts.daysInPeriod
+    : new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
+  const daysPassed = isRolling ? periodOpts.daysPassed : today;
 
-  // Get actual monthly spending per category
-  const records = DataStore.getRecords()
-    .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
+  // Get actual spending per category for the period
+  const records = isRolling
+    ? DataStore.getRecords().filter(r => {
+        const d = new Date(r.date || r.createdAt);
+        return d >= periodOpts.start && d <= periodOpts.end && !StatsEngine.isBillCategory(r.categoryId);
+      })
+    : DataStore.getRecords()
+        .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
   const catActual = {};
   records.forEach(r => {
     catActual[r.categoryId] = (catActual[r.categoryId] || 0) + r.amount;
@@ -9805,8 +10690,10 @@ function toggleWhatIfCompareExpand(catId) {
   whatIfCompareExpandStates[key] = !whatIfCompareExpandStates[key];
   // Re-render only the results section (params stay intact)
   const month = getMonthKey(new Date().toISOString());
+  const isRolling = getStatsRange() === 'rolling30';
+  const periodOpts = isRolling ? getPeriodDateRange() : null;
   const savedParams = DataStore.getWhatIfParams();
-  const result = savedParams ? SimulationEngine.run(month, savedParams) : null;
+  const result = savedParams ? SimulationEngine.run(month, savedParams, { period: periodOpts }) : null;
   const rightEl = document.querySelector('#page-whatif .whatif-right');
   if (result && rightEl) {
     rightEl.innerHTML = renderWhatIfResults(result);
@@ -10033,10 +10920,24 @@ function showBillRolloverReminder(lastMonth, currentMonth) {
 (function() {
 'use strict';
 DataStore.init();
-checkMonthRollover();
 
-// Apply saved theme
-applyTheme();
+// Check if PIN is required
+if (window._pinRequired) {
+  showPinModal();
+} else {
+  checkMonthRollover();
+
+  // Apply saved theme
+  applyTheme();
+}
+
+// Function to re-init app after PIN unlock
+function initApp() {
+  window._pinRequired = false;
+  checkMonthRollover();
+  applyTheme();
+  handleHash();
+}
 
 // Handle hash-based routing
 function handleHash() {
@@ -10079,6 +10980,7 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
 
   // === EXPORTS ===
   window.handleHash = handleHash;
+  window.initApp = initApp;
 })();
 /* ============================================================
    LAN SYNC — WebRTC P2P (zero server, manual signaling)

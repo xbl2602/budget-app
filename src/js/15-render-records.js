@@ -3,7 +3,7 @@
    ============================================================ */
 (function() {
 'use strict';
-let recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false };
+let recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, tags: [] };
 let recordsPage = 0;
 let compactRecordsView = JSON.parse(localStorage.getItem('budgetCompactView') || 'false');
 let recordsPerPage = window.recordsPerPage = parseInt(localStorage.getItem('budgetRecordsPerPage') || '20');
@@ -16,6 +16,17 @@ function renderRecords() {
   const el = document.getElementById('page-records');
   const cats = DataStore.getCategories();
 
+  // Set default date range for rolling30 mode
+  if (getStatsRange() === 'rolling30') {
+    const { start, end } = getPeriodDateRange();
+    if (!recordsFilter.dateStart) {
+      recordsFilter.dateStart = start.toISOString().substr(0, 10);
+    }
+    if (!recordsFilter.dateEnd) {
+      recordsFilter.dateEnd = end.toISOString().substr(0, 10);
+    }
+  }
+
   const filterCat = recordsFilter.categoryId ? DataStore.getCategory(recordsFilter.categoryId) : null;
 
   el.innerHTML = `
@@ -23,6 +34,15 @@ function renderRecords() {
       <div class="card-title mb-8">搜索筛选</div>
       <div class="input-group" style="margin-bottom:8px">
         <input type="text" id="filterKeyword" class="input-field" placeholder="🔍 搜索备注..." value="${escHtml(recordsFilter.keyword)}" oninput="applyRecordsFilter()">
+      </div>
+      <div class="input-group" style="margin-bottom:8px">
+        <label class="text-sm text-secondary">标签</label>
+        <div style="display:flex;flex-wrap:wrap;gap:4px" id="recordsTagFilterDisplay">
+          ${recordsFilter.tags && recordsFilter.tags.length > 0
+            ? recordsFilter.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 6px;background:var(--primary);color:white;border-radius:10px;font-size:0.7rem">${escHtml(t)}<span style="cursor:pointer" onclick="removeRecordsTagFilter('${escHtml(t)}')">✕</span></span>`).join('')
+            : '<span class="text-xs text-muted">全部</span>'}
+        </div>
+        <button type="button" class="btn btn-sm btn-outline" style="font-size:0.72rem" onclick="openTagPickerForRecords()">🏷️ 筛选标签</button>
       </div>
       <div class="input-group" style="margin-bottom:8px">
         <label class="text-sm text-secondary">分类</label>
@@ -170,6 +190,10 @@ function getFilteredRecords() {
       });
     }
   }
+  // Tag filter
+  if (f.tags && f.tags.length > 0) {
+    filtered = filtered.filter(r => r.tags && f.tags.some(t => r.tags.includes(t)));
+  }
   // Apply sorting
   if (recordsSort && recordsSort.length > 0) {
     records.sort((a, b) => {
@@ -309,6 +333,7 @@ function renderRecordsList() {
             <span class="compact-date">${dateStr.slice(0, 10)}</span>
             <span class="compact-cat">${cat ? escHtml(cat.icon) + escHtml(cat.name) : '❓未知'}</span>
             <span class="compact-note">${r.note ? '📝 ' + escHtml(r.note) : ''}</span>
+            ${r.tags && r.tags.length > 0 ? `<span style="display:inline-flex;flex-wrap:wrap;gap:2px;margin-left:4px">${r.tags.map(t => `<span style="padding:0 4px;background:var(--bg);border-radius:4px;font-size:0.6rem;color:var(--text-muted)">${escHtml(t)}</span>`).join('')}</span>` : ''}
             ${r.excludeFromAvg ? '<span class="text-xs text-muted" style="font-size:0.6rem;margin-left:2px" title="不计日均">📌</span>' : ''}
             <span class="compact-amount" style="color:var(--primary)">${formatMoney(r.amount)}</span>
             ${!batchMode ? `<button class="btn btn-ghost btn-sm record-del-btn" style="padding:0 4px;font-size:0.7rem;opacity:0.5;flex-shrink:0;background:none;border:none;cursor:pointer"
@@ -330,6 +355,7 @@ function renderRecordsList() {
               <div class="font-semibold">${cat ? escHtml(cat.name) : '未知分类'}</div>
               <div class="text-sm text-muted">${dateStr.slice(0, 16)}</div>
               ${r.note ? '<div class="text-sm text-secondary">' + escHtml(r.note) + '</div>' : ''}
+              ${r.tags && r.tags.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:2px">${r.tags.map(t => `<span style="padding:0 4px;background:var(--bg);border-radius:4px;font-size:0.65rem;color:var(--text-muted)">${escHtml(t)}</span>`).join('')}</div>` : ''}
               ${r.excludeFromAvg ? '<span class="text-xs text-muted" style="font-size:0.6rem;margin-left:4px" title="不计日均">📌</span>' : ''}
             </div>
           </div>
@@ -842,5 +868,23 @@ function applySort() {
   window.toggleSortDir = toggleSortDir;
   window.clearSort = clearSort;
   window.applySort = applySort;
+  // Tag filter helpers
+  window.openTagPickerForRecords = openTagPickerForRecords;
+  window.removeRecordsTagFilter = removeRecordsTagFilter;
+
+function openTagPickerForRecords() {
+  const current = recordsFilter.tags || [];
+  openTagPicker(current, function(selected) {
+    recordsFilter.tags = selected;
+    window.recordsPage = 0;
+    renderRecordsList();
+  });
+}
+
+function removeRecordsTagFilter(tag) {
+  recordsFilter.tags = (recordsFilter.tags || []).filter(t => t !== tag);
+  window.recordsPage = 0;
+  renderRecordsList();
+}
 })();
 

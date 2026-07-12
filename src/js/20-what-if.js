@@ -10,17 +10,18 @@ let whatIfCompareExpandStates = {};  // { 'wi-cmp-{catId}': true/false } — com
 
 function renderWhatIf() {
   const section = document.getElementById('page-whatif');
+  const isRolling = getStatsRange() === 'rolling30';
   const month = getMonthKey(new Date().toISOString());
   const savedParams = DataStore.getWhatIfParams();
   console.log('[WhatIf] render, month:', month, 'savedParams:', savedParams);
 
   // Log Overview baseline for comparison
-  const overviewPredicted = StatsEngine.getPredictedTotal(month);
-  const overviewDailyAvg = StatsEngine.getDailyAverage(month);
-  const overviewMonthTotal = StatsEngine.getMonthTotal(month);
-  const overviewBillsActual = StatsEngine.getBillSpendingActual(month);
+  const overviewPredicted = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month);
+  const overviewDailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month);
+  const overviewMonthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month);
+  const overviewBillsActual = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
   const overviewBillsPlanned = DataStore.getBillTotal(month);
-  const overviewVariable = StatsEngine.getVariableSpending(month);
+  const overviewVariable = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month);
   console.log('[WhatIf] Overview baseline:', {
     predicted: overviewPredicted,
     dailyAvg: overviewDailyAvg,
@@ -54,17 +55,18 @@ function renderWhatIf() {
 
   let html = `<div class="whatif-container">
     <div class="section-title">🔮 假设分析</div>
-    <p class="text-sm text-muted" style="margin-bottom:16px">调整未来消费假设，预测月末结果。当前月份：${month}，剩余 ${Math.max(0, new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate() - new Date().getDate())} 天</p>
+    <p class="text-sm text-muted" style="margin-bottom:16px">调整未来消费假设，预测月末结果。当前${isRolling ? '周期' : '月份'}：${isRolling ? periodOpts.label : month}，剩余 ${isRolling ? Math.max(0, periodOpts.daysInPeriod - periodOpts.daysPassed) : Math.max(0, new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate() - new Date().getDate())} 天</p>
     <div class="whatif-two-col">
       <div class="whatif-left">`;
 
-  html += renderWhatIfParams(month, savedParams);
+  const periodOpts = isRolling ? getPeriodDateRange() : null;
+  html += renderWhatIfParams(month, savedParams, periodOpts);
 
   html += `</div>
       <div class="whatif-right">`;
 
   if (savedParams) {
-    const result = SimulationEngine.run(month, savedParams);
+    const result = SimulationEngine.run(month, savedParams, { period: periodOpts });
     if (result) {
       html += renderWhatIfResults(result);
     } else {
@@ -82,15 +84,23 @@ function renderWhatIf() {
   attachWhatIfListeners(month);
 }
 
-function renderWhatIfParams(month, savedParams) {
+function renderWhatIfParams(month, savedParams, periodOpts) {
+  const isRolling = periodOpts && periodOpts.isRolling;
   const allCats = DataStore.getCategories();
   const today = new Date().getDate();
-  const daysInMonth = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
-  const daysPassed = today;
+  const daysInMonth = isRolling
+    ? periodOpts.daysInPeriod
+    : new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
+  const daysPassed = isRolling ? periodOpts.daysPassed : today;
 
-  // Get actual monthly spending per category
-  const records = DataStore.getRecords()
-    .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
+  // Get actual spending per category for the period
+  const records = isRolling
+    ? DataStore.getRecords().filter(r => {
+        const d = new Date(r.date || r.createdAt);
+        return d >= periodOpts.start && d <= periodOpts.end && !StatsEngine.isBillCategory(r.categoryId);
+      })
+    : DataStore.getRecords()
+        .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
   const catActual = {};
   records.forEach(r => {
     catActual[r.categoryId] = (catActual[r.categoryId] || 0) + r.amount;
@@ -602,8 +612,10 @@ function toggleWhatIfCompareExpand(catId) {
   whatIfCompareExpandStates[key] = !whatIfCompareExpandStates[key];
   // Re-render only the results section (params stay intact)
   const month = getMonthKey(new Date().toISOString());
+  const isRolling = getStatsRange() === 'rolling30';
+  const periodOpts = isRolling ? getPeriodDateRange() : null;
   const savedParams = DataStore.getWhatIfParams();
-  const result = savedParams ? SimulationEngine.run(month, savedParams) : null;
+  const result = savedParams ? SimulationEngine.run(month, savedParams, { period: periodOpts }) : null;
   const rightEl = document.querySelector('#page-whatif .whatif-right');
   if (result && rightEl) {
     rightEl.innerHTML = renderWhatIfResults(result);

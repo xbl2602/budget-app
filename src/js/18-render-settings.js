@@ -22,6 +22,29 @@ function renderSettings() {
       </div>
     </div>
 
+    <!-- Stats Range -->
+    <div class="card mb-16">
+      <div class="card-title">📊 统计范围</div>
+      <div class="flex items-center justify-between" style="margin-bottom:8px">
+        <span class="text-sm">数据统计基于</span>
+      </div>
+      <div class="flex gap-8" style="margin-bottom:8px">
+        <button class="btn btn-sm ${getStatsRange() === 'month' ? 'btn-primary' : 'btn-outline'}" 
+          onclick="DataStore.setStatsRange('month');renderSettings();refreshCurrentPage()">
+          📅 本月
+        </button>
+        <button class="btn btn-sm ${getStatsRange() === 'rolling30' ? 'btn-primary' : 'btn-outline'}"
+          onclick="DataStore.setStatsRange('rolling30');renderSettings();refreshCurrentPage()">
+          📆 近30天
+        </button>
+      </div>
+      <div class="text-xs text-muted" id="statsRangeHint">
+        ${getStatsRange() === 'month' 
+          ? '当前：按自然月统计（1日至月末）'
+          : '当前：按近30天滚动窗口统计'}
+      </div>
+    </div>
+
     <!-- Budget → moved to Bills Center -->
     <div class="card mb-16 settings-nav-card" onclick="openBillsCenter()">
       <div class="flex items-center gap-8">
@@ -65,6 +88,66 @@ function renderSettings() {
         </div>
       </div>
       <button class="btn btn-primary" onclick="saveSavingsTarget()">💾 保存目标</button>
+    </div>
+
+    <!-- PIN Protection -->
+    <div class="card mb-16">
+      <div class="card-title">🔐 安全设置</div>
+      <div id="pinStatusSection">
+        ${(() => {
+          const hasPin = !!localStorage.getItem('budgetAppPinHash');
+          if (hasPin) {
+            return `
+              <div class="flex flex-col gap-8">
+                <div class="flex items-center gap-8">
+                  <span style="width:10px;height:10px;border-radius:50%;background:var(--success);display:inline-block"></span>
+                  <span class="text-sm">PIN锁已启用，数据已加密</span>
+                </div>
+                <div class="flex gap-8">
+                  <button class="btn btn-outline btn-sm" onclick="showChangePinModal()">修改PIN码</button>
+                  <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="showClearPinModal()">关闭PIN锁</button>
+                </div>
+              </div>
+            `;
+          } else {
+            return `
+              <div class="flex flex-col gap-8">
+                <div class="flex items-center gap-8">
+                  <span style="width:10px;height:10px;border-radius:50%;background:var(--text-muted);display:inline-block"></span>
+                  <span class="text-sm">PIN锁未启用，数据明文存储</span>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="showSetPinModal()">🔐 设置PIN锁</button>
+              </div>
+            `;
+          }
+        })()}
+      </div>
+    </div>
+
+    <!-- Tag Management -->
+    <div class="card mb-16">
+      <div class="card-title">🏷️ 标签管理</div>
+      <div id="tagList">
+        ${(() => {
+          const tags = DataStore.getAllTags();
+          if (tags.length === 0) return '<div class="text-sm text-muted">暂无标签</div>';
+          return tags.map(tag => {
+            const stats = DataStore.getTagStats(tag);
+            return `
+              <div class="flex items-center justify-between" style="padding:6px 0;border-bottom:1px solid var(--border)">
+                <span>${escHtml(tag)}</span>
+                <div class="flex items-center gap-8">
+                  <span class="text-xs text-muted">${stats.count}笔 · ${formatMoney(stats.total)}</span>
+                  <button class="btn btn-ghost btn-sm" style="color:var(--danger);font-size:0.65rem" onclick="deleteTag('${escHtml(tag)}')">删除</button>
+                </div>
+              </div>
+            `;
+          }).join('');
+        })()}
+      </div>
+      <div class="text-xs text-muted mt-8">
+        <span>💡 标签在添加记录时创建，此处可查看和清理无用标签</span>
+      </div>
     </div>
 
     <!-- Data Management -->
@@ -507,6 +590,20 @@ function refreshStatsAudit() {
   }
 }
 
+function deleteTag(tag) {
+  if (!confirm(`确认删除标签"${tag}"？此操作不会删除记录，只会移除标签引用。`)) return;
+  // Remove from all records
+  DataStore._data.records.forEach(r => {
+    if (r.tags) {
+      r.tags = r.tags.filter(t => t !== tag);
+    }
+  });
+  DataStore.cleanUnusedTags();
+  DataStore.save();
+  renderSettings();
+  showToast('已删除标签: ' + tag);
+}
+
   // === EXPORTS ===
   window.renderSettings = renderSettings;
   window.renderDataInspector = renderDataInspector;
@@ -525,4 +622,5 @@ function refreshStatsAudit() {
   window.refreshSyncFingerprint = refreshSyncFingerprint;
   window.repairData = repairData;
   window.refreshStatsAudit = refreshStatsAudit;
+  window.deleteTag = deleteTag;
 })();

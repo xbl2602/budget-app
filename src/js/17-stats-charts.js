@@ -8,6 +8,7 @@ let statsStartDate = '';
 let statsEndDate = '';
 let statsDrillStack = []; // stack of parent IDs for drill-down breadcrumb
 let showMonthCompare = false;
+let statsTagFilter = [];
 
 function getDrillCategory() {
   return statsDrillStack.length > 0 ? statsDrillStack[statsDrillStack.length - 1] : null;
@@ -653,20 +654,21 @@ function renderStats() {
   const now = new Date();
   statsMonth = statsMonth || getMonthKey(now.toISOString());
   window.statsMonth = statsMonth;
-  const monthTotal = StatsEngine.getMonthTotal(statsMonth);
-  const dailyAvg = StatsEngine.getDailyAverage(statsMonth);
-  const predicted = StatsEngine.getPredictedTotal(statsMonth);
+  const isRolling = getStatsRange() === 'rolling30' && statsMonth === getMonthKey(now.toISOString()) && !useCustomRange();
+  const monthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(statsMonth);
+  const dailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(statsMonth);
+  const predicted = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(statsMonth);
   const budget = DataStore.getMonthlyIncome(statsMonth) || DataStore.getBudget(statsMonth);
-  const remainingLimit = StatsEngine.getRemainingDailyLimit(statsMonth);
+  const remainingLimit = isRolling ? StatsEngine.getPeriodRemainingDailyLimit() : StatsEngine.getRemainingDailyLimit(statsMonth);
 
   // Spendable budget for stats page
   const savingsTargetStats = DataStore.getSavingsTarget();
   const percentBaseStats = DataStore.getPercentBase();
   const totalBillsStats = DataStore.getBillTotal(statsMonth);
-  const paidBillsStats = StatsEngine.getBillSpendingActual(statsMonth);
+  const paidBillsStats = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth);
   const unpaidPlannedBillsStats = Math.max(0, totalBillsStats - paidBillsStats);
   const effectiveTotalStats = monthTotal + unpaidPlannedBillsStats;
-  const savingsPred = StatsEngine.getSavingsPrediction(statsMonth) - unpaidPlannedBillsStats;
+  const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(statsMonth) - unpaidPlannedBillsStats);
   const netDisposableStats = Math.max(0, budget - totalBillsStats);
   const baseAmountStats = percentBaseStats === 'net' ? netDisposableStats : budget;
   const targetAmountStats = (() => {
@@ -680,8 +682,8 @@ function renderStats() {
     const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
     const remainingDays = daysInMonth - now.getDate();
     if (remainingDays <= 0) return 0;
-    const varSpending = StatsEngine.getVariableSpending(statsMonth);
-    const remainingAmt = spendableBudgetStats - varSpending;
+    const varSpendingStats = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(statsMonth);
+    const remainingAmt = spendableBudgetStats - varSpendingStats;
     return Math.max(0, remainingAmt / remainingDays);
   })();
 
@@ -690,15 +692,19 @@ function renderStats() {
   const actualSavings = Math.max(0, budget - monthTotal);
 
   // Compute extra stats
-  const records = isCustom
+  let records = isCustom
     ? DataStore.getRecords().filter(r => { const d = new Date(r.date || r.createdAt); return d >= new Date(statsStartDate) && d <= new Date(statsEndDate); })
-    : StatsEngine.getRecordsInMonth(statsMonth);
+    : (isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(statsMonth));
+  // Apply tag filter if any tags selected
+  if (statsTagFilter && statsTagFilter.length > 0) {
+    records = records.filter(r => r.tags && statsTagFilter.some(t => r.tags.includes(t)));
+  }
   const totalCount = records.length;
   const avgAmount = totalCount > 0 ? (isCustom ? rangeTotal.total : monthTotal) / totalCount : 0;
   const maxRecord = records.reduce((max, r) => (r.amount > (max?.amount || 0) ? r : max), null);
   const maxAmount = maxRecord ? maxRecord.amount : 0;
   const maxCat = maxRecord ? DataStore.getCategory(maxRecord.categoryId) : null;
-  const dailyTotals = isCustom ? (rangeTotal ? rangeTotal.daily : []) : StatsEngine.getDailyTotals(statsMonth);
+  const dailyTotals = isCustom ? (rangeTotal ? rangeTotal.daily : []) : (isRolling ? StatsEngine.getPeriodDailyTotals({ excludeBills: false }) : StatsEngine.getDailyTotals(statsMonth));
   const maxDay = dailyTotals.reduce((max, d) => (d.total > (max?.total || 0) ? d : max), null);
   const daysWithTxns = dailyTotals.filter(d => d.total > 0).length;
 
@@ -723,11 +729,26 @@ function renderStats() {
         </div>
       </div>
 
+    <!-- Tag filter -->
+    <div class="card mb-16">
+      <div class="flex items-center gap-8" style="flex-wrap:wrap">
+        <div class="input-group" style="margin-bottom:0">
+          <label class="text-sm text-secondary">🏷️ 标签筛选</label>
+          <div id="statsTagFilterDisplay" style="display:flex;flex-wrap:wrap;gap:4px">
+            ${statsTagFilter && statsTagFilter.length > 0
+              ? statsTagFilter.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 6px;background:var(--primary);color:white;border-radius:10px;font-size:0.7rem">${escHtml(t)}<span style="cursor:pointer" onclick="removeStatsTagFilter('${escHtml(t)}')">✕</span></span>`).join('')
+              : '<span class="text-xs text-muted">全部</span>'}
+          </div>
+          <button class="btn btn-sm btn-outline" style="font-size:0.72rem;margin-top:4px" onclick="openTagPickerForStats()">🏷️ 选择标签</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Stats cards row 1: Core summary -->
     <div class="grid-4 mb-16">
-      <div class="card"><div class="card-title">${isCustom ? '范围总支出' : '本月总支出'}</div><div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>${!isCustom && StatsEngine.getBillSpendingActual(statsMonth) > 0 ? `<div class="text-xs text-muted mt-4">日常 ${formatMoney(monthTotal - StatsEngine.getBillSpendingActual(statsMonth))} · 账单 ${formatMoney(StatsEngine.getBillSpendingActual(statsMonth))}</div>` : ''}</div>
-      <div class="card"><div class="card-title">${isCustom ? '记录数' : '日均支出'}</div><div class="text-xl font-bold">${isCustom ? rangeTotal.count : formatMoney(dailyAvg)}</div>${!isCustom && StatsEngine.getBillSpendingActual(statsMonth) > 0 ? `<div class="text-xs text-muted mt-4">日常日均 ${formatMoney(StatsEngine.getDailyAverageVariable(statsMonth))}</div>` : ''}</div>
-      <div class="card"><div class="card-title">预测月总支出</div><div class="text-xl font-bold">${formatMoney(predicted)}</div></div>
+      <div class="card"><div class="card-title">${isCustom ? '范围总支出' : (isRolling ? '近30天支出' : '本月总支出')}</div><div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">日常 ${formatMoney(monthTotal - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)))} · 账单 ${formatMoney(isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth))}</div>` : ''}</div>
+      <div class="card"><div class="card-title">${isCustom ? '记录数' : '日均支出'}</div><div class="text-xl font-bold">${isCustom ? rangeTotal.count : formatMoney(dailyAvg)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">日常日均 ${formatMoney(isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(statsMonth))}</div>` : ''}</div>
+      <div class="card"><div class="card-title">${isRolling ? '预测30天总支出' : '预测月总支出'}</div><div class="text-xl font-bold">${formatMoney(predicted)}</div></div>
       <div class="card"><div class="card-title">储蓄预测</div><div class="text-xl font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div></div>
     </div>
 
@@ -948,7 +969,8 @@ function getStatsCatTotals() {
     const range = StatsEngine.getCustomRangeTotals(statsStartDate, statsEndDate);
     return range.categoryTotals || {};
   }
-  return StatsEngine.getCategoryTotals(statsMonth);
+  const isRollingStats = getStatsRange() === 'rolling30' && statsMonth === getMonthKey(new Date().toISOString());
+  return isRollingStats ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(statsMonth);
 }
 
 function getStatsDailyTotals() {
@@ -956,7 +978,8 @@ function getStatsDailyTotals() {
     const range = StatsEngine.getCustomRangeTotals(statsStartDate, statsEndDate);
     return range.daily.map(d => ({ day: d.day.slice(8,10), total: d.total }));
   }
-  return StatsEngine.getDailyTotals(statsMonth);
+  const isRollingStats = getStatsRange() === 'rolling30' && statsMonth === getMonthKey(new Date().toISOString());
+  return isRollingStats ? StatsEngine.getPeriodDailyTotals({ excludeBills: false }) : StatsEngine.getDailyTotals(statsMonth);
 }
 
 function getChartData(month, startDate, endDate, options = {}) {
@@ -966,7 +989,10 @@ function getChartData(month, startDate, endDate, options = {}) {
     const range = StatsEngine.getCustomRangeTotals(startDate, endDate);
     catTotals = range.categoryTotals || {};
   } else {
-    catTotals = month ? StatsEngine.getCategoryTotals(month) : getStatsCatTotals();
+    const isRollingChart = getStatsRange() === 'rolling30' && month === getMonthKey(new Date().toISOString());
+    catTotals = month
+      ? (isRollingChart ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month))
+      : getStatsCatTotals();
   }
 
   // Filter out bill categories if excludeBills
@@ -1002,7 +1028,10 @@ function getRawChartData(month, startDate, endDate, options = {}) {
     const range = StatsEngine.getCustomRangeTotals(startDate, endDate);
     catTotals = range.categoryTotals || {};
   } else {
-    catTotals = month ? StatsEngine.getCategoryTotals(month) : getStatsCatTotals();
+    const isRollingChart = getStatsRange() === 'rolling30' && month === getMonthKey(new Date().toISOString());
+    catTotals = month
+      ? (isRollingChart ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month))
+      : getStatsCatTotals();
   }
   if (excludeBills) {
     const billCatIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
@@ -1435,8 +1464,9 @@ function drawLineChart(canvasId, month, startDate, endDate) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const excludeBills = true;
+  const isRollingLine = getStatsRange() === 'rolling30' && month === getMonthKey(new Date().toISOString()) && !startDate && !endDate;
   const dailyData = month
-    ? StatsEngine.getDailyTotals(month, { excludeBills })
+    ? (isRollingLine ? StatsEngine.getPeriodDailyTotals({ excludeBills }) : StatsEngine.getDailyTotals(month, { excludeBills }))
     : (startDate && endDate ? getStatsDailyTotals() : getStatsDailyTotals());
   if (!dailyData.length || dailyData.every(d => d.total === 0)) {
     ctx.fillStyle = tc.textMuted;
@@ -1936,4 +1966,22 @@ function downloadChart(canvasId) {
   window.drawMonthlyChart = drawMonthlyChart;
   window.drawSavingsChart = drawSavingsChart;
   window.downloadChart = downloadChart;
+  window.statsTagFilter = statsTagFilter;
+  window.openTagPickerForStats = openTagPickerForStats;
+  window.removeStatsTagFilter = removeStatsTagFilter;
+
+function openTagPickerForStats() {
+  const current = statsTagFilter || [];
+  openTagPicker(current, function(selected) {
+    statsTagFilter.length = 0;
+    selected.forEach(t => statsTagFilter.push(t));
+    renderStats();
+  });
+}
+
+function removeStatsTagFilter(tag) {
+  const idx = statsTagFilter.indexOf(tag);
+  if (idx !== -1) statsTagFilter.splice(idx, 1);
+  renderStats();
+}
 })();

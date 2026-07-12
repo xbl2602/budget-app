@@ -238,6 +238,66 @@ const StatsEngine = {
       result.push({ month: key, total, label: key });
     }
     return result;
+  },
+
+  // ===== Period-Aware Methods (Stats Range: month or rolling30) =====
+  getPeriodRecords() {
+    const { start, end } = getPeriodDateRange();
+    return DataStore.getRecords().filter(r => {
+      const d = new Date(r.date || r.createdAt);
+      return d >= start && d <= end && !r._deleted;
+    });
+  },
+  getPeriodTotal() {
+    return this.getPeriodRecords().reduce((s, r) => s + r.amount, 0);
+  },
+  getPeriodDailyAverage() {
+    const { daysPassed } = getPeriodDateRange();
+    return daysPassed > 0 ? this.getPeriodTotal() / daysPassed : 0;
+  },
+  getPeriodPredictedTotal() {
+    const { daysPassed, daysInPeriod } = getPeriodDateRange();
+    if (daysPassed === 0) return 0;
+    const avg = this.getPeriodTotal() / daysPassed;
+    return Math.round(avg * daysInPeriod * 100) / 100;
+  },
+  getPeriodCategoryTotals() {
+    const records = this.getPeriodRecords();
+    const totals = {};
+    records.forEach(r => {
+      totals[r.categoryId] = (totals[r.categoryId] || 0) + r.amount;
+    });
+    return totals;
+  },
+  getPeriodRemainingDailyLimit() {
+    const { daysPassed, daysInPeriod } = getPeriodDateRange();
+    const income = DataStore.getMonthlyIncome(getMonthKey(new Date().toISOString())) || DataStore.getBudget(getMonthKey(new Date().toISOString()));
+    if (!income || income <= 0) return 0;
+    const spent = this.getPeriodTotal();
+    const remainingDays = daysInPeriod - daysPassed;
+    if (remainingDays <= 0) return 0;
+    const remainingAmt = income - spent;
+    return Math.max(0, remainingAmt / remainingDays);
+  },
+  getPeriodBillSpending() {
+    const records = this.getPeriodRecords();
+    const billCatIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
+    return records.filter(r => billCatIds.has(r.categoryId)).reduce((s, r) => s + r.amount, 0);
+  },
+  getPeriodVariableSpending() {
+    return this.getPeriodTotal() - this.getPeriodBillSpending();
+  },
+  getPeriodDailyTotals(options = {}) {
+    const daily = {};
+    const records = options.excludeBills
+      ? this.getPeriodRecords().filter(r => !this.isBillCategory(r.categoryId))
+      : this.getPeriodRecords();
+    records.forEach(r => {
+      const d = new Date(r.date || r.createdAt);
+      const dayKey = d.toISOString().substr(0, 10);
+      daily[dayKey] = (daily[dayKey] || 0) + r.amount;
+    });
+    return Object.entries(daily).sort((a,b) => a[0].localeCompare(b[0])).map(([day, total]) => ({ day, total }));
   }
 };
 

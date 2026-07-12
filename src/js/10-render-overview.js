@@ -9,16 +9,25 @@ function renderOverview() {
   const el = document.getElementById('page-overview');
   const now = new Date();
   const month = getMonthKey(now.toISOString());
+  const statsRange = getStatsRange();
+  const isRolling = statsRange === 'rolling30';
+  const periodRange = getPeriodDateRange();
   const includeBills = isBillToggleChecked('overviewBudget');
-  const monthTotal = includeBills ? StatsEngine.getMonthTotal(month) : StatsEngine.getVariableSpending(month);
+  const monthTotal = includeBills
+    ? (isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month))
+    : (isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month));
   const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
   const savingsTarget = DataStore.getSavingsTarget();
-  const dailyAvg = includeBills ? StatsEngine.getDailyAverage(month) : StatsEngine.getDailyAverageVariable(month);
-  const predicted = includeBills ? StatsEngine.getPredictedTotal(month) : (StatsEngine.getDailyAverageVariable(month) * new Date(now.getFullYear(), now.getMonth()+1, 0).getDate());
-  const remainingLimit = StatsEngine.getRemainingDailyLimit(month);
+  const dailyAvg = includeBills
+    ? (isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month))
+    : (isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(month));
+  const predicted = includeBills
+    ? (isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month))
+    : (isRolling ? StatsEngine.getPeriodPredictedTotal() : (StatsEngine.getDailyAverageVariable(month) * new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()));
+  const remainingLimit = isRolling ? StatsEngine.getPeriodRemainingDailyLimit() : StatsEngine.getRemainingDailyLimit(month);
   const last7 = StatsEngine.getLast7Days();
   const overspent = StatsEngine.getOverspentCategories(month);
-  const catTotals = StatsEngine.getCategoryTotals(month);
+  const catTotals = isRolling ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month);
 
   // Today's and yesterday's spending
   const todayKey = now.toISOString().substr(0, 10);
@@ -102,10 +111,13 @@ function renderOverview() {
     ` : ''}
     <div class="grid-4 mb-16">
       <div class="card">
-        <div class="card-title">本月总支出</div>
+        <div class="card-title" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span>${isRolling ? '近30天支出' : '本月总支出'}</span>
+          <span class="text-xs text-muted" style="font-weight:400">${periodRange.label}</span>
+        </div>
         <div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(monthTotal)}</div>
         ${(() => {
-          const billActual = StatsEngine.getBillSpendingActual(month);
+          const billActual = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
           const varSpending = monthTotal - billActual;
           if (billActual > 0) {
             return `<div class="text-xs text-muted mt-4">日常 ${formatMoney(varSpending)} · 账单 ${formatMoney(billActual)}</div>`;
@@ -118,11 +130,11 @@ function renderOverview() {
         <div class="text-xl font-bold" style="${totalBills > 0 ? 'font-size:1rem' : ''}">${budget ? formatMoney(budget) : '未设置'}${totalBills > 0 ? `<span class="text-xs text-muted" style="display:block;font-weight:400">净收入 ${formatMoney(netDisposable)}</span>` : ''}</div>
       </div>
       <div class="card">
-        <div class="card-title">日均支出</div>
+        <div class="card-title">${isRolling ? '日均支出' : '日均支出'}</div>
         <div class="text-xl font-bold">${formatMoney(dailyAvg)}</div>
       </div>
       <div class="card">
-        <div class="card-title">预测月总支出</div>
+        <div class="card-title">${isRolling ? '预测30天总支出' : '预测月总支出'}</div>
         <div class="text-xl font-bold">${formatMoney(predicted)}</div>
       </div>
     </div>

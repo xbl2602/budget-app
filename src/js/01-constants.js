@@ -55,10 +55,44 @@ function getMonthKey(dateStr) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
 }
 
+function getStatsRange() {
+  return localStorage.getItem('budgetStatsRange') || 'month';
+}
+
+function getPeriodDateRange() {
+  const range = getStatsRange();
+  const now = new Date();
+  if (range === 'month') {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { 
+      start, end, 
+      daysInPeriod: end.getDate(), 
+      daysPassed: now.getDate(),
+      label: now.getFullYear() + '年' + (now.getMonth()+1) + '月',
+      key: now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0')
+    };
+  } else {
+    const end = new Date(now);
+    const start = new Date(now);
+    start.setDate(start.getDate() - 29);
+    const diffDays = Math.floor((end - start) / 86400000) + 1;
+    return {
+      start, end,
+      daysInPeriod: 30,
+      daysPassed: diffDays,
+      label: start.toISOString().substr(5,5) + ' → ' + end.toISOString().substr(5,5),
+      key: 'rolling30'
+    };
+  }
+}
+
   // === EXPORTS ===
   window.COLORS = COLORS;
   window.DEFAULT_CATEGORIES = DEFAULT_CATEGORIES;
   window.escHtml = escHtml;
   window.uuid = uuid;
   window.getMonthKey = getMonthKey;
+  window.getStatsRange = getStatsRange;
+  window.getPeriodDateRange = getPeriodDateRange;
 })();

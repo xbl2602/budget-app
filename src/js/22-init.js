@@ -4,10 +4,24 @@
 (function() {
 'use strict';
 DataStore.init();
-checkMonthRollover();
 
-// Apply saved theme
-applyTheme();
+// Check if PIN is required
+if (window._pinRequired) {
+  showPinModal();
+} else {
+  checkMonthRollover();
+
+  // Apply saved theme
+  applyTheme();
+}
+
+// Function to re-init app after PIN unlock
+function initApp() {
+  window._pinRequired = false;
+  checkMonthRollover();
+  applyTheme();
+  handleHash();
+}
 
 // Handle hash-based routing
 function handleHash() {
@@ -50,4 +64,5 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
 
   // === EXPORTS ===
   window.handleHash = handleHash;
+  window.initApp = initApp;
 })();

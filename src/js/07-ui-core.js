@@ -326,6 +326,300 @@ function refreshCurrentPage() {
   else if (tab === 'settings') { if (typeof renderSettings === 'function') renderSettings(); }
 }
 
+// ===== PIN PROTECTION UI =====
+function showPinModal() {
+  showModal(`
+    <div class="modal-title">🔐 应用已锁定</div>
+    <div style="padding:12px 0">
+      <p class="text-sm text-muted" style="margin-bottom:12px">请输入PIN码解锁应用</p>
+      <input type="password" id="pinInput" class="input-field" placeholder="输入PIN码" 
+        style="font-size:1.2rem;text-align:center;letter-spacing:4px" 
+        autocomplete="off" inputmode="numeric"
+        onkeydown="if(event.key==='Enter') submitPin()">
+      <div id="pinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px;text-align:center">PIN码错误，请重试</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary btn-block" onclick="submitPin()">🔓 解锁</button>
+    </div>
+  `);
+  // Focus the input after modal is shown
+  setTimeout(() => {
+    const inp = document.getElementById('pinInput');
+    if (inp) inp.focus();
+  }, 100);
+}
+
+async function submitPin() {
+  const pin = document.getElementById('pinInput').value;
+  if (!pin) return;
+  const btn = document.querySelector('#modalContent .btn-primary');
+  if (btn) btn.disabled = true;
+  const valid = await DataStore.verifyPin(pin);
+  if (valid) {
+    const unlocked = await DataStore.unlockData(pin);
+    if (unlocked) {
+      closeModal();
+      window._pinRequired = false;
+      // Re-init the app
+      initApp();
+    } else {
+      document.getElementById('pinError').style.display = 'block';
+      if (btn) btn.disabled = false;
+    }
+  } else {
+    document.getElementById('pinError').style.display = 'block';
+    if (btn) btn.disabled = false;
+  }
+}
+
+function showSetPinModal() {
+  showModal(`
+    <div class="modal-title">🔐 设置PIN锁</div>
+    <div style="padding:12px 0">
+      <div class="input-group" style="margin-bottom:12px">
+        <label class="input-label">设置PIN码 (6位数字)</label>
+        <input type="password" id="newPinInput" class="input-field" placeholder="输入6位数字" 
+          maxlength="6" inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="input-group">
+        <label class="input-label">确认PIN码</label>
+        <input type="password" id="confirmPinInput" class="input-field" placeholder="再次输入" 
+          maxlength="6" inputmode="numeric" autocomplete="off">
+      </div>
+      <div id="setPinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveNewPin()">✅ 确认</button>
+    </div>
+  `);
+}
+
+async function saveNewPin() {
+  const pin = document.getElementById('newPinInput').value;
+  const confirm = document.getElementById('confirmPinInput').value;
+  const errEl = document.getElementById('setPinError');
+  if (!pin || pin.length < 4) {
+    errEl.textContent = 'PIN码至少4位';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (pin !== confirm) {
+    errEl.textContent = '两次输入不一致';
+    errEl.style.display = 'block';
+    return;
+  }
+  await DataStore.setPin(pin);
+  closeModal();
+  showToast('✅ PIN码设置成功，数据已加密');
+  if (typeof renderSettings === 'function') renderSettings();
+}
+
+function showChangePinModal() {
+  showModal(`
+    <div class="modal-title">🔐 修改PIN码</div>
+    <div style="padding:12px 0">
+      <div class="input-group" style="margin-bottom:8px">
+        <label class="input-label">当前PIN码</label>
+        <input type="password" id="oldPinInput" class="input-field" placeholder="输入当前PIN" 
+          inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="input-group" style="margin-bottom:8px">
+        <label class="input-label">新PIN码 (6位数字)</label>
+        <input type="password" id="newPinInput2" class="input-field" placeholder="输入新PIN" 
+          inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="input-group">
+        <label class="input-label">确认新PIN码</label>
+        <input type="password" id="confirmPinInput2" class="input-field" placeholder="再次输入" 
+          inputmode="numeric" autocomplete="off">
+      </div>
+      <div id="changePinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveChangedPin()">✅ 确认</button>
+    </div>
+  `);
+}
+
+async function saveChangedPin() {
+  const old = document.getElementById('oldPinInput').value;
+  const pin = document.getElementById('newPinInput2').value;
+  const confirm = document.getElementById('confirmPinInput2').value;
+  const errEl = document.getElementById('changePinError');
+  if (!old) { errEl.textContent = '请输入当前PIN码'; errEl.style.display = 'block'; return; }
+  if (!pin || pin.length < 4) { errEl.textContent = '新PIN码至少4位'; errEl.style.display = 'block'; return; }
+  if (pin !== confirm) { errEl.textContent = '两次输入不一致'; errEl.style.display = 'block'; return; }
+  const ok = await DataStore.changePin(old, pin);
+  if (!ok) { errEl.textContent = '当前PIN码错误'; errEl.style.display = 'block'; return; }
+  closeModal();
+  showToast('✅ PIN码已修改');
+  if (typeof renderSettings === 'function') renderSettings();
+}
+
+function showClearPinModal() {
+  showModal(`
+    <div class="modal-title">🔓 关闭PIN锁</div>
+    <div style="padding:12px 0">
+      <p class="text-sm text-muted" style="margin-bottom:12px">关闭后数据将恢复为明文存储</p>
+      <div class="input-group">
+        <label class="input-label">输入当前PIN码确认</label>
+        <input type="password" id="clearPinInput" class="input-field" placeholder="输入PIN码" 
+          inputmode="numeric" autocomplete="off">
+      </div>
+      <div id="clearPinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-danger" onclick="confirmClearPin()">🔓 关闭</button>
+    </div>
+  `);
+}
+
+async function confirmClearPin() {
+  const pin = document.getElementById('clearPinInput').value;
+  const errEl = document.getElementById('clearPinError');
+  if (!pin) { errEl.textContent = '请输入PIN码'; errEl.style.display = 'block'; return; }
+  const ok = await DataStore.clearPin(pin);
+  if (!ok) { errEl.textContent = 'PIN码错误'; errEl.style.display = 'block'; return; }
+  closeModal();
+  showToast('✅ PIN锁已关闭，数据已解密');
+  if (typeof renderSettings === 'function') renderSettings();
+}
+
+// ===== TAG PICKER =====
+function openTagPicker(selectedTags, callback) {
+  const allTags = DataStore.getAllTags();
+  const selected = new Set(selectedTags || []);
+  
+  let html = `
+    <div class="modal-title">🏷️ 选择标签</div>
+    <div style="padding:8px 0">
+      <input type="text" id="tagSearchInput" class="input-field" placeholder="搜索或创建标签..." 
+        style="margin-bottom:8px" oninput="filterTagList()" autocomplete="off">
+      <div id="tagListContainer" style="max-height:40vh;overflow-y:auto">`;
+  
+  if (allTags.length === 0) {
+    html += `<div class="text-sm text-muted" style="padding:12px;text-align:center">暂无标签，在上方输入新标签名称创建</div>`;
+  } else {
+    allTags.forEach(tag => {
+      const stats = DataStore.getTagStats(tag);
+      html += `
+        <div class="flex items-center gap-8" style="padding:6px 4px;cursor:pointer;border-radius:6px;hover:background:var(--bg)"
+          onclick="toggleTagPick('${escHtml(tag)}')" id="tag-item-${escHtml(tag)}" data-tag="${escHtml(tag)}">
+          <span id="tag-check-${escHtml(tag)}" style="width:20px;text-align:center">
+            ${selected.has(tag) ? '✅' : '⬜'}
+          </span>
+          <span style="flex:1">${escHtml(tag)}</span>
+          <span class="text-xs text-muted">${stats.count}次 · ${formatMoney(stats.total)}</span>
+        </div>`;
+    });
+  }
+  
+  html += `</div>
+      <div id="createTagSection" style="display:none;margin-top:8px">
+        <div class="flex items-center gap-8">
+          <span>创建标签: "</span><span id="newTagNameDisplay" style="font-weight:700"></span><span>"</span>
+          <button class="btn btn-primary btn-sm" onclick="createAndSelectTag()">创建</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="confirmTagPick()">✅ 完成 (已选 ${selected.size})</button>
+    </div>`;
+  
+  // Store callback
+  window._tagPickerCallback = callback;
+  window._tagPickerSelected = selected;
+  
+  showModal(html);
+  
+  // Bind search
+  setTimeout(() => {
+    const searchInput = document.getElementById('tagSearchInput');
+    if (searchInput) searchInput.focus();
+  }, 100);
+}
+
+function filterTagList() {
+  const query = (document.getElementById('tagSearchInput').value || '').toLowerCase().trim();
+  const container = document.getElementById('tagListContainer');
+  if (!container) return;
+  
+  const items = container.querySelectorAll('[data-tag]');
+  let hasVisible = false;
+  items.forEach(item => {
+    const tag = item.getAttribute('data-tag').toLowerCase();
+    if (tag.includes(query)) {
+      item.style.display = 'flex';
+      hasVisible = true;
+    } else {
+      item.style.display = 'none';
+    }
+  });
+  
+  // Show create section if no match and query not empty
+  const createSection = document.getElementById('createTagSection');
+  const nameDisplay = document.getElementById('newTagNameDisplay');
+  if (query && !hasVisible) {
+    // Check if it's actually a new tag
+    const allTags = DataStore.getAllTags();
+    if (!allTags.includes(query)) {
+      createSection.style.display = 'block';
+      if (nameDisplay) nameDisplay.textContent = query;
+      window._pendingNewTag = query;
+    } else {
+      createSection.style.display = 'none';
+    }
+  } else {
+    createSection.style.display = 'none';
+    window._pendingNewTag = null;
+  }
+}
+
+function toggleTagPick(tag) {
+  const selected = window._tagPickerSelected;
+  if (!selected) return;
+  if (selected.has(tag)) {
+    selected.delete(tag);
+    const check = document.getElementById('tag-check-' + tag);
+    if (check) check.textContent = '⬜';
+  } else {
+    selected.add(tag);
+    const check = document.getElementById('tag-check-' + tag);
+    if (check) check.textContent = '✅';
+  }
+  // Update button text
+  const btn = document.querySelector('#modalContent .btn-primary');
+  if (btn) btn.textContent = `✅ 完成 (已选 ${selected.size})`;
+}
+
+function createAndSelectTag() {
+  const tag = window._pendingNewTag;
+  if (!tag) return;
+  DataStore.addTagUsage(tag);
+  window._tagPickerSelected.add(tag);
+  // Refresh picker
+  const cb = window._tagPickerCallback;
+  const sel = window._tagPickerSelected;
+  closeModal();
+  openTagPicker([...sel], cb);
+}
+
+function confirmTagPick() {
+  const selected = window._tagPickerSelected;
+  const callback = window._tagPickerCallback;
+  closeModal();
+  if (callback && selected) {
+    callback([...selected]);
+  }
+  window._tagPickerSelected = null;
+  window._tagPickerCallback = null;
+  window._pendingNewTag = null;
+}
+
   // === EXPORTS ===
   window.applyTheme = applyTheme;
   window.toggleTheme = toggleTheme;
@@ -347,4 +641,19 @@ function refreshCurrentPage() {
   window.getRootAncestorId = getRootAncestorId;
   window.getRootAncestor = getRootAncestor;
   window.refreshCurrentPage = refreshCurrentPage;
+  // PIN Protection UI exports
+  window.showPinModal = showPinModal;
+  window.submitPin = submitPin;
+  window.showSetPinModal = showSetPinModal;
+  window.saveNewPin = saveNewPin;
+  window.showChangePinModal = showChangePinModal;
+  window.saveChangedPin = saveChangedPin;
+  window.showClearPinModal = showClearPinModal;
+  window.confirmClearPin = confirmClearPin;
+  // Tag picker exports
+  window.openTagPicker = openTagPicker;
+  window.filterTagList = filterTagList;
+  window.toggleTagPick = toggleTagPick;
+  window.createAndSelectTag = createAndSelectTag;
+  window.confirmTagPick = confirmTagPick;
 })();

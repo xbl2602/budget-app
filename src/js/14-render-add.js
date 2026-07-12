@@ -35,6 +35,15 @@ function renderAddPage() {
           <input type="text" id="addNote" class="input-field" placeholder="例如：Nasi Lemak" maxlength="200">
         </div>
 
+        <!-- Tags -->
+        <div class="input-group" style="margin-bottom:8px">
+          <label class="input-label">🏷️ 标签 <span class="text-xs text-muted">(可多选，场景标记)</span></label>
+          <div id="addTagsDisplay" style="display:flex;flex-wrap:wrap;gap:4px;min-height:32px;padding:4px 0">
+            <!-- Selected tags will appear here -->
+          </div>
+          <button type="button" class="btn btn-sm btn-outline" onclick="openTagPickerForAdd()">＋ 添加标签</button>
+        </div>
+
         <div class="input-group">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
             <input type="checkbox" id="addExcludeAvg" style="width:18px;height:18px;cursor:pointer">
@@ -91,16 +100,20 @@ function submitRecord(e) {
     return;
   }
 
+  const tags = window._addRecordTags || [];
   const record = {
     amount,
     categoryId,
     date: date || new Date().toISOString().slice(0, 16),
     note,
+    tags,
     excludeFromAvg: document.getElementById('addExcludeAvg').checked,
     createdAt: new Date().toISOString()
   };
 
   DataStore.addRecord(record);
+  // Track tag usage
+  tags.forEach(t => DataStore.addTagUsage(t));
   showToast('✅ 记录已保存');
 
   // Reset form
@@ -109,14 +122,50 @@ function submitRecord(e) {
   document.getElementById('addCategoryDisplay').textContent = '请选择分类';
   document.getElementById('addCategoryDisplay').style.color = 'var(--text-muted)';
   document.getElementById('addNote').value = '';
+  window._addRecordTags = [];
+  renderAddTagsDisplay();
   const now = new Date();
   const offset = now.getTimezoneOffset();
   const local = new Date(now.getTime() - offset * 60000);
   document.getElementById('addDateTime').value = local.toISOString().slice(0, 16);
 }
 
+// Tag picker for add page
+function openTagPickerForAdd() {
+  const current = window._addRecordTags || [];
+  openTagPicker(current, function(selected) {
+    window._addRecordTags = selected;
+    renderAddTagsDisplay();
+  });
+}
+
+function renderAddTagsDisplay() {
+  const container = document.getElementById('addTagsDisplay');
+  if (!container) return;
+  const tags = window._addRecordTags || [];
+  if (tags.length === 0) {
+    container.innerHTML = '<span class="text-xs text-muted">还未添加标签</span>';
+  } else {
+    container.innerHTML = tags.map(t => 
+      `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">
+        ${escHtml(t)}
+        <span style="cursor:pointer;opacity:0.7" onclick="removeAddTag('${escHtml(t)}')">✕</span>
+      </span>`
+    ).join('');
+  }
+}
+
+function removeAddTag(tag) {
+  const tags = window._addRecordTags || [];
+  window._addRecordTags = tags.filter(t => t !== tag);
+  renderAddTagsDisplay();
+}
+
   // === EXPORTS ===
   window.renderAddPage = renderAddPage;
   window.submitRecord = submitRecord;
+  window.openTagPickerForAdd = openTagPickerForAdd;
+  window.renderAddTagsDisplay = renderAddTagsDisplay;
+  window.removeAddTag = removeAddTag;
 })();
 
