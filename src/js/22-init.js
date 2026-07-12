@@ -23,6 +23,10 @@ function initApp() {
   handleHash();
 }
 
+// Start auto-lock & activity monitoring
+if (typeof bindActivityListeners === 'function') bindActivityListeners();
+if (typeof startInactivityCheck === 'function') startInactivityCheck();
+
 // Handle hash-based routing
 function handleHash() {
   const hash = location.hash.slice(1) || 'overview';

@@ -107,6 +107,23 @@ function renderSettings() {
                   <button class="btn btn-outline btn-sm" onclick="showChangePinModal()">修改PIN码</button>
                   <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="showClearPinModal()">关闭PIN锁</button>
                 </div>
+                <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+                  <label class="text-sm text-secondary" style="display:block;margin-bottom:6px">⏱ 自动锁定</label>
+                  <div class="flex gap-6" style="flex-wrap:wrap">
+                    ${[
+                      {label:'1分钟', val:1},
+                      {label:'5分钟', val:5},
+                      {label:'15分钟', val:15},
+                      {label:'30分钟', val:30},
+                      {label:'从不', val:0}
+                    ].map(opt => `
+                      <button class="btn btn-sm ${getAutoLockTimeout() === opt.val ? 'btn-primary' : 'btn-outline'}"
+                        onclick="setAutoLockTimeout(${opt.val});renderSettings()">
+                        ${opt.label}
+                      </button>
+                    `).join('')}
+                  </div>
+                </div>
               </div>
             `;
           } else {

@@ -34,16 +34,20 @@ function showToast(message, type = 'success') {
   }, 3000);
 }
 
-function showModal(html) {
+function showModal(html, dismissable = true) {
   const overlay = document.getElementById('modalOverlay');
   const content = document.getElementById('modalContent');
   content.innerHTML = '';
   // Use insertAdjacentHTML for faster parsing than innerHTML
   content.insertAdjacentHTML('beforeend', html);
   overlay.classList.add('open');
-  overlay.onclick = (e) => {
-    if (e.target === overlay) closeModal();
-  };
+  if (dismissable) {
+    overlay.onclick = (e) => {
+      if (e.target === overlay) closeModal();
+    };
+  } else {
+    overlay.onclick = null;
+  }
 }
 
 
@@ -341,7 +345,7 @@ function showPinModal() {
     <div class="modal-actions">
       <button class="btn btn-primary btn-block" onclick="submitPin()">🔓 解锁</button>
     </div>
-  `);
+  `, false);  // <-- non-dismissable
   // Focus the input after modal is shown
   setTimeout(() => {
     const inp = document.getElementById('pinInput');
@@ -360,6 +364,7 @@ async function submitPin() {
     if (unlocked) {
       closeModal();
       window._pinRequired = false;
+      resetActivityTimer(); // 解锁后重置空闲计时
       // Re-init the app
       initApp();
     } else {
@@ -412,6 +417,8 @@ async function saveNewPin() {
   await DataStore.setPin(pin);
   closeModal();
   showToast('✅ PIN码设置成功，数据已加密');
+  startInactivityCheck();
+  bindActivityListeners();
   if (typeof renderSettings === 'function') renderSettings();
 }
 
@@ -485,6 +492,7 @@ async function confirmClearPin() {
   if (!ok) { errEl.textContent = 'PIN码错误'; errEl.style.display = 'block'; return; }
   closeModal();
   showToast('✅ PIN锁已关闭，数据已解密');
+  stopInactivityCheck();
   if (typeof renderSettings === 'function') renderSettings();
 }
 
@@ -620,6 +628,74 @@ function confirmTagPick() {
   window._pendingNewTag = null;
 }
 
+// ===== AUTO-LOCK (Inactivity Timer) =====
+let _lastActivity = Date.now();
+let _inactivityInterval = null;
+let _autoLockTimeout = parseInt(localStorage.getItem('budgetAutoLockTimeout') || '5'); // minutes, default 5
+
+function resetActivityTimer() {
+  if (window._pinRequired) return;
+  _lastActivity = Date.now();
+}
+
+function getAutoLockTimeout() {
+  return _autoLockTimeout;
+}
+
+function setAutoLockTimeout(minutes) {
+  _autoLockTimeout = minutes;
+  localStorage.setItem('budgetAutoLockTimeout', minutes);
+  restartInactivityCheck();
+}
+
+function restartInactivityCheck() {
+  stopInactivityCheck();
+  startInactivityCheck();
+}
+
+function startInactivityCheck() {
+  if (_inactivityInterval) clearInterval(_inactivityInterval);
+  if (_autoLockTimeout <= 0) return; // 0 = never lock
+
+  _inactivityInterval = setInterval(() => {
+    if (window._pinRequired) return;
+    const hasPinHash = localStorage.getItem('budgetAppPinHash');
+    if (!hasPinHash) return; // no PIN set
+
+    const elapsed = (Date.now() - _lastActivity) / 60000;
+    if (elapsed >= _autoLockTimeout) {
+      lockApp();
+    }
+  }, 10000); // check every 10s
+}
+
+function stopInactivityCheck() {
+  if (_inactivityInterval) {
+    clearInterval(_inactivityInterval);
+    _inactivityInterval = null;
+  }
+}
+
+function lockApp() {
+  if (window._pinRequired) return;
+  const hasPinHash = localStorage.getItem('budgetAppPinHash');
+  if (!hasPinHash) return;
+
+  // Save current state then clear plaintext
+  if (DataStore._data) DataStore.save();
+  localStorage.removeItem('budgetAppData');
+
+  window._pinRequired = true;
+  showPinModal();
+}
+
+function bindActivityListeners() {
+  const events = ['mousedown', 'keydown', 'touchstart', 'scroll', 'mousemove'];
+  events.forEach(evt => {
+    document.addEventListener(evt, resetActivityTimer, { passive: true });
+  });
+}
+
   // === EXPORTS ===
   window.applyTheme = applyTheme;
   window.toggleTheme = toggleTheme;
@@ -650,6 +726,13 @@ function confirmTagPick() {
   window.saveChangedPin = saveChangedPin;
   window.showClearPinModal = showClearPinModal;
   window.confirmClearPin = confirmClearPin;
+  // Auto-lock exports
+  window.getAutoLockTimeout = getAutoLockTimeout;
+  window.setAutoLockTimeout = setAutoLockTimeout;
+  window.lockApp = lockApp;
+  window.startInactivityCheck = startInactivityCheck;
+  window.stopInactivityCheck = stopInactivityCheck;
+  window.bindActivityListeners = bindActivityListeners;
   // Tag picker exports
   window.openTagPicker = openTagPicker;
   window.filterTagList = filterTagList;

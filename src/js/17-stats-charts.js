@@ -1984,9 +1984,9 @@ function drawWaffleChart(canvasId, records) {
   }
 
   // 3. Calculate grid
-  var densityMap = { 1: 1000, 2: 400, 3: 100, 4: 36, 5: 16 };
+  var densityMap = { 1: 600, 2: 300, 3: 150, 4: 60, 5: 24 };
   var totalCells = densityMap[waffleDensity] || 200;
-  var gap = 2;
+  var gap = Math.max(1, Math.round(cellSize * 0.1));
   var aspectRatio = w / h;
   var cols = Math.round(Math.sqrt(totalCells * aspectRatio));
   var rows = Math.round(totalCells / cols);
