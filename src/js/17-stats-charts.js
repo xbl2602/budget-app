@@ -2093,8 +2093,8 @@ function animateWaffle(ctx, cells, cellSize, gap, offsetX, offsetY, cols, rows, 
 
   var positions = cells.map(function(cell, i) {
     return {
-      row: Math.floor(i / cols),
-      col: i % cols,
+      col: Math.floor(i / rows),
+      row: i % rows,
       tagIndex: cell.tagIndex,
       color: cell.color
     };
@@ -2191,8 +2191,8 @@ function startHoverAnim(canvas, cells, cellSize, gap, offsetX, offsetY, cols, ro
     var highlightIdx = isLeaving ? -1 : targetTagIdx;
 
     cells.forEach(function(cell, i) {
-      var col = i % cols;
-      var row = Math.floor(i / cols);
+      var row = i % rows;
+      var col = Math.floor(i / rows);
       var x = offsetX + col * (cellSize + gap);
       var y = offsetY + row * (cellSize + gap);
       var isHighlighted = cell.tagIndex === highlightIdx;
@@ -2255,7 +2255,7 @@ function bindWaffleHover(canvas, cells, cellSize, gap, offsetX, offsetY, cols, r
     var my = e.clientY - rect.top;
     var col = Math.floor((mx - offsetX) / (cellSize + gap));
     var row = Math.floor((my - offsetY) / (cellSize + gap));
-    var idx = row * cols + col;
+    var idx = col * rows + row;
 
     if (idx >= 0 && idx < cells.length && mx >= offsetX && my >= offsetY) {
       var tagIdx = cells[idx].tagIndex;
@@ -2311,8 +2311,8 @@ function drawWaffleStatic(canvas, cells, cellSize, gap, offsetX, offsetY, cols, 
   ctx.clearRect(0, 0, w, h);
 
   cells.forEach(function(cell, i) {
-    var col = i % cols;
-    var row = Math.floor(i / cols);
+    var row = i % rows;
+    var col = Math.floor(i / rows);
     var x = offsetX + col * (cellSize + gap);
     var y = offsetY + row * (cellSize + gap);
     var isHighlighted = highlightIdx !== undefined && cell.tagIndex === highlightIdx;
