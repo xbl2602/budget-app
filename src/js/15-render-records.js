@@ -192,7 +192,7 @@ function getFilteredRecords() {
   }
   // Tag filter
   if (f.tags && f.tags.length > 0) {
-    filtered = filtered.filter(r => r.tags && f.tags.some(t => r.tags.includes(t)));
+    records = records.filter(r => r.tags && f.tags.some(t => r.tags.includes(t)));
   }
   // Apply sorting
   if (recordsSort && recordsSort.length > 0) {
@@ -699,6 +699,17 @@ function openEditRecord(id) {
         <label class="input-label">备注</label>
         <input type="text" id="editNote" class="input-field" value="${escHtml(record.note || '')}">
       </div>
+      <!-- Tags -->
+      <div class="input-group" style="margin-bottom:12px">
+        <label class="input-label">🏷️ 标签</label>
+        <div id="editTagsDisplay" style="display:flex;flex-wrap:wrap;gap:4px;min-height:28px;padding:4px 0">
+          ${record.tags && record.tags.length > 0
+            ? record.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag('${escHtml(t)}')">✕</span></span>`).join('')
+            : '<span class="text-xs text-muted">无标签</span>'}
+        </div>
+        <button type="button" class="btn btn-sm btn-outline" onclick="openEditTagPicker()">＋ 添加标签</button>
+        <input type="hidden" id="editTagsInput" value='${JSON.stringify(record.tags || [])}'>
+      </div>
       <div class="input-group">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
           <input type="checkbox" id="editExcludeAvg" ${record.excludeFromAvg ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
@@ -738,6 +749,10 @@ function submitEditRecord(e, id) {
     date: document.getElementById('editDateTime').value,
     note: document.getElementById('editNote').value.trim(),
     excludeFromAvg: document.getElementById('editExcludeAvg').checked,
+    tags: (() => {
+      try { return JSON.parse(document.getElementById('editTagsInput').value); }
+      catch(e) { return []; }
+    })(),
     updatedAt: new Date().toISOString()
   });
   selectedCategoryId = null;
@@ -827,6 +842,38 @@ function applySort() {
   renderSortControls();
 }
 
+function openEditTagPicker() {
+  const input = document.getElementById('editTagsInput');
+  if (!input) return;
+  const current = (() => { try { return JSON.parse(input.value); } catch(e) { return []; } })();
+  openTagPicker(current, function(selected) {
+    input.value = JSON.stringify(selected);
+    renderEditTagsDisplay();
+  });
+}
+
+function renderEditTagsDisplay() {
+  const container = document.getElementById('editTagsDisplay');
+  const input = document.getElementById('editTagsInput');
+  if (!container || !input) return;
+  const tags = (() => { try { return JSON.parse(input.value); } catch(e) { return []; } })();
+  if (tags.length === 0) {
+    container.innerHTML = '<span class="text-xs text-muted">无标签</span>';
+  } else {
+    container.innerHTML = tags.map(t =>
+      `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag('${escHtml(t)}')">✕</span></span>`
+    ).join('');
+  }
+}
+
+function removeEditTag(tag) {
+  const input = document.getElementById('editTagsInput');
+  if (!input) return;
+  const tags = (() => { try { return JSON.parse(input.value); } catch(e) { return []; } })();
+  input.value = JSON.stringify(tags.filter(t => t !== tag));
+  renderEditTagsDisplay();
+}
+
   // === EXPORTS ===
   window.refreshPageData = refreshPageData;
   window.recordsFilter = recordsFilter;
@@ -871,6 +918,9 @@ function applySort() {
   // Tag filter helpers
   window.openTagPickerForRecords = openTagPickerForRecords;
   window.removeRecordsTagFilter = removeRecordsTagFilter;
+  window.openEditTagPicker = openEditTagPicker;
+  window.renderEditTagsDisplay = renderEditTagsDisplay;
+  window.removeEditTag = removeEditTag;
 
 function openTagPickerForRecords() {
   const current = recordsFilter.tags || [];

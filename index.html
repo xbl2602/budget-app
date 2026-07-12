@@ -5833,7 +5833,7 @@ function getFilteredRecords() {
   }
   // Tag filter
   if (f.tags && f.tags.length > 0) {
-    filtered = filtered.filter(r => r.tags && f.tags.some(t => r.tags.includes(t)));
+    records = records.filter(r => r.tags && f.tags.some(t => r.tags.includes(t)));
   }
   // Apply sorting
   if (recordsSort && recordsSort.length > 0) {
@@ -6340,6 +6340,17 @@ function openEditRecord(id) {
         <label class="input-label">备注</label>
         <input type="text" id="editNote" class="input-field" value="${escHtml(record.note || '')}">
       </div>
+      <!-- Tags -->
+      <div class="input-group" style="margin-bottom:12px">
+        <label class="input-label">🏷️ 标签</label>
+        <div id="editTagsDisplay" style="display:flex;flex-wrap:wrap;gap:4px;min-height:28px;padding:4px 0">
+          ${record.tags && record.tags.length > 0
+            ? record.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag('${escHtml(t)}')">✕</span></span>`).join('')
+            : '<span class="text-xs text-muted">无标签</span>'}
+        </div>
+        <button type="button" class="btn btn-sm btn-outline" onclick="openEditTagPicker()">＋ 添加标签</button>
+        <input type="hidden" id="editTagsInput" value='${JSON.stringify(record.tags || [])}'>
+      </div>
       <div class="input-group">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
           <input type="checkbox" id="editExcludeAvg" ${record.excludeFromAvg ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
@@ -6379,6 +6390,10 @@ function submitEditRecord(e, id) {
     date: document.getElementById('editDateTime').value,
     note: document.getElementById('editNote').value.trim(),
     excludeFromAvg: document.getElementById('editExcludeAvg').checked,
+    tags: (() => {
+      try { return JSON.parse(document.getElementById('editTagsInput').value); }
+      catch(e) { return []; }
+    })(),
     updatedAt: new Date().toISOString()
   });
   selectedCategoryId = null;
@@ -6468,6 +6483,38 @@ function applySort() {
   renderSortControls();
 }
 
+function openEditTagPicker() {
+  const input = document.getElementById('editTagsInput');
+  if (!input) return;
+  const current = (() => { try { return JSON.parse(input.value); } catch(e) { return []; } })();
+  openTagPicker(current, function(selected) {
+    input.value = JSON.stringify(selected);
+    renderEditTagsDisplay();
+  });
+}
+
+function renderEditTagsDisplay() {
+  const container = document.getElementById('editTagsDisplay');
+  const input = document.getElementById('editTagsInput');
+  if (!container || !input) return;
+  const tags = (() => { try { return JSON.parse(input.value); } catch(e) { return []; } })();
+  if (tags.length === 0) {
+    container.innerHTML = '<span class="text-xs text-muted">无标签</span>';
+  } else {
+    container.innerHTML = tags.map(t =>
+      `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag('${escHtml(t)}')">✕</span></span>`
+    ).join('');
+  }
+}
+
+function removeEditTag(tag) {
+  const input = document.getElementById('editTagsInput');
+  if (!input) return;
+  const tags = (() => { try { return JSON.parse(input.value); } catch(e) { return []; } })();
+  input.value = JSON.stringify(tags.filter(t => t !== tag));
+  renderEditTagsDisplay();
+}
+
   // === EXPORTS ===
   window.refreshPageData = refreshPageData;
   window.recordsFilter = recordsFilter;
@@ -6512,6 +6559,9 @@ function applySort() {
   // Tag filter helpers
   window.openTagPickerForRecords = openTagPickerForRecords;
   window.removeRecordsTagFilter = removeRecordsTagFilter;
+  window.openEditTagPicker = openEditTagPicker;
+  window.renderEditTagsDisplay = renderEditTagsDisplay;
+  window.removeEditTag = removeEditTag;
 
 function openTagPickerForRecords() {
   const current = recordsFilter.tags || [];
@@ -8078,30 +8128,6 @@ function renderStats() {
 
     <div id="budgetProgressContainer">${renderBudgetProgressCard(statsMonth)}</div>
 
-    <!-- Month-over-month comparison chart -->
-    ${showMonthCompare && !isCustom ? `
-    <div class="card mb-16">
-      <div class="card-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <span>📊 月度分类对比 — 本月 vs 上月</span>
-        <span class="text-xs text-muted">🔵 本月 &nbsp;|&nbsp; 🟢 上月</span>
-      </div>
-      <canvas id="compareChart" width="600" height="280" style="width:100%;height:230px"></canvas>
-      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('compareChart')">📥 下载 PNG</button>
-    </div>
-    ` : ''}
-
-    <div class="card mb-16">
-      <div class="card-title">月度支出趋势 (近6个月)</div>
-      <canvas id="monthlyChart" width="600" height="250" style="width:100%;height:200px"></canvas>
-      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('monthlyChart')">📥 下载 PNG</button>
-    </div>
-
-    <div class="card mb-16">
-      <div class="card-title">月度储蓄趋势 (近6个月)</div>
-      <canvas id="savingsChart" width="600" height="250" style="width:100%;height:200px"></canvas>
-      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('savingsChart')">📥 下载 PNG</button>
-    </div>
-
     <!-- Waffle Chart: Tag Distribution -->
     <div class="card mb-16" id="waffleCard">
       <div class="flex items-center justify-between" style="margin-bottom:10px">
@@ -8124,6 +8150,30 @@ function renderStats() {
       <canvas id="waffleChart" width="400" height="250" style="width:100%;height:220px;cursor:pointer"></canvas>
       <div id="waffleLegend" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;font-size:0.72rem"></div>
       <div id="waffleTooltip" style="display:none;position:fixed;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:0.75rem;pointer-events:none;z-index:100;box-shadow:var(--shadow-md)"></div>
+    </div>
+
+    <!-- Month-over-month comparison chart -->
+    ${showMonthCompare && !isCustom ? `
+    <div class="card mb-16">
+      <div class="card-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span>📊 月度分类对比 — 本月 vs 上月</span>
+        <span class="text-xs text-muted">🔵 本月 &nbsp;|&nbsp; 🟢 上月</span>
+      </div>
+      <canvas id="compareChart" width="600" height="280" style="width:100%;height:230px"></canvas>
+      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('compareChart')">📥 下载 PNG</button>
+    </div>
+    ` : ''}
+
+    <div class="card mb-16">
+      <div class="card-title">月度支出趋势 (近6个月)</div>
+      <canvas id="monthlyChart" width="600" height="250" style="width:100%;height:200px"></canvas>
+      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('monthlyChart')">📥 下载 PNG</button>
+    </div>
+
+    <div class="card mb-16">
+      <div class="card-title">月度储蓄趋势 (近6个月)</div>
+      <canvas id="savingsChart" width="600" height="250" style="width:100%;height:200px"></canvas>
+      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('savingsChart')">📥 下载 PNG</button>
     </div>
   `;
 
@@ -9207,7 +9257,7 @@ function drawWaffleChart(canvasId, records) {
   }
 
   // 3. Calculate grid
-  var densityMap = { 1: 500, 2: 300, 3: 200, 4: 100, 5: 50 };
+  var densityMap = { 1: 1000, 2: 400, 3: 100, 4: 36, 5: 16 };
   var totalCells = densityMap[waffleDensity] || 200;
   var gap = 2;
   var aspectRatio = w / h;

@@ -855,30 +855,6 @@ function renderStats() {
 
     <div id="budgetProgressContainer">${renderBudgetProgressCard(statsMonth)}</div>
 
-    <!-- Month-over-month comparison chart -->
-    ${showMonthCompare && !isCustom ? `
-    <div class="card mb-16">
-      <div class="card-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <span>📊 月度分类对比 — 本月 vs 上月</span>
-        <span class="text-xs text-muted">🔵 本月 &nbsp;|&nbsp; 🟢 上月</span>
-      </div>
-      <canvas id="compareChart" width="600" height="280" style="width:100%;height:230px"></canvas>
-      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('compareChart')">📥 下载 PNG</button>
-    </div>
-    ` : ''}
-
-    <div class="card mb-16">
-      <div class="card-title">月度支出趋势 (近6个月)</div>
-      <canvas id="monthlyChart" width="600" height="250" style="width:100%;height:200px"></canvas>
-      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('monthlyChart')">📥 下载 PNG</button>
-    </div>
-
-    <div class="card mb-16">
-      <div class="card-title">月度储蓄趋势 (近6个月)</div>
-      <canvas id="savingsChart" width="600" height="250" style="width:100%;height:200px"></canvas>
-      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('savingsChart')">📥 下载 PNG</button>
-    </div>
-
     <!-- Waffle Chart: Tag Distribution -->
     <div class="card mb-16" id="waffleCard">
       <div class="flex items-center justify-between" style="margin-bottom:10px">
@@ -901,6 +877,30 @@ function renderStats() {
       <canvas id="waffleChart" width="400" height="250" style="width:100%;height:220px;cursor:pointer"></canvas>
       <div id="waffleLegend" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;font-size:0.72rem"></div>
       <div id="waffleTooltip" style="display:none;position:fixed;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:0.75rem;pointer-events:none;z-index:100;box-shadow:var(--shadow-md)"></div>
+    </div>
+
+    <!-- Month-over-month comparison chart -->
+    ${showMonthCompare && !isCustom ? `
+    <div class="card mb-16">
+      <div class="card-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span>📊 月度分类对比 — 本月 vs 上月</span>
+        <span class="text-xs text-muted">🔵 本月 &nbsp;|&nbsp; 🟢 上月</span>
+      </div>
+      <canvas id="compareChart" width="600" height="280" style="width:100%;height:230px"></canvas>
+      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('compareChart')">📥 下载 PNG</button>
+    </div>
+    ` : ''}
+
+    <div class="card mb-16">
+      <div class="card-title">月度支出趋势 (近6个月)</div>
+      <canvas id="monthlyChart" width="600" height="250" style="width:100%;height:200px"></canvas>
+      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('monthlyChart')">📥 下载 PNG</button>
+    </div>
+
+    <div class="card mb-16">
+      <div class="card-title">月度储蓄趋势 (近6个月)</div>
+      <canvas id="savingsChart" width="600" height="250" style="width:100%;height:200px"></canvas>
+      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('savingsChart')">📥 下载 PNG</button>
     </div>
   `;
 
@@ -1984,7 +1984,7 @@ function drawWaffleChart(canvasId, records) {
   }
 
   // 3. Calculate grid
-  var densityMap = { 1: 500, 2: 300, 3: 200, 4: 100, 5: 50 };
+  var densityMap = { 1: 1000, 2: 400, 3: 100, 4: 36, 5: 16 };
   var totalCells = densityMap[waffleDensity] || 200;
   var gap = 2;
   var aspectRatio = w / h;
