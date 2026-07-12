@@ -8,7 +8,10 @@ let statsStartDate = '';
 let statsEndDate = '';
 let statsDrillStack = []; // stack of parent IDs for drill-down breadcrumb
 let showMonthCompare = false;
-let statsTagFilter = [];
+let waffleDensity = parseInt(localStorage.getItem('budgetWaffleDensity') || '3');
+let waffleIncludeUntagged = localStorage.getItem('budgetWaffleIncludeUntagged') !== 'false';
+let waffleCells = [];
+let waffleTagData = [];
 
 function getDrillCategory() {
   return statsDrillStack.length > 0 ? statsDrillStack[statsDrillStack.length - 1] : null;
@@ -695,10 +698,6 @@ function renderStats() {
   let records = isCustom
     ? DataStore.getRecords().filter(r => { const d = new Date(r.date || r.createdAt); return d >= new Date(statsStartDate) && d <= new Date(statsEndDate); })
     : (isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(statsMonth));
-  // Apply tag filter if any tags selected
-  if (statsTagFilter && statsTagFilter.length > 0) {
-    records = records.filter(r => r.tags && statsTagFilter.some(t => r.tags.includes(t)));
-  }
   const totalCount = records.length;
   const avgAmount = totalCount > 0 ? (isCustom ? rangeTotal.total : monthTotal) / totalCount : 0;
   const maxRecord = records.reduce((max, r) => (r.amount > (max?.amount || 0) ? r : max), null);
@@ -729,20 +728,7 @@ function renderStats() {
         </div>
       </div>
 
-    <!-- Tag filter -->
-    <div class="card mb-16">
-      <div class="flex items-center gap-8" style="flex-wrap:wrap">
-        <div class="input-group" style="margin-bottom:0">
-          <label class="text-sm text-secondary">🏷️ 标签筛选</label>
-          <div id="statsTagFilterDisplay" style="display:flex;flex-wrap:wrap;gap:4px">
-            ${statsTagFilter && statsTagFilter.length > 0
-              ? statsTagFilter.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 6px;background:var(--primary);color:white;border-radius:10px;font-size:0.7rem">${escHtml(t)}<span style="cursor:pointer" onclick="removeStatsTagFilter('${escHtml(t)}')">✕</span></span>`).join('')
-              : '<span class="text-xs text-muted">全部</span>'}
-          </div>
-          <button class="btn btn-sm btn-outline" style="font-size:0.72rem;margin-top:4px" onclick="openTagPickerForStats()">🏷️ 选择标签</button>
-        </div>
-      </div>
-    </div>
+
 
     <!-- Stats cards row 1: Core summary -->
     <div class="grid-4 mb-16">
@@ -892,6 +878,30 @@ function renderStats() {
       <canvas id="savingsChart" width="600" height="250" style="width:100%;height:200px"></canvas>
       <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('savingsChart')">📥 下载 PNG</button>
     </div>
+
+    <!-- Waffle Chart: Tag Distribution -->
+    <div class="card mb-16" id="waffleCard">
+      <div class="flex items-center justify-between" style="margin-bottom:10px">
+        <div class="card-title" style="margin-bottom:0">🏷️ 标签分布</div>
+        <div class="flex items-center gap-8">
+          <!-- Include untagged toggle -->
+          <label class="flex items-center gap-4" style="cursor:pointer;font-size:0.72rem;color:var(--text-secondary)" onclick="toggleWaffleUntagged()">
+            <span id="waffleUntaggedCheck" style="width:16px;height:16px;border:2px solid var(--text-muted);border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:0.6rem">${waffleIncludeUntagged ? '✓' : ''}</span>
+            含无标签
+          </label>
+          <!-- Density selector -->
+          <div class="flex gap-4" style="font-size:0.65rem">
+            ${[1,2,3,4,5].map(d => 
+              `<span style="padding:2px 6px;border-radius:4px;cursor:pointer;background:${waffleDensity === d ? 'var(--primary)' : 'var(--bg)'};color:${waffleDensity === d ? 'white' : 'var(--text-secondary)'}" 
+                onclick="setWaffleDensity(${d})">${'█'.repeat(d)}</span>`
+            ).join('')}
+          </div>
+        </div>
+      </div>
+      <canvas id="waffleChart" width="400" height="250" style="width:100%;height:220px;cursor:pointer"></canvas>
+      <div id="waffleLegend" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;font-size:0.72rem"></div>
+      <div id="waffleTooltip" style="display:none;position:fixed;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:0.75rem;pointer-events:none;z-index:100;box-shadow:var(--shadow-md)"></div>
+    </div>
   `;
 
   // Draw charts
@@ -902,6 +912,7 @@ function renderStats() {
     drawLineChart('lineChart', statsMonth, sD, eD);
     drawMonthlyChart('monthlyChart');
     drawSavingsChart('savingsChart');
+    drawWaffleChart('waffleChart', records);
     syncPieDrillBar();
     // Update budget progress card
     const progContainer = document.getElementById('budgetProgressContainer');
@@ -1923,6 +1934,279 @@ function downloadChart(canvasId) {
   link.click();
 }
 
+/* ============================================================
+   WAFFLE CHART — Tag Distribution Visualization
+   ============================================================ */
+function drawWaffleChart(canvasId, records) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  // 1. Get dimensions
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const w = rect.width;
+  const h = 220;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // 2. Aggregate tags
+  const tagTotals = {};
+  let untaggedTotal = 0;
+
+  records.forEach(function(r) {
+    if (r.tags && r.tags.length > 0) {
+      r.tags.forEach(function(t) {
+        tagTotals[t] = (tagTotals[t] || 0) + r.amount;
+      });
+    } else {
+      untaggedTotal += r.amount;
+    }
+  });
+
+  var tagKeys = Object.keys(tagTotals);
+  var tagData = tagKeys.map(function(name, idx) {
+    return { name: name, amount: tagTotals[name], color: COLORS[idx % COLORS.length] };
+  });
+  tagData.sort(function(a, b) { return b.amount - a.amount; });
+
+  if (waffleIncludeUntagged && untaggedTotal > 0) {
+    tagData.push({ name: '未标签', amount: untaggedTotal, color: '#999' });
+  }
+
+  var totalAmount = tagData.reduce(function(s, d) { return s + d.amount; }, 0);
+  if (totalAmount === 0) {
+    ctx.fillStyle = 'var(--text-muted)';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无标签数据', w / 2, h / 2);
+    return;
+  }
+
+  // 3. Calculate grid
+  var densityMap = { 1: 500, 2: 300, 3: 200, 4: 100, 5: 50 };
+  var totalCells = densityMap[waffleDensity] || 200;
+  var gap = 2;
+  var aspectRatio = w / h;
+  var cols = Math.round(Math.sqrt(totalCells * aspectRatio));
+  var rows = Math.round(totalCells / cols);
+  while (rows * cols < totalCells) cols++;
+  var actualCells = rows * cols;
+
+  var cellSize = Math.min(
+    (w - (cols - 1) * gap) / cols,
+    (h - (rows - 1) * gap - 30) / rows
+  );
+  var gridW = cols * cellSize + (cols - 1) * gap;
+  var gridH = rows * cellSize + (rows - 1) * gap;
+  var offsetX = (w - gridW) / 2;
+  var offsetY = 4;
+
+  // 4. Assign cells to tags
+  var cellValue = totalAmount / actualCells;
+  var cells = [];
+  var remainingCells = actualCells;
+
+  tagData.forEach(function(tag, idx) {
+    var tagCells = Math.round(tag.amount / cellValue);
+    var assigned = Math.min(tagCells, remainingCells);
+    for (var i = 0; i < assigned; i++) {
+      cells.push({ tagIndex: idx, color: tag.color });
+    }
+    remainingCells -= assigned;
+  });
+
+  while (cells.length < actualCells) {
+    cells.push({ tagIndex: 0, color: tagData[0].color });
+  }
+
+  // Order cells by tag grouping
+  var orderedCells = [];
+  tagData.forEach(function(tag, idx) {
+    var count = cells.filter(function(c) { return c.tagIndex === idx; }).length;
+    for (var i = 0; i < count; i++) {
+      orderedCells.push({ tagIndex: idx, color: tag.color });
+    }
+  });
+  cells = orderedCells;
+
+  // Store for hover
+  waffleCells = cells;
+  waffleTagData = tagData;
+
+  // 5. Animate
+  animateWaffle(ctx, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount);
+}
+
+function drawCell(ctx, x, y, size, color, scale) {
+  var s = size * (scale || 1);
+  var offset = (size - s) / 2;
+  var r = 2;
+  ctx.beginPath();
+  ctx.roundRect(x + offset, y + offset, s, s, r);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function animateWaffle(ctx, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount) {
+  var batchSize = Math.max(10, Math.ceil(cells.length / 30));
+  var staggerMs = 20;
+  var popDuration = 400;
+  var totalBatches = Math.ceil(cells.length / batchSize);
+  var startTime = performance.now();
+
+  var positions = cells.map(function(cell, i) {
+    return {
+      row: Math.floor(i / cols),
+      col: i % cols,
+      tagIndex: cell.tagIndex,
+      color: cell.color
+    };
+  });
+
+  function drawFrame(currentTime) {
+    var elapsed = currentTime - startTime;
+    ctx.clearRect(0, 0, ctx.canvas.width / (window.devicePixelRatio || 1), 220);
+
+    var allDone = true;
+    positions.forEach(function(pos, i) {
+      var batchIdx = Math.floor(i / batchSize);
+      var batchStart = batchIdx * staggerMs;
+      var localTime = elapsed - batchStart;
+
+      var scale;
+      if (localTime >= popDuration) {
+        scale = 1;
+      } else if (localTime > 0) {
+        var t = localTime / popDuration;
+        scale = t === 1 ? 1 : 1 - Math.pow(2, -7 * t) * Math.cos(t * Math.PI * 2 * 1.2);
+        allDone = false;
+      } else {
+        allDone = false;
+        var x = offsetX + pos.col * (cellSize + gap);
+        var y = offsetY + pos.row * (cellSize + gap);
+        ctx.strokeStyle = 'rgba(128,128,128,0.2)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(x, y, cellSize, cellSize, 2);
+        ctx.stroke();
+        return;
+      }
+
+      var x = offsetX + pos.col * (cellSize + gap);
+      var y = offsetY + pos.row * (cellSize + gap);
+      var s = cellSize * Math.max(0.01, scale);
+      var centerOffset = (cellSize - s) / 2;
+
+      ctx.beginPath();
+      ctx.roundRect(x + centerOffset, y + centerOffset, s, s, 2);
+      ctx.fillStyle = pos.color;
+      ctx.fill();
+    });
+
+    if (!allDone) {
+      requestAnimationFrame(drawFrame);
+    } else {
+      drawWaffleLegend(tagData, totalAmount);
+      bindWaffleHover(ctx.canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount);
+    }
+  }
+
+  requestAnimationFrame(drawFrame);
+}
+
+function drawWaffleLegend(tagData, totalAmount) {
+  var container = document.getElementById('waffleLegend');
+  if (!container) return;
+  container.innerHTML = tagData.map(function(t) {
+    var pct = ((t.amount / totalAmount) * 100).toFixed(1);
+    return '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;background:var(--bg);border-radius:4px">' +
+      '<span style="width:8px;height:8px;border-radius:2px;background:' + t.color + ';display:inline-block"></span>' +
+      '<span>' + escHtml(t.name) + '</span>' +
+      '<span style="color:var(--text-muted)">' + formatMoney(t.amount) + ' \u00B7 ' + pct + '%</span>' +
+    '</span>';
+  }).join('');
+}
+
+function bindWaffleHover(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount) {
+  var tooltip = document.getElementById('waffleTooltip');
+  if (!tooltip) return;
+
+  canvas.onmousemove = function(e) {
+    var rect = canvas.getBoundingClientRect();
+    var mx = e.clientX - rect.left;
+    var my = e.clientY - rect.top;
+
+    var col = Math.floor((mx - offsetX) / (cellSize + gap));
+    var row = Math.floor((my - offsetY) / (cellSize + gap));
+    var idx = row * cols + col;
+
+    if (idx >= 0 && idx < cells.length && mx >= offsetX && my >= offsetY) {
+      var tag = tagData[cells[idx].tagIndex];
+      var pct = ((tag.amount / totalAmount) * 100).toFixed(1);
+
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX + 10) + 'px';
+      tooltip.style.top = (e.clientY + 10) + 'px';
+      tooltip.innerHTML = '<strong>' + escHtml(tag.name) + '</strong> \u00B7 ' + formatMoney(tag.amount) + ' \u00B7 ' + pct + '%';
+
+      drawWaffleStatic(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, cells[idx].tagIndex);
+      canvas.style.cursor = 'pointer';
+    } else {
+      tooltip.style.display = 'none';
+      drawWaffleStatic(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData);
+      canvas.style.cursor = 'default';
+    }
+  };
+
+  canvas.onmouseleave = function() {
+    tooltip.style.display = 'none';
+    drawWaffleStatic(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData);
+  };
+}
+
+function drawWaffleStatic(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, highlightIdx) {
+  var ctx = canvas.getContext('2d');
+  var dpr = window.devicePixelRatio || 1;
+  var w = canvas.width / dpr;
+  var h = canvas.height / dpr;
+  ctx.clearRect(0, 0, w, h);
+
+  cells.forEach(function(cell, i) {
+    var col = i % cols;
+    var row = Math.floor(i / cols);
+    var x = offsetX + col * (cellSize + gap);
+    var y = offsetY + row * (cellSize + gap);
+    var isHighlighted = highlightIdx !== undefined && cell.tagIndex === highlightIdx;
+
+    ctx.beginPath();
+    ctx.roundRect(x, y, cellSize, cellSize, 2);
+    ctx.fillStyle = cell.color;
+    ctx.globalAlpha = isHighlighted ? 1.0 : 0.85;
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+
+    if (isHighlighted) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  });
+}
+
+function setWaffleDensity(level) {
+  if (level < 1 || level > 5) return;
+  waffleDensity = level;
+  localStorage.setItem('budgetWaffleDensity', level);
+  renderStats();
+}
+
+function toggleWaffleUntagged() {
+  waffleIncludeUntagged = !waffleIncludeUntagged;
+  localStorage.setItem('budgetWaffleIncludeUntagged', waffleIncludeUntagged);
+  renderStats();
+}
+
   // === EXPORTS ===
   window.statsMonth = statsMonth;
   window.statsStartDate = statsStartDate;
@@ -1966,22 +2250,7 @@ function downloadChart(canvasId) {
   window.drawMonthlyChart = drawMonthlyChart;
   window.drawSavingsChart = drawSavingsChart;
   window.downloadChart = downloadChart;
-  window.statsTagFilter = statsTagFilter;
-  window.openTagPickerForStats = openTagPickerForStats;
-  window.removeStatsTagFilter = removeStatsTagFilter;
-
-function openTagPickerForStats() {
-  const current = statsTagFilter || [];
-  openTagPicker(current, function(selected) {
-    statsTagFilter.length = 0;
-    selected.forEach(t => statsTagFilter.push(t));
-    renderStats();
-  });
-}
-
-function removeStatsTagFilter(tag) {
-  const idx = statsTagFilter.indexOf(tag);
-  if (idx !== -1) statsTagFilter.splice(idx, 1);
-  renderStats();
-}
+  window.setWaffleDensity = setWaffleDensity;
+  window.toggleWaffleUntagged = toggleWaffleUntagged;
+  window.drawWaffleChart = drawWaffleChart;
 })();
