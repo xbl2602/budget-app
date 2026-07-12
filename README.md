@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v2.6.0
+# 记账软件 · Budget App v2.7.0
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -106,6 +106,13 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
+
+### v2.7.0 新增功能
+
+- **📊 统计范围切换**：设置页新增「本月」/「近30天」切换开关，总览/统计/报告/流水/假设分析全页面联动。预算/储蓄环图保持月口径。
+- **🔐 PIN锁 + AES-GCM 加密**：设置页启用PIN码后，数据使用 Web Crypto API (PBKDF2 + AES-GCM) 加密存储。启动需验证PIN，支持自定义自动锁定时间（1/5/15/30分钟/从不）。
+- **🏷️ 标签系统**：记录支持多标签（场景标记，与分类互补不重叠）。添加记录时可选择标签，流水页可按标签筛选，统计页新增 Waffle Chart 方格图可视化标签分布。
+- **🔲 Waffle Chart 标签分布图**：统计页底部展示标签花费占比的方格矩阵，5档密度可调（24~600格），Scale Pop 入场动画，悬停高亮+动效，点击跳转流水页筛选，独立时间段选择，标签颜色自定义，导出PNG。
 
 ---
 

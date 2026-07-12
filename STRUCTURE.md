@@ -25,7 +25,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 ├── src/
 │   ├── index.html              # HTML 骨架
 │   ├── css/                    # 13 个 CSS 文件
-│   └── js/                     # 24 个 JS 文件
+│   └── js/                     # 25 个 JS 文件
 ├── features/                   # 功能文档
 │   └── budget-app-feature-catalog.md  # 完整功能目录
 ├── logs/                       # 开发日志
@@ -72,6 +72,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `DEFAULT_CATEGORIES` | `const Array` | 8 个根分类 + 子分类（默认数据） |
 | `uuid()` | `function` | 生成唯一 ID |
 | `getMonthKey(dateStr)` | `function` | 从日期提取 `YYYY-MM` |
+| `getStatsRange()` | `function` | 获取统计范围模式（'month'/'rolling30'） |
+| `getPeriodDateRange()` | `function` | 获取当前统计范围的起止日期/天数/标签 |
 
 ---
 
@@ -172,6 +174,40 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `getSavingsTarget()` | 获取 |
 | `setSavingsTarget(target)` | 设置 |
 
+**统计范围：**
+| 方法 | 说明 |
+|------|------|
+| `getStatsRange()` | 获取统计范围模式 |
+| `setStatsRange(val)` | 设置统计范围模式 |
+
+**标签 Tags：**
+| 方法 | 说明 |
+|------|------|
+| `getAllTags()` | 获取所有已使用标签 |
+| `addTagUsage(tag)` | 记录标签使用 |
+| `getRecordsByTag(tag)` | 按标签获取记录 |
+| `getTagStats(tag)` | 获取标签统计（笔数/总额） |
+| `cleanUnusedTags()` | 清理无用标签 |
+
+**标签颜色：**
+| 方法 | 说明 |
+|------|------|
+| `getTagColor(tagName)` | 获取标签自定义颜色 |
+| `setTagColor(tagName, color)` | 设置标签颜色 |
+| `resetTagColor(tagName)` | 恢复标签默认颜色 |
+| `getAllTagColors()` | 获取所有标签颜色映射 |
+
+**PIN 保护：**
+| 方法 | 说明 |
+|------|------|
+| `isPinProtected()` | 是否已启用PIN |
+| `verifyPin(pin)` | 验证PIN码 |
+| `setPin(pin)` | 设置PIN并加密数据 |
+| `changePin(oldPin, newPin)` | 修改PIN |
+| `clearPin(oldPin)` | 清除PIN解密数据 |
+| `unlockData(pin)` | 解锁并载入数据 |
+| `lockData()` | 锁定并清除明文 |
+
 **导出/导入：**
 | 方法 | 说明 |
 |------|------|
@@ -267,6 +303,25 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `function getCategoryFullPath(catId)` | 获取分类全路径 |
 | `function getRootAncestorId(catId)` | 获取根分类 ID |
 | `function getRootAncestor(catId)` | 获取根分类对象 |
+| `setAutoLockTimeout(minutes)` | 设置自动锁定超时 |
+| `lockApp()` | 立即锁定应用 |
+| `startInactivityCheck()` | 启动空闲检测 |
+| `stopInactivityCheck()` | 停止空闲检测 |
+| `showPinModal()` | 显示PIN解锁弹窗 |
+| `submitPin()` | 提交PIN验证 |
+| `showSetPinModal()` | 显示设置PIN弹窗 |
+| `saveNewPin()` | 保存新PIN |
+| `showChangePinModal()` | 显示修改PIN弹窗 |
+| `saveChangedPin()` | 保存修改后的PIN |
+| `showClearPinModal()` | 显示清除PIN弹窗 |
+| `confirmClearPin()` | 确认清除PIN |
+| `openTagPicker(selected, callback)` | 打开标签选择器 |
+| `filterTagList()` | 过滤标签列表 |
+| `toggleTagPick(tag)` | 切换标签选中 |
+| `createAndSelectTag()` | 创建并选中新标签 |
+| `confirmTagPick()` | 确认标签选择 |
+| `getAutoLockTimeout()` | 获取自动锁定超时 |
+| `bindActivityListeners()` | 绑定活动监听器 |
 
 ---
 
@@ -286,6 +341,9 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | 符号 | 说明 |
 |------|------|
 | `function renderOverview()` | 渲染总览页全部内容 |
+| `isRolling` | `boolean` | 当前是否为近30天模式 |
+| `periodRange` | `object` | 当前统计范围信息 |
+| `StatsEngine.getPeriod*()` | 替代 `getMonth*` 用于滚动统计 |
 
 ---
 
@@ -345,6 +403,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `function renderRecords()` | 渲染流水页 |
 | `function toggleRecordsView()` | 切换紧凑/卡片视图 |
 | `function getFilteredRecords()` | 获取筛选后的记录 |
+| `setRecordsTagFilter(tag)` | `function` | 设置标签筛选并刷新列表 | window |
 | `function toggleOverspentFilter()` | 切换超支筛选 |
 | `function applyRecordsFilter()` | 应用筛选 |
 | `function openCategoryFilterPicker()` | 分类筛选选择器 |
@@ -486,6 +545,23 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `isBillToggleChecked(chartId)` | 获取账单切换状态 |
 | `refreshPieChart()` | 刷新饼图 |
 
+**Waffle Chart 标签分布图：**
+| 函数 | 说明 |
+|------|------|
+| `drawWaffleChart(canvasId, records)` | 绘制标签分布 Waffle Chart |
+| `setWaffleDensity(level)` | 设置 Waffle 密度（1-5） |
+| `toggleWaffleUntagged()` | 切换是否包含无标签记录 |
+| `openWaffleTagColorPicker(tagName, color)` | 打开标签颜色选择器 |
+| `exportWafflePNG()` | 导出 Waffle 为 PNG |
+| `changeWaffleMonth(monthKey)` | 切换 Waffle 独立月份 |
+| `startHoverAnim(...)` | Waffle 悬停动画 |
+| `bindWaffleHover(...)` | 绑定 Waffle 悬停交互 |
+| `drawWaffleStatic(...)` | Waffle 静态绘制 |
+| `drawWaffleLegend(tagData, total)` | Waffle 图例渲染 |
+| `animateWaffle(...)` | Waffle 入场动画 |
+| `_hoverAnimId` | 悬停动画帧 ID |
+| `_hoverState` | 悬停动画状态 |
+
 ---
 
 ### 18. `18-render-settings.js` — 设置页
@@ -503,6 +579,14 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `function exportCSV()` | 导出 CSV |
 | `function clearAllData()` | 清除数据（确认弹窗） |
 | `function confirmClearAll()` | 执行清除 |
+| `getStatsRange()` | 读取统计范围设置 |
+| `DataStore.setStatsRange(val)` | 切换统计范围 |
+| `setAutoLockTimeout(minutes)` | 设置自动锁定 |
+| `getAutoLockTimeout()` | 获取自动锁定时间 |
+| `showSetPinModal()` | 设置PIN弹窗 |
+| `showChangePinModal()` | 修改PIN弹窗 |
+| `showClearPinModal()` | 清除PIN弹窗 |
+| `deleteTag(tag)` | 删除标签 |
 
 ---
 
@@ -560,6 +644,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `window.addEventListener('hashchange', handleHash)` | 监听哈希变化 |
 | `window.addEventListener('load', ...)` | 加载时路由 + resize 重绘 |
 | `CanvasRenderingContext2D.prototype.roundRect` | roundRect 兼容性 polyfill |
+| `initApp()` | 重新初始化应用（PIN解锁后） |
+| `_pinRequired` | `boolean` | 是否需要PIN解锁 |
 
 ---
 

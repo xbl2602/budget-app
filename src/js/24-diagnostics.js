@@ -158,7 +158,7 @@ const DIAG = {
     
     let text = '=== Budget App Diagnostic Report ===\n';
     text += 'Generated: ' + new Date().toISOString() + '\n';
-    text += 'Version: v2.3.2\n';
+    text += 'Version: v2.7.0\n';
     text += '\n--- Memory vs LocalStorage ---\n';
     text += 'Memory records: ' + compare.memRecords + '\n';
     text += 'LocalStorage records: ' + compare.lsRecords + '\n';
