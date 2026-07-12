@@ -1986,17 +1986,15 @@ function drawWaffleChart(canvasId, records) {
   // 3. Calculate grid
   var densityMap = { 1: 600, 2: 300, 3: 150, 4: 60, 5: 24 };
   var totalCells = densityMap[waffleDensity] || 200;
-  var gap = Math.max(1, Math.round(cellSize * 0.1));
   var aspectRatio = w / h;
   var cols = Math.round(Math.sqrt(totalCells * aspectRatio));
   var rows = Math.round(totalCells / cols);
   while (rows * cols < totalCells) cols++;
   var actualCells = rows * cols;
 
-  var cellSize = Math.min(
-    (w - (cols - 1) * gap) / cols,
-    (h - (rows - 1) * gap - 30) / rows
-  );
+  // 先估算 cellSize（不含 gap），再计算 gap，最后用 gap 细调
+  var cellSize = Math.min(w / cols, (h - 30) / rows);
+  var gap = Math.max(1, Math.round(cellSize * 0.1));
   var gridW = cols * cellSize + (cols - 1) * gap;
   var gridH = rows * cellSize + (rows - 1) * gap;
   var offsetX = (w - gridW) / 2;
