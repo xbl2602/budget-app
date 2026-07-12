@@ -2259,14 +2259,20 @@ function bindWaffleHover(canvas, cells, cellSize, gap, offsetX, offsetY, cols, r
         currentHoverTag = tagIdx;
         startHoverAnim(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount, tooltip, e, tagIdx);
       }
-      // Update tooltip position
+      // Update tooltip position (with boundary check)
       var tag = tagData[tagIdx];
       var pct = ((tag.amount / totalAmount) * 100).toFixed(1);
-      tooltip.style.left = (e.clientX + 10) + 'px';
-      tooltip.style.top = (e.clientY + 10) + 'px';
       tooltip.innerHTML = '<strong>' + escHtml(tag.name) + '</strong> \u00B7 ' + formatMoney(tag.amount) + ' \u00B7 ' + pct + '%';
-      canvas._clickTag = tag.name;
       tooltip.style.display = 'block';
+      var tw = tooltip.offsetWidth || 180;
+      var th = tooltip.offsetHeight || 30;
+      var tl = e.clientX + 12;
+      var tt = e.clientY + 12;
+      if (tl + tw > window.innerWidth - 8) tl = e.clientX - tw - 12;
+      if (tt + th > window.innerHeight - 8) tt = e.clientY - th - 12;
+      tooltip.style.left = tl + 'px';
+      tooltip.style.top = tt + 'px';
+      canvas._clickTag = tag.name;
       canvas.style.cursor = 'pointer';
     } else {
       if (currentHoverTag !== -1) {
