@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
-  <title>记账软件 v2.3.3</title>
+  <title>记账软件 v2.4.0</title>
   <style>
 /* ===== CSS DESIGN SYSTEM ===== */
 :root {
@@ -2856,9 +2856,15 @@ const StatsEngine = {
   },
 
   getPredictedTotal(month) {
-    const avg = this.getDailyAverage(month);
+    const records = this.getRecordsInMonth(month);
+    if (!records.length) return 0;
     const daysInMonth = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
-    return avg * daysInMonth;
+    const now = new Date();
+    const today = now.getDate();
+    const currentMonth = getMonthKey(now.toISOString());
+    const daysPassed = month === currentMonth ? today : daysInMonth;
+    const total = records.reduce((s, r) => s + r.amount, 0);
+    return daysPassed ? (total / daysPassed) * daysInMonth : 0;
   },
 
   getSavingsPrediction(month) {
@@ -4823,6 +4829,7 @@ let compactRecordsView = JSON.parse(localStorage.getItem('budgetCompactView') ||
 let recordsPerPage = window.recordsPerPage = parseInt(localStorage.getItem('budgetRecordsPerPage') || '20');
 let batchMode = false;
 let selectedRecordIds = new Set();
+let recordsSort = JSON.parse(localStorage.getItem('budgetRecordsSort') || '[{"field":"date","dir":"desc"}]');
 
 function renderRecords() {
   logEvent('renderRecords', 'start');
@@ -4891,6 +4898,15 @@ function renderRecords() {
           " style="width:50px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:0.75rem;text-align:center;background:var(--card-bg);color:var(--text)"> 条
         </span>
       </div>
+      <!-- Sort section -->
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+        <div class="flex items-center gap-8 mb-4" style="flex-wrap:wrap">
+          <span class="text-sm font-semibold">🔀 排序：</span>
+          <div id="sortControls"></div>
+          <button class="btn btn-ghost btn-sm" onclick="addSortLevel()">＋ 添加排序</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearSort()">清除排序</button>
+        </div>
+      </div>
     </div>
     <div id="recordsList"></div>
     <!-- Batch toolbar -->
@@ -4905,6 +4921,7 @@ function renderRecords() {
   window.recordsPage = 0;
   renderRecordsList();
   updateBatchCount();
+  renderSortControls();
 }
 
 function toggleRecordsView() {
@@ -4972,6 +4989,34 @@ function getFilteredRecords() {
         return rootId && overspentIds.has(rootId);
       });
     }
+  }
+  // Apply sorting
+  if (recordsSort && recordsSort.length > 0) {
+    records.sort((a, b) => {
+      for (const level of recordsSort) {
+        let cmp = 0;
+        const dir = level.dir === 'asc' ? 1 : -1;
+        switch (level.field) {
+          case 'date':
+            cmp = ((a.date || a.createdAt) || '').localeCompare((b.date || b.createdAt) || '');
+            break;
+          case 'amount':
+            cmp = (a.amount || 0) - (b.amount || 0);
+            break;
+          case 'note':
+            cmp = (a.note || '').localeCompare(b.note || '');
+            break;
+          case 'category': {
+            const ca = DataStore.getCategory(a.categoryId);
+            const cb = DataStore.getCategory(b.categoryId);
+            cmp = (ca ? ca.name : '').localeCompare(cb ? cb.name : '');
+            break;
+          }
+        }
+        if (cmp !== 0) return cmp * dir;
+      }
+      return 0;
+    });
   }
   return records;
 }
@@ -5520,6 +5565,62 @@ function refreshPageData() {
   renderRecords();
 }
 
+/* ===== SORT FUNCTIONS ===== */
+function renderSortControls() {
+  const container = document.getElementById('sortControls');
+  if (!container) return;
+  const fieldLabels = { date: '日期', amount: '金额', note: '备注', category: '分类' };
+  let html = '';
+  recordsSort.forEach((level, idx) => {
+    const arrow = level.dir === 'asc' ? '↑' : '↓';
+    html += `
+      <div class="sort-level" style="display:inline-flex;align-items:center;gap:4px;margin:2px 4px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg);">
+        <select onchange="updateSortField(${idx}, this.value)" style="padding:2px 4px;font-size:0.75rem;border:1px solid var(--border);border-radius:3px;background:var(--card-bg);color:var(--text);">
+          ${['date','amount','note','category'].map(f => `<option value="${f}" ${level.field === f ? 'selected' : ''}>${fieldLabels[f]}</option>`).join('')}
+        </select>
+        <button class="btn btn-ghost btn-sm" style="padding:0 4px;font-size:0.8rem;border:none;cursor:pointer;background:none" onclick="toggleSortDir(${idx})" title="切换排序方向">${arrow}</button>
+        ${recordsSort.length > 1 ? `<button class="btn btn-ghost btn-sm" style="padding:0 4px;font-size:0.8rem;border:none;cursor:pointer;background:none;color:var(--danger)" onclick="removeSortLevel(${idx})" title="移除排序">×</button>` : ''}
+      </div>
+    `;
+  });
+  container.innerHTML = html;
+}
+
+function addSortLevel() {
+  recordsSort.push({ field: 'date', dir: 'desc' });
+  applySort();
+}
+
+function removeSortLevel(idx) {
+  recordsSort.splice(idx, 1);
+  if (recordsSort.length === 0) {
+    recordsSort.push({ field: 'date', dir: 'desc' });
+  }
+  applySort();
+}
+
+function updateSortField(idx, field) {
+  recordsSort[idx].field = field;
+  applySort();
+}
+
+function toggleSortDir(idx) {
+  recordsSort[idx].dir = recordsSort[idx].dir === 'asc' ? 'desc' : 'asc';
+  applySort();
+}
+
+function clearSort() {
+  recordsSort = [{ field: 'date', dir: 'desc' }];
+  applySort();
+}
+
+function applySort() {
+  localStorage.setItem('budgetRecordsSort', JSON.stringify(recordsSort));
+  window.recordsPage = 0;
+  renderRecordsList();
+  renderSortControls();
+}
+
   // === EXPORTS ===
   window.refreshPageData = refreshPageData;
   window.recordsFilter = recordsFilter;
@@ -5553,6 +5654,14 @@ function refreshPageData() {
   window.undoDelete = undoDelete;
   window.openEditRecord = openEditRecord;
   window.submitEditRecord = submitEditRecord;
+  window.recordsSort = recordsSort;
+  window.renderSortControls = renderSortControls;
+  window.addSortLevel = addSortLevel;
+  window.removeSortLevel = removeSortLevel;
+  window.updateSortField = updateSortField;
+  window.toggleSortDir = toggleSortDir;
+  window.clearSort = clearSort;
+  window.applySort = applySort;
 })();
 
 /* ============================================================

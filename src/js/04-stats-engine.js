@@ -51,9 +51,15 @@ const StatsEngine = {
   },
 
   getPredictedTotal(month) {
-    const avg = this.getDailyAverage(month);
+    const records = this.getRecordsInMonth(month);
+    if (!records.length) return 0;
     const daysInMonth = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
-    return avg * daysInMonth;
+    const now = new Date();
+    const today = now.getDate();
+    const currentMonth = getMonthKey(now.toISOString());
+    const daysPassed = month === currentMonth ? today : daysInMonth;
+    const total = records.reduce((s, r) => s + r.amount, 0);
+    return daysPassed ? (total / daysPassed) * daysInMonth : 0;
   },
 
   getSavingsPrediction(month) {
