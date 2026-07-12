@@ -7368,6 +7368,8 @@ let waffleDensity = parseInt(localStorage.getItem('budgetWaffleDensity') || '3')
 let waffleIncludeUntagged = localStorage.getItem('budgetWaffleIncludeUntagged') !== 'false';
 let waffleCells = [];
 let waffleTagData = [];
+var _hoverAnimId = null;
+var _hoverState = { tagIndex: -1, progress: 0, active: false };
 
 function getDrillCategory() {
   return statsDrillStack.length > 0 ? statsDrillStack[statsDrillStack.length - 1] : null;
@@ -9348,13 +9350,22 @@ function drawWaffleChart(canvasId, records) {
   while (rows * cols < totalCells) cols++;
   var actualCells = rows * cols;
 
-  // 先估算 cellSize（不含 gap），再计算 gap，最后用 gap 细调
+  // 第一遍：估算 cellSize（不含 gap）
   var cellSize = Math.min(w / cols, (h - 30) / rows);
-  var gap = Math.max(1, Math.round(cellSize * 0.1));
+  // 根据估算值计算 gap
+  var gap = Math.max(1, Math.min(3, Math.round(cellSize * 0.1)));
+  // 第二遍：用 gap 重新计算 cellSize，确保不出界
+  cellSize = Math.min(
+    (w - (cols - 1) * gap) / cols,
+    (h - 30 - (rows - 1) * gap) / rows
+  );
+  // 安全下限
+  cellSize = Math.max(4, Math.floor(cellSize * 10) / 10);
+  gap = Math.max(1, Math.min(3, Math.round(cellSize * 0.1)));
   var gridW = cols * cellSize + (cols - 1) * gap;
   var gridH = rows * cellSize + (rows - 1) * gap;
-  var offsetX = (w - gridW) / 2;
-  var offsetY = 4;
+  var offsetX = Math.max(0, (w - gridW) / 2);
+  var offsetY = Math.max(0, (h - gridH) / 2);
 
   // 4. Assign cells to tags
   var cellValue = totalAmount / actualCells;
@@ -9482,40 +9493,122 @@ function drawWaffleLegend(tagData, totalAmount) {
   }).join('');
 }
 
+function startHoverAnim(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount, tooltip, event, targetTagIdx) {
+  // Cancel any running animation
+  if (_hoverAnimId) {
+    cancelAnimationFrame(_hoverAnimId);
+    _hoverAnimId = null;
+  }
+
+  var startTime = performance.now();
+  var duration = 150; // ms
+  var startTagIdx = _hoverState.active ? _hoverState.tagIndex : (targetTagIdx === -1 ? -1 : _hoverState.tagIndex);
+  var isLeaving = targetTagIdx === -1;
+
+  function animateHover(currentTime) {
+    var elapsed = currentTime - startTime;
+    var progress = Math.min(elapsed / duration, 1);
+    // Ease-out quadratic
+    var eased = progress * (2 - progress);
+
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.width / dpr;
+    var h = canvas.height / dpr;
+    ctx.clearRect(0, 0, w, h);
+
+    var highlightIdx = isLeaving ? -1 : targetTagIdx;
+
+    cells.forEach(function(cell, i) {
+      var col = i % cols;
+      var row = Math.floor(i / cols);
+      var x = offsetX + col * (cellSize + gap);
+      var y = offsetY + row * (cellSize + gap);
+      var isHighlighted = cell.tagIndex === highlightIdx;
+
+      // Interpolate scale and alpha
+      var targetScale = isHighlighted ? 1.06 : 1.0;
+      var targetAlpha = isHighlighted ? 1.0 : 0.75;
+      var startScale = _hoverState.active && _hoverState.tagIndex === cell.tagIndex ? 1.06 : 1.0;
+      var startAlpha = _hoverState.active && _hoverState.tagIndex === cell.tagIndex ? 1.0 : 1.0;
+
+      var scale = startScale + (targetScale - startScale) * eased;
+      var alpha = startAlpha + (targetAlpha - startAlpha) * eased;
+      var s = cellSize * scale;
+      var cx = x + cellSize / 2;
+      var cy = y + cellSize / 2;
+
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+      ctx.beginPath();
+      ctx.roundRect(cx - s / 2, cy - s / 2, s, s, 2);
+      ctx.fillStyle = cell.color;
+      ctx.fill();
+
+      if (isHighlighted && progress > 0.5) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      ctx.restore();
+    });
+
+    if (progress < 1) {
+      _hoverAnimId = requestAnimationFrame(animateHover);
+    } else {
+      _hoverAnimId = null;
+      _hoverState.active = !isLeaving;
+      _hoverState.tagIndex = targetTagIdx;
+      _hoverState.progress = 1;
+      // Final draw to ensure crisp state
+      drawWaffleStatic(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, highlightIdx);
+    }
+  }
+
+  _hoverAnimId = requestAnimationFrame(animateHover);
+}
+
 function bindWaffleHover(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount) {
   var tooltip = document.getElementById('waffleTooltip');
   if (!tooltip) return;
+  var currentHoverTag = -1;
 
   canvas.onmousemove = function(e) {
     var rect = canvas.getBoundingClientRect();
     var mx = e.clientX - rect.left;
     var my = e.clientY - rect.top;
-
     var col = Math.floor((mx - offsetX) / (cellSize + gap));
     var row = Math.floor((my - offsetY) / (cellSize + gap));
     var idx = row * cols + col;
 
     if (idx >= 0 && idx < cells.length && mx >= offsetX && my >= offsetY) {
-      var tag = tagData[cells[idx].tagIndex];
+      var tagIdx = cells[idx].tagIndex;
+      if (tagIdx !== currentHoverTag) {
+        currentHoverTag = tagIdx;
+        startHoverAnim(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount, tooltip, e, tagIdx);
+      }
+      // Update tooltip position
+      var tag = tagData[tagIdx];
       var pct = ((tag.amount / totalAmount) * 100).toFixed(1);
-
-      tooltip.style.display = 'block';
       tooltip.style.left = (e.clientX + 10) + 'px';
       tooltip.style.top = (e.clientY + 10) + 'px';
       tooltip.innerHTML = '<strong>' + escHtml(tag.name) + '</strong> \u00B7 ' + formatMoney(tag.amount) + ' \u00B7 ' + pct + '%';
-
-      drawWaffleStatic(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, cells[idx].tagIndex);
+      tooltip.style.display = 'block';
       canvas.style.cursor = 'pointer';
     } else {
+      if (currentHoverTag !== -1) {
+        currentHoverTag = -1;
+        startHoverAnim(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount, tooltip, e, -1);
+      }
       tooltip.style.display = 'none';
-      drawWaffleStatic(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData);
       canvas.style.cursor = 'default';
     }
   };
 
   canvas.onmouseleave = function() {
+    currentHoverTag = -1;
     tooltip.style.display = 'none';
-    drawWaffleStatic(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData);
+    startHoverAnim(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount, tooltip, null, -1);
   };
 }
 
@@ -9533,18 +9626,26 @@ function drawWaffleStatic(canvas, cells, cellSize, gap, offsetX, offsetY, cols, 
     var y = offsetY + row * (cellSize + gap);
     var isHighlighted = highlightIdx !== undefined && cell.tagIndex === highlightIdx;
 
+    // 缩放因子：高亮格放大，其余变暗
+    var scale = isHighlighted ? 1.06 : 1.0;
+    var alpha = isHighlighted ? 1.0 : 0.75;
+    var s = cellSize * scale;
+    var cx = x + cellSize / 2;
+    var cy = y + cellSize / 2;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
     ctx.beginPath();
-    ctx.roundRect(x, y, cellSize, cellSize, 2);
+    ctx.roundRect(cx - s / 2, cy - s / 2, s, s, 2);
     ctx.fillStyle = cell.color;
-    ctx.globalAlpha = isHighlighted ? 1.0 : 0.85;
     ctx.fill();
-    ctx.globalAlpha = 1.0;
 
     if (isHighlighted) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
+    ctx.restore();
   });
 }
 
