@@ -237,3 +237,32 @@
     position: static;
   }
 }
+
+/* Savings bar contrast fixes for dark mode */
+[data-theme="dark"] .savings-bar-track {
+  background: #374151; /* darker gray for better contrast */
+}
+
+[data-theme="dark"] .savings-bar-baseline {
+  background: #94A3B8; /* lighter gray instead of #64748B */
+  width: 3px;          /* slightly thicker */
+  box-shadow: 0 0 4px rgba(0,0,0,0.3);
+}
+
+.savings-bar-fill.fill-better {
+  background: linear-gradient(90deg, #059669, #10B981);
+  box-shadow: 0 0 6px rgba(16,185,129,0.4);
+}
+
+.savings-bar-fill.fill-worse {
+  background: linear-gradient(90deg, #DC2626, #EF4444);
+  box-shadow: 0 0 6px rgba(239,68,68,0.4);
+}
+
+[data-theme="dark"] .savings-bar-fill.fill-better {
+  box-shadow: 0 0 8px rgba(16,185,129,0.5);
+}
+
+[data-theme="dark"] .savings-bar-fill.fill-worse {
+  box-shadow: 0 0 8px rgba(239,68,68,0.5);
+}

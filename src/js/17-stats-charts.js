@@ -89,7 +89,6 @@ function getDailySavingsTarget(month) {
     const t = savingsTarget;
     if (t.type === 'fixed') return t.fixedAmount || 0;
     if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    if (t.type === 'both') return (t.fixedAmount || 0) + (baseAmount * (t.percent || 0) / 100);
     return 0;
   })();
   const spendable = Math.max(0, netDisposable - targetAmount);
@@ -594,7 +593,6 @@ function refreshOverviewBudget() {
     const t = savingsTarget;
     if (t.type === 'fixed') return t.fixedAmount || 0;
     if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    if (t.type === 'both') return (t.fixedAmount || 0) + (baseAmount * (t.percent || 0) / 100);
     return 0;
   })();
   const spendableBudget = Math.max(0, netDisposable - targetAmount);
@@ -675,7 +673,6 @@ function renderStats() {
     const t = savingsTargetStats;
     if (t.type === 'fixed') return t.fixedAmount || 0;
     if (t.type === 'percent') return baseAmountStats * (t.percent || 0) / 100;
-    if (t.type === 'both') return (t.fixedAmount || 0) + (baseAmountStats * (t.percent || 0) / 100);
     return 0;
   })();
   const spendableBudgetStats = Math.max(0, netDisposableStats - targetAmountStats);

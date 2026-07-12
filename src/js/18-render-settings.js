@@ -47,20 +47,17 @@ function renderSettings() {
           <label class="btn btn-sm ${savings.type === 'percent' ? 'btn-primary' : 'btn-outline'}" onclick="setSavingsType('percent')">
             <input type="radio" name="savingsType" value="percent" ${savings.type === 'percent' ? 'checked' : ''} style="display:none"> 百分比
           </label>
-          <label class="btn btn-sm ${savings.type === 'both' ? 'btn-primary' : 'btn-outline'}" onclick="setSavingsType('both')">
-            <input type="radio" name="savingsType" value="both" ${savings.type === 'both' ? 'checked' : ''} style="display:none"> 两者
-          </label>
         </div>
       </div>
-      <div id="savingsFixedInput" class="input-group" style="display:${savings.type === 'fixed' || savings.type === 'both' ? 'block' : 'none'}">
+      <div id="savingsFixedInput" class="input-group" style="display:${savings.type === 'fixed' ? 'block' : 'none'}">
         <label class="input-label">固定金额 (RM)</label>
         <input type="number" id="savingsFixedAmount" class="input-field" value="${savings.fixedAmount || ''}" placeholder="0">
       </div>
-      <div id="savingsPercentInput" class="input-group" style="display:${savings.type === 'percent' || savings.type === 'both' ? 'block' : 'none'}">
+      <div id="savingsPercentInput" class="input-group" style="display:${savings.type === 'percent' ? 'block' : 'none'}">
         <label class="input-label">预算百分比 (%)</label>
         <input type="number" id="savingsPercent" class="input-field" value="${savings.percent || ''}" placeholder="0" min="0" max="100">
       </div>
-      <div class="input-group percent-base-group ${savings.type === 'percent' || savings.type === 'both' ? 'visible' : ''}" id="percentBaseGroup">
+      <div class="input-group percent-base-group ${savings.type === 'percent' ? 'visible' : ''}" id="percentBaseGroup">
         <label class="input-label">百分比基准</label>
         <div class="flex gap-8">
           <label class="btn btn-sm ${(DataStore.getPercentBase()) === 'gross' ? 'btn-primary' : 'btn-outline'}" onclick="setPercentBase('gross')">纯收入</label>
@@ -307,7 +304,7 @@ function renderDataInspector() {
   html += '</div>';
   
   // Stats engine audit with month selector
-  html += '<details style="margin-bottom:8px" open>';
+  html += '<details style="margin-bottom:8px">';
   html += '<summary style="cursor:pointer;font-weight:600;font-size:0.85rem;padding:4px 0">📊 统计引擎审计 (点击展开)</summary>';
   html += '<div style="padding:8px;background:var(--bg);border-radius:8px;margin-top:4px">';
   html += '<p class="text-xs text-muted mb-8">查看任意月份统计引擎实际使用的记录列表</p>';

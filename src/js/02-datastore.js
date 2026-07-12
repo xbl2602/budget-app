@@ -37,7 +37,7 @@ const DataStore = {
       categories: JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)),
       budgets: {},
       categoryBudgets: {},
-      savingsTarget: { type: 'both', fixedAmount: 0, percent: 0 },
+      savingsTarget: { type: 'fixed', fixedAmount: 0, percent: 0 },
       colorIndex: DEFAULT_CATEGORIES.length,
       billCategories: [],
       billAmounts: {},
@@ -65,7 +65,7 @@ const DataStore = {
           this._data.categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
         }
         if (!this._data.savingsTarget) {
-          this._data.savingsTarget = { type: 'both', fixedAmount: 0, percent: 0 };
+          this._data.savingsTarget = { type: 'fixed', fixedAmount: 0, percent: 0 };
         }
         if (!this._data.categoryBudgets) {
           this._data.categoryBudgets = {};

@@ -30,7 +30,6 @@ const SimulationEngine = {
     let targetAmount = 0;
     if (savingsTarget.type === 'fixed') targetAmount = savingsTarget.fixedAmount || 0;
     else if (savingsTarget.type === 'percent') targetAmount = (savingsTarget.percent || 0) / 100 * baseAmount;
-    else if (savingsTarget.type === 'both') targetAmount = (savingsTarget.fixedAmount || 0) + (savingsTarget.percent || 0) / 100 * baseAmount;
     const spendable = Math.max(0, netDisposable - targetAmount);
 
     // Get actual spending to date (variable categories only)

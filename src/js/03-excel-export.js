@@ -273,8 +273,8 @@ function exportToExcel() {
     const targetObj = DataStore.getSavingsTarget();
     const targetType = targetObj.type || 'fixed';
     let targetAmount = 0;
-    if (targetType === 'fixed' || targetType === 'both') targetAmount += (targetObj.fixedAmount || 0);
-    if (targetType === 'percent' || targetType === 'both') targetAmount += budget * ((targetObj.percent || 0) / 100);
+    if (targetType === 'fixed') targetAmount += (targetObj.fixedAmount || 0);
+    if (targetType === 'percent') targetAmount += budget * ((targetObj.percent || 0) / 100);
     spendable = Math.max(0, budget - targetAmount);
     savingsAmt = spendable - md.total;
 
@@ -345,8 +345,8 @@ function exportToExcel() {
     let targetAmount = 0;
     const targetObj = DataStore.getSavingsTarget();
     const targetType = targetObj.type || 'fixed';
-    if (targetType === 'fixed' || targetType === 'both') targetAmount += (targetObj.fixedAmount || 0);
-    if (targetType === 'percent' || targetType === 'both') targetAmount += budget * ((targetObj.percent || 0) / 100);
+    if (targetType === 'fixed') targetAmount += (targetObj.fixedAmount || 0);
+    if (targetType === 'percent') targetAmount += budget * ((targetObj.percent || 0) / 100);
     const spendable = Math.max(0, budget - targetAmount);
     const remaining = spendable - md.total;
     const usagePct = spendable > 0 ? (md.total / spendable) : 0;
@@ -412,8 +412,8 @@ function exportToExcel() {
     let targetAmount = 0;
     const targetObj = DataStore.getSavingsTarget();
     const targetType = targetObj.type || 'fixed';
-    if (targetType === 'fixed' || targetType === 'both') targetAmount += (targetObj.fixedAmount || 0);
-    if (targetType === 'percent' || targetType === 'both') targetAmount += budget * ((targetObj.percent || 0) / 100);
+    if (targetType === 'fixed') targetAmount += (targetObj.fixedAmount || 0);
+    if (targetType === 'percent') targetAmount += budget * ((targetObj.percent || 0) / 100);
     const spendable = Math.max(0, budget - targetAmount);
     const actualSavings = spendable - md.total;
 

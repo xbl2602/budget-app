@@ -371,13 +371,13 @@ function renderWhatIfResults(result) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div style="text-align:center">
         <div class="text-xs text-muted mb-8">当前趋势 · 预测总支出</div>
-        <canvas class="whatif-ring" id="wi-ring-trend-wi" width="140" height="140"></canvas>
+        <canvas class="whatif-ring" id="wi-ring-trend-wi" width="140" height="140" style="max-width:140px;max-height:140px;width:100%;height:auto"></canvas>
         <div class="text-sm font-bold">${formatMoney(trendTotal)}</div>
         <div class="text-xs text-muted">占收入 ${income > 0 ? ((trendTotal / income) * 100).toFixed(1) : 0}%</div>
       </div>
       <div style="text-align:center">
         <div class="text-xs text-muted mb-8">假设调整 · 预测总支出</div>
-        <canvas class="whatif-ring" id="wi-ring-proj-wi" width="140" height="140"></canvas>
+        <canvas class="whatif-ring" id="wi-ring-proj-wi" width="140" height="140" style="max-width:140px;max-height:140px;width:100%;height:auto"></canvas>
         <div class="text-sm font-bold">${formatMoney(adjustedTotal)}</div>
         <div class="text-xs text-muted">占收入 ${income > 0 ? ((adjustedTotal / income) * 100).toFixed(1) : 0}%</div>
       </div>

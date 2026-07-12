@@ -41,7 +41,6 @@ function renderOverview() {
     const t = savingsTarget;
     if (t.type === 'fixed') return t.fixedAmount || 0;
     if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    if (t.type === 'both') return (t.fixedAmount || 0) + (baseAmount * (t.percent || 0) / 100);
     return 0;
   })();
 
@@ -331,7 +330,6 @@ function refreshOverviewBudget() {
     const t = savingsTarget;
     if (t.type === 'fixed') return t.fixedAmount || 0;
     if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    if (t.type === 'both') return (t.fixedAmount || 0) + (baseAmount * (t.percent || 0) / 100);
     return 0;
   })();
   const spendableBudget = Math.max(0, netDisposable - targetAmount);

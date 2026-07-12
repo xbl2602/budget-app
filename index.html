@@ -1263,6 +1263,35 @@ ul, ol { list-style: none; }
     position: static;
   }
 }
+
+/* Savings bar contrast fixes for dark mode */
+[data-theme="dark"] .savings-bar-track {
+  background: #374151; /* darker gray for better contrast */
+}
+
+[data-theme="dark"] .savings-bar-baseline {
+  background: #94A3B8; /* lighter gray instead of #64748B */
+  width: 3px;          /* slightly thicker */
+  box-shadow: 0 0 4px rgba(0,0,0,0.3);
+}
+
+.savings-bar-fill.fill-better {
+  background: linear-gradient(90deg, #059669, #10B981);
+  box-shadow: 0 0 6px rgba(16,185,129,0.4);
+}
+
+.savings-bar-fill.fill-worse {
+  background: linear-gradient(90deg, #DC2626, #EF4444);
+  box-shadow: 0 0 6px rgba(239,68,68,0.4);
+}
+
+[data-theme="dark"] .savings-bar-fill.fill-better {
+  box-shadow: 0 0 8px rgba(16,185,129,0.5);
+}
+
+[data-theme="dark"] .savings-bar-fill.fill-worse {
+  box-shadow: 0 0 8px rgba(239,68,68,0.5);
+}
 /* ===== BILLS CENTER COMPONENTS ===== */
 
 /* Card variant for Bills Center modal */
@@ -1910,7 +1939,7 @@ const DataStore = {
       categories: JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)),
       budgets: {},
       categoryBudgets: {},
-      savingsTarget: { type: 'both', fixedAmount: 0, percent: 0 },
+      savingsTarget: { type: 'fixed', fixedAmount: 0, percent: 0 },
       colorIndex: DEFAULT_CATEGORIES.length,
       billCategories: [],
       billAmounts: {},
@@ -1938,7 +1967,7 @@ const DataStore = {
           this._data.categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
         }
         if (!this._data.savingsTarget) {
-          this._data.savingsTarget = { type: 'both', fixedAmount: 0, percent: 0 };
+          this._data.savingsTarget = { type: 'fixed', fixedAmount: 0, percent: 0 };
         }
         if (!this._data.categoryBudgets) {
           this._data.categoryBudgets = {};
@@ -2704,8 +2733,8 @@ function exportToExcel() {
     const targetObj = DataStore.getSavingsTarget();
     const targetType = targetObj.type || 'fixed';
     let targetAmount = 0;
-    if (targetType === 'fixed' || targetType === 'both') targetAmount += (targetObj.fixedAmount || 0);
-    if (targetType === 'percent' || targetType === 'both') targetAmount += budget * ((targetObj.percent || 0) / 100);
+    if (targetType === 'fixed') targetAmount += (targetObj.fixedAmount || 0);
+    if (targetType === 'percent') targetAmount += budget * ((targetObj.percent || 0) / 100);
     spendable = Math.max(0, budget - targetAmount);
     savingsAmt = spendable - md.total;
 
@@ -2776,8 +2805,8 @@ function exportToExcel() {
     let targetAmount = 0;
     const targetObj = DataStore.getSavingsTarget();
     const targetType = targetObj.type || 'fixed';
-    if (targetType === 'fixed' || targetType === 'both') targetAmount += (targetObj.fixedAmount || 0);
-    if (targetType === 'percent' || targetType === 'both') targetAmount += budget * ((targetObj.percent || 0) / 100);
+    if (targetType === 'fixed') targetAmount += (targetObj.fixedAmount || 0);
+    if (targetType === 'percent') targetAmount += budget * ((targetObj.percent || 0) / 100);
     const spendable = Math.max(0, budget - targetAmount);
     const remaining = spendable - md.total;
     const usagePct = spendable > 0 ? (md.total / spendable) : 0;
@@ -2843,8 +2872,8 @@ function exportToExcel() {
     let targetAmount = 0;
     const targetObj = DataStore.getSavingsTarget();
     const targetType = targetObj.type || 'fixed';
-    if (targetType === 'fixed' || targetType === 'both') targetAmount += (targetObj.fixedAmount || 0);
-    if (targetType === 'percent' || targetType === 'both') targetAmount += budget * ((targetObj.percent || 0) / 100);
+    if (targetType === 'fixed') targetAmount += (targetObj.fixedAmount || 0);
+    if (targetType === 'percent') targetAmount += budget * ((targetObj.percent || 0) / 100);
     const spendable = Math.max(0, budget - targetAmount);
     const actualSavings = spendable - md.total;
 
@@ -3178,7 +3207,6 @@ const SimulationEngine = {
     let targetAmount = 0;
     if (savingsTarget.type === 'fixed') targetAmount = savingsTarget.fixedAmount || 0;
     else if (savingsTarget.type === 'percent') targetAmount = (savingsTarget.percent || 0) / 100 * baseAmount;
-    else if (savingsTarget.type === 'both') targetAmount = (savingsTarget.fixedAmount || 0) + (savingsTarget.percent || 0) / 100 * baseAmount;
     const spendable = Math.max(0, netDisposable - targetAmount);
 
     // Get actual spending to date (variable categories only)
@@ -3945,7 +3973,6 @@ function renderOverview() {
     const t = savingsTarget;
     if (t.type === 'fixed') return t.fixedAmount || 0;
     if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    if (t.type === 'both') return (t.fixedAmount || 0) + (baseAmount * (t.percent || 0) / 100);
     return 0;
   })();
 
@@ -4235,7 +4262,6 @@ function refreshOverviewBudget() {
     const t = savingsTarget;
     if (t.type === 'fixed') return t.fixedAmount || 0;
     if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    if (t.type === 'both') return (t.fixedAmount || 0) + (baseAmount * (t.percent || 0) / 100);
     return 0;
   })();
   const spendableBudget = Math.max(0, netDisposable - targetAmount);
@@ -6544,7 +6570,6 @@ function getDailySavingsTarget(month) {
     const t = savingsTarget;
     if (t.type === 'fixed') return t.fixedAmount || 0;
     if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    if (t.type === 'both') return (t.fixedAmount || 0) + (baseAmount * (t.percent || 0) / 100);
     return 0;
   })();
   const spendable = Math.max(0, netDisposable - targetAmount);
@@ -7049,7 +7074,6 @@ function refreshOverviewBudget() {
     const t = savingsTarget;
     if (t.type === 'fixed') return t.fixedAmount || 0;
     if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    if (t.type === 'both') return (t.fixedAmount || 0) + (baseAmount * (t.percent || 0) / 100);
     return 0;
   })();
   const spendableBudget = Math.max(0, netDisposable - targetAmount);
@@ -7130,7 +7154,6 @@ function renderStats() {
     const t = savingsTargetStats;
     if (t.type === 'fixed') return t.fixedAmount || 0;
     if (t.type === 'percent') return baseAmountStats * (t.percent || 0) / 100;
-    if (t.type === 'both') return (t.fixedAmount || 0) + (baseAmountStats * (t.percent || 0) / 100);
     return 0;
   })();
   const spendableBudgetStats = Math.max(0, netDisposableStats - targetAmountStats);
@@ -8444,20 +8467,17 @@ function renderSettings() {
           <label class="btn btn-sm ${savings.type === 'percent' ? 'btn-primary' : 'btn-outline'}" onclick="setSavingsType('percent')">
             <input type="radio" name="savingsType" value="percent" ${savings.type === 'percent' ? 'checked' : ''} style="display:none"> 百分比
           </label>
-          <label class="btn btn-sm ${savings.type === 'both' ? 'btn-primary' : 'btn-outline'}" onclick="setSavingsType('both')">
-            <input type="radio" name="savingsType" value="both" ${savings.type === 'both' ? 'checked' : ''} style="display:none"> 两者
-          </label>
         </div>
       </div>
-      <div id="savingsFixedInput" class="input-group" style="display:${savings.type === 'fixed' || savings.type === 'both' ? 'block' : 'none'}">
+      <div id="savingsFixedInput" class="input-group" style="display:${savings.type === 'fixed' ? 'block' : 'none'}">
         <label class="input-label">固定金额 (RM)</label>
         <input type="number" id="savingsFixedAmount" class="input-field" value="${savings.fixedAmount || ''}" placeholder="0">
       </div>
-      <div id="savingsPercentInput" class="input-group" style="display:${savings.type === 'percent' || savings.type === 'both' ? 'block' : 'none'}">
+      <div id="savingsPercentInput" class="input-group" style="display:${savings.type === 'percent' ? 'block' : 'none'}">
         <label class="input-label">预算百分比 (%)</label>
         <input type="number" id="savingsPercent" class="input-field" value="${savings.percent || ''}" placeholder="0" min="0" max="100">
       </div>
-      <div class="input-group percent-base-group ${savings.type === 'percent' || savings.type === 'both' ? 'visible' : ''}" id="percentBaseGroup">
+      <div class="input-group percent-base-group ${savings.type === 'percent' ? 'visible' : ''}" id="percentBaseGroup">
         <label class="input-label">百分比基准</label>
         <div class="flex gap-8">
           <label class="btn btn-sm ${(DataStore.getPercentBase()) === 'gross' ? 'btn-primary' : 'btn-outline'}" onclick="setPercentBase('gross')">纯收入</label>
@@ -8704,7 +8724,7 @@ function renderDataInspector() {
   html += '</div>';
   
   // Stats engine audit with month selector
-  html += '<details style="margin-bottom:8px" open>';
+  html += '<details style="margin-bottom:8px">';
   html += '<summary style="cursor:pointer;font-weight:600;font-size:0.85rem;padding:4px 0">📊 统计引擎审计 (点击展开)</summary>';
   html += '<div style="padding:8px;background:var(--bg);border-radius:8px;margin-top:4px">';
   html += '<p class="text-xs text-muted mb-8">查看任意月份统计引擎实际使用的记录列表</p>';
@@ -8956,7 +8976,6 @@ function renderReport() {
     const t = savingsTarget;
     if (t.type === 'fixed') return t.fixedAmount || 0;
     if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    if (t.type === 'both') return (t.fixedAmount || 0) + (baseAmount * (t.percent || 0) / 100);
     return 0;
   })();
   const spendableBudget = Math.max(0, netDisposable - targetAmount);
@@ -9533,13 +9552,13 @@ function renderWhatIfResults(result) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div style="text-align:center">
         <div class="text-xs text-muted mb-8">当前趋势 · 预测总支出</div>
-        <canvas class="whatif-ring" id="wi-ring-trend-wi" width="140" height="140"></canvas>
+        <canvas class="whatif-ring" id="wi-ring-trend-wi" width="140" height="140" style="max-width:140px;max-height:140px;width:100%;height:auto"></canvas>
         <div class="text-sm font-bold">${formatMoney(trendTotal)}</div>
         <div class="text-xs text-muted">占收入 ${income > 0 ? ((trendTotal / income) * 100).toFixed(1) : 0}%</div>
       </div>
       <div style="text-align:center">
         <div class="text-xs text-muted mb-8">假设调整 · 预测总支出</div>
-        <canvas class="whatif-ring" id="wi-ring-proj-wi" width="140" height="140"></canvas>
+        <canvas class="whatif-ring" id="wi-ring-proj-wi" width="140" height="140" style="max-width:140px;max-height:140px;width:100%;height:auto"></canvas>
         <div class="text-sm font-bold">${formatMoney(adjustedTotal)}</div>
         <div class="text-xs text-muted">占收入 ${income > 0 ? ((adjustedTotal / income) * 100).toFixed(1) : 0}%</div>
       </div>
