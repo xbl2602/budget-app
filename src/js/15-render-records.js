@@ -918,6 +918,7 @@ function removeEditTag(tag) {
   // Tag filter helpers
   window.openTagPickerForRecords = openTagPickerForRecords;
   window.removeRecordsTagFilter = removeRecordsTagFilter;
+  window.setRecordsTagFilter = setRecordsTagFilter;
   window.openEditTagPicker = openEditTagPicker;
   window.renderEditTagsDisplay = renderEditTagsDisplay;
   window.removeEditTag = removeEditTag;
@@ -935,6 +936,19 @@ function removeRecordsTagFilter(tag) {
   recordsFilter.tags = (recordsFilter.tags || []).filter(t => t !== tag);
   window.recordsPage = 0;
   renderRecordsList();
+}
+
+function setRecordsTagFilter(tag) {
+  recordsFilter.tags = [tag];
+  recordsFilter.keyword = '';
+  recordsPage = 0;
+  // Re-render records list
+  if (typeof renderRecordsList === 'function') renderRecordsList();
+  // Update filter UI if on records page
+  var display = document.getElementById('recordsTagFilterDisplay');
+  if (display) {
+    display.innerHTML = '<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 6px;background:var(--primary);color:white;border-radius:10px;font-size:0.7rem">' + escHtml(tag) + '</span>';
+  }
 }
 })();
 

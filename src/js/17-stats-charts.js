@@ -12,6 +12,7 @@ let waffleDensity = parseInt(localStorage.getItem('budgetWaffleDensity') || '3')
 let waffleIncludeUntagged = localStorage.getItem('budgetWaffleIncludeUntagged') !== 'false';
 let waffleCells = [];
 let waffleTagData = [];
+var waffleSelectedMonth = '';
 var _hoverAnimId = null;
 var _hoverState = { tagIndex: -1, progress: 0, active: false };
 
@@ -867,6 +868,21 @@ function renderStats() {
             <span id="waffleUntaggedCheck" style="width:16px;height:16px;border:2px solid var(--text-muted);border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:0.6rem">${waffleIncludeUntagged ? '✓' : ''}</span>
             含无标签
           </label>
+          <!-- Month selector -->
+          <select class="input-field" id="waffleMonthSelect" style="width:auto;font-size:0.7rem;padding:2px 6px" onchange="changeWaffleMonth(this.value)">
+            <option value="">📅 跟随统计范围</option>
+            ${function(){
+              var opts = '';
+              var now = new Date();
+              for (var i = 0; i < 12; i++) {
+                var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                var val = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+                var label = d.getFullYear() + '年' + (d.getMonth()+1) + '月';
+                opts += '<option value="' + val + '"' + (waffleSelectedMonth === val ? ' selected' : '') + '>' + label + '</option>';
+              }
+              return opts;
+            }()}
+          </select>
           <!-- Density selector -->
           <div class="flex gap-4" style="font-size:0.65rem">
             ${[1,2,3,4,5].map(d => 
@@ -877,6 +893,9 @@ function renderStats() {
         </div>
       </div>
       <canvas id="waffleChart" width="400" height="250" style="width:100%;height:220px;cursor:pointer"></canvas>
+          <div style="text-align:right;margin-top:4px">
+            <button class="btn btn-ghost btn-sm" onclick="exportWafflePNG()" style="font-size:0.65rem">📥 下载 PNG</button>
+          </div>
       <div id="waffleLegend" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;font-size:0.72rem"></div>
       <div id="waffleTooltip" style="display:none;position:fixed;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:0.75rem;pointer-events:none;z-index:100;box-shadow:var(--shadow-md)"></div>
     </div>
@@ -1953,11 +1972,19 @@ function drawWaffleChart(canvasId, records) {
   canvas.height = Math.round(h * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  // 2. Aggregate tags
+  // 2. If independent month selected, filter records
+  var filteredRecords = records;
+  if (waffleSelectedMonth) {
+    filteredRecords = records.filter(function(r) {
+      return getMonthKey(r.date || r.createdAt) === waffleSelectedMonth && !r._deleted;
+    });
+  }
+
+  // 3. Aggregate tags
   const tagTotals = {};
   let untaggedTotal = 0;
 
-  records.forEach(function(r) {
+  filteredRecords.forEach(function(r) {
     if (r.tags && r.tags.length > 0) {
       r.tags.forEach(function(t) {
         tagTotals[t] = (tagTotals[t] || 0) + r.amount;
@@ -1968,8 +1995,9 @@ function drawWaffleChart(canvasId, records) {
   });
 
   var tagKeys = Object.keys(tagTotals);
+  var customColors = DataStore.getAllTagColors();
   var tagData = tagKeys.map(function(name, idx) {
-    return { name: name, amount: tagTotals[name], color: COLORS[idx % COLORS.length] };
+    return { name: name, amount: tagTotals[name], color: customColors[name] || COLORS[idx % COLORS.length] };
   });
   tagData.sort(function(a, b) { return b.amount - a.amount; });
 
@@ -1985,7 +2013,7 @@ function drawWaffleChart(canvasId, records) {
     return;
   }
 
-  // 3. Calculate grid
+  // 4. Calculate grid
   var densityMap = { 1: 600, 2: 300, 3: 150, 4: 60, 5: 24 };
   var totalCells = densityMap[waffleDensity] || 200;
   var aspectRatio = w / h;
@@ -2011,7 +2039,7 @@ function drawWaffleChart(canvasId, records) {
   var offsetX = Math.max(0, (w - gridW) / 2);
   var offsetY = Math.max(0, (h - gridH) / 2);
 
-  // 4. Assign cells to tags
+  // 5. Assign cells to tags
   var cellValue = totalAmount / actualCells;
   var cells = [];
   var remainingCells = actualCells;
@@ -2043,7 +2071,7 @@ function drawWaffleChart(canvasId, records) {
   waffleCells = cells;
   waffleTagData = tagData;
 
-  // 5. Animate
+  // 6. Animate
   animateWaffle(ctx, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount);
 }
 
@@ -2129,8 +2157,8 @@ function drawWaffleLegend(tagData, totalAmount) {
   if (!container) return;
   container.innerHTML = tagData.map(function(t) {
     var pct = ((t.amount / totalAmount) * 100).toFixed(1);
-    return '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;background:var(--bg);border-radius:4px">' +
-      '<span style="width:8px;height:8px;border-radius:2px;background:' + t.color + ';display:inline-block"></span>' +
+    return '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;background:var(--bg);border-radius:4px;cursor:pointer" onclick="window.setRecordsTagFilter(\'' + escHtml(t.name) + '\');navigateTo(\'records\')">' +
+      '<span style="width:10px;height:10px;border-radius:3px;background:' + t.color + ';display:inline-block;cursor:pointer" onclick="event.stopPropagation();openWaffleTagColorPicker(\'' + escHtml(t.name) + '\',\'' + t.color + '\')"></span>' +
       '<span>' + escHtml(t.name) + '</span>' +
       '<span style="color:var(--text-muted)">' + formatMoney(t.amount) + ' \u00B7 ' + pct + '%</span>' +
     '</span>';
@@ -2237,6 +2265,7 @@ function bindWaffleHover(canvas, cells, cellSize, gap, offsetX, offsetY, cols, r
       tooltip.style.left = (e.clientX + 10) + 'px';
       tooltip.style.top = (e.clientY + 10) + 'px';
       tooltip.innerHTML = '<strong>' + escHtml(tag.name) + '</strong> \u00B7 ' + formatMoney(tag.amount) + ' \u00B7 ' + pct + '%';
+      canvas._clickTag = tag.name;
       tooltip.style.display = 'block';
       canvas.style.cursor = 'pointer';
     } else {
@@ -2253,6 +2282,14 @@ function bindWaffleHover(canvas, cells, cellSize, gap, offsetX, offsetY, cols, r
     currentHoverTag = -1;
     tooltip.style.display = 'none';
     startHoverAnim(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount, tooltip, null, -1);
+  };
+
+  canvas.onclick = function(e) {
+    var tagName = canvas._clickTag;
+    if (tagName && typeof window.setRecordsTagFilter === 'function') {
+      window.setRecordsTagFilter(tagName);
+      navigateTo('records');
+    }
   };
 }
 
@@ -2306,6 +2343,34 @@ function toggleWaffleUntagged() {
   renderStats();
 }
 
+function openWaffleTagColorPicker(tagName, currentColor) {
+  var colors = window.COLORS || ['#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6','#F97316','#06B6D4','#84CC16','#A855F7','#E11D48','#0EA5E9','#D97706'];
+  var html = '<div class="modal-title">🎨 选择标签颜色 — ' + escHtml(tagName) + '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;padding:8px 0">' +
+    colors.map(function(c) {
+      return '<span style="display:inline-block;width:32px;height:32px;border-radius:50%;background:' + c + ';cursor:pointer;border:' + (c === currentColor ? '3px solid var(--text-primary)' : '2px solid transparent') + '" onclick="DataStore.setTagColor(\'' + escHtml(tagName) + '\',\'' + c + '\');closeModal();renderStats()"></span>';
+    }).join('') +
+    '</div>' +
+    (DataStore.getTagColor(tagName) ? '<div style="text-align:center;padding-top:4px"><button class="btn btn-ghost btn-sm" onclick="DataStore.resetTagColor(\'' + escHtml(tagName) + '\');closeModal();renderStats()">↩ 恢复默认</button></div>' : '') +
+    '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>';
+  showModal(html);
+}
+
+function exportWafflePNG() {
+  var canvas = document.getElementById('waffleChart');
+  if (!canvas) return;
+  var link = document.createElement('a');
+  link.download = 'waffle-tags-' + new Date().toISOString().substr(0, 10) + '.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  showToast('✅ Waffle 已导出为 PNG');
+}
+
+function changeWaffleMonth(monthKey) {
+  waffleSelectedMonth = monthKey;
+  renderStats();
+}
+
   // === EXPORTS ===
   window.statsMonth = statsMonth;
   window.statsStartDate = statsStartDate;
@@ -2352,4 +2417,7 @@ function toggleWaffleUntagged() {
   window.setWaffleDensity = setWaffleDensity;
   window.toggleWaffleUntagged = toggleWaffleUntagged;
   window.drawWaffleChart = drawWaffleChart;
+  window.openWaffleTagColorPicker = openWaffleTagColorPicker;
+  window.exportWafflePNG = exportWafflePNG;
+  window.changeWaffleMonth = changeWaffleMonth;
 })();

@@ -735,6 +735,26 @@ const DataStore = {
     this._data.allTags = this._data.allTags.filter(t => usedTags.has(t));
     this.save();
   },
+
+  // === Tag Colors ===
+  getTagColor(tagName) {
+    if (!this._data.tagColors) this._data.tagColors = {};
+    return this._data.tagColors[tagName] || null;
+  },
+  setTagColor(tagName, color) {
+    if (!this._data.tagColors) this._data.tagColors = {};
+    this._data.tagColors[tagName] = color;
+    this.save();
+  },
+  resetTagColor(tagName) {
+    if (this._data.tagColors && this._data.tagColors[tagName]) {
+      delete this._data.tagColors[tagName];
+      this.save();
+    }
+  },
+  getAllTagColors() {
+    return this._data.tagColors || {};
+  },
 };
 
   // === EXPORTS ===
@@ -757,4 +777,8 @@ const DataStore = {
   window.DataStore.getRecordsByTag = DataStore.getRecordsByTag.bind(DataStore);
   window.DataStore.getTagStats = DataStore.getTagStats.bind(DataStore);
   window.DataStore.cleanUnusedTags = DataStore.cleanUnusedTags.bind(DataStore);
+  window.DataStore.getTagColor = DataStore.getTagColor.bind(DataStore);
+  window.DataStore.setTagColor = DataStore.setTagColor.bind(DataStore);
+  window.DataStore.resetTagColor = DataStore.resetTagColor.bind(DataStore);
+  window.DataStore.getAllTagColors = DataStore.getAllTagColors.bind(DataStore);
 })();
