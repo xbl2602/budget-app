@@ -3684,6 +3684,18 @@ function getRootAncestor(catId) {
   return cat;
 }
 
+function refreshCurrentPage() {
+  const tab = window.currentTab || 'overview';
+  if (tab === 'overview') { if (typeof renderOverview === 'function') renderOverview(); }
+  else if (tab === 'add') { if (typeof renderAddPage === 'function') renderAddPage(); }
+  else if (tab === 'records') { if (typeof renderRecords === 'function') renderRecords(); }
+  else if (tab === 'categories') { if (typeof renderCategories === 'function') renderCategories(); }
+  else if (tab === 'stats') { if (typeof renderStats === 'function') renderStats(); }
+  else if (tab === 'report') { if (typeof renderReport === 'function') renderReport(); }
+  else if (tab === 'whatif') { if (typeof renderWhatIf === 'function') renderWhatIf(); }
+  else if (tab === 'settings') { if (typeof renderSettings === 'function') renderSettings(); }
+}
+
   // === EXPORTS ===
   window.applyTheme = applyTheme;
   window.toggleTheme = toggleTheme;
@@ -3704,6 +3716,7 @@ function getRootAncestor(catId) {
   window.getCategoryFullPath = getCategoryFullPath;
   window.getRootAncestorId = getRootAncestorId;
   window.getRootAncestor = getRootAncestor;
+  window.refreshCurrentPage = refreshCurrentPage;
 })();
 (function() {
 'use strict';
@@ -5267,7 +5280,7 @@ function confirmBatchDelete() {
   batchMode = false;
   closeModal();
   showToast(`🗑️ 已删除 ${ids.length} 条记录`);
-  renderRecords();
+  refreshCurrentPage();
 }
 
 function batchChangeCategory() {
@@ -5317,7 +5330,7 @@ function confirmBatchChangeCategory(catId) {
   batchMode = false;
   closeModal();
   showToast(`✅ 已将 ${ids.length} 条记录分类改为 ${cat.icon} ${cat.name}`);
-  renderRecords();
+  refreshCurrentPage();
 }
 
 function deleteRecordConfirm(id) {
@@ -5365,7 +5378,7 @@ function confirmDeleteRecord(id) {
       }
     }, 5000);
   }
-  renderRecords();
+  refreshCurrentPage();
 }
 
 function confirmHardDeleteRecord(id) {
@@ -5377,7 +5390,7 @@ function confirmHardDeleteRecord(id) {
   } else {
     showToast('❌ 删除失败：记录不存在', 'error');
   }
-  renderRecords();
+  refreshCurrentPage();
 }
 
 function undoDelete(btn) {
@@ -5397,7 +5410,7 @@ function undoDelete(btn) {
         setTimeout(() => toast.remove(), 300);
       }
     }, 2000);
-    renderRecords();
+    refreshCurrentPage();
   } else {
     toast.innerHTML = `<span>❌</span> 无法撤销（已超时）`;
     toast.classList.add('error');
@@ -5479,7 +5492,7 @@ function submitEditRecord(e, id) {
   selectedCategoryId = null;
   closeModal();
   showToast('✅ 记录已更新');
-  renderRecords();
+  refreshCurrentPage();
 }
 
 function refreshPageData() {

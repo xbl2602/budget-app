@@ -466,7 +466,7 @@ function confirmBatchDelete() {
   batchMode = false;
   closeModal();
   showToast(`🗑️ 已删除 ${ids.length} 条记录`);
-  renderRecords();
+  refreshCurrentPage();
 }
 
 function batchChangeCategory() {
@@ -516,7 +516,7 @@ function confirmBatchChangeCategory(catId) {
   batchMode = false;
   closeModal();
   showToast(`✅ 已将 ${ids.length} 条记录分类改为 ${cat.icon} ${cat.name}`);
-  renderRecords();
+  refreshCurrentPage();
 }
 
 function deleteRecordConfirm(id) {
@@ -564,7 +564,7 @@ function confirmDeleteRecord(id) {
       }
     }, 5000);
   }
-  renderRecords();
+  refreshCurrentPage();
 }
 
 function confirmHardDeleteRecord(id) {
@@ -576,7 +576,7 @@ function confirmHardDeleteRecord(id) {
   } else {
     showToast('❌ 删除失败：记录不存在', 'error');
   }
-  renderRecords();
+  refreshCurrentPage();
 }
 
 function undoDelete(btn) {
@@ -596,7 +596,7 @@ function undoDelete(btn) {
         setTimeout(() => toast.remove(), 300);
       }
     }, 2000);
-    renderRecords();
+    refreshCurrentPage();
   } else {
     toast.innerHTML = `<span>❌</span> 无法撤销（已超时）`;
     toast.classList.add('error');
@@ -678,7 +678,7 @@ function submitEditRecord(e, id) {
   selectedCategoryId = null;
   closeModal();
   showToast('✅ 记录已更新');
-  renderRecords();
+  refreshCurrentPage();
 }
 
 function refreshPageData() {

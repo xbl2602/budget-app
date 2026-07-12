@@ -314,6 +314,18 @@ function getRootAncestor(catId) {
   return cat;
 }
 
+function refreshCurrentPage() {
+  const tab = window.currentTab || 'overview';
+  if (tab === 'overview') { if (typeof renderOverview === 'function') renderOverview(); }
+  else if (tab === 'add') { if (typeof renderAddPage === 'function') renderAddPage(); }
+  else if (tab === 'records') { if (typeof renderRecords === 'function') renderRecords(); }
+  else if (tab === 'categories') { if (typeof renderCategories === 'function') renderCategories(); }
+  else if (tab === 'stats') { if (typeof renderStats === 'function') renderStats(); }
+  else if (tab === 'report') { if (typeof renderReport === 'function') renderReport(); }
+  else if (tab === 'whatif') { if (typeof renderWhatIf === 'function') renderWhatIf(); }
+  else if (tab === 'settings') { if (typeof renderSettings === 'function') renderSettings(); }
+}
+
   // === EXPORTS ===
   window.applyTheme = applyTheme;
   window.toggleTheme = toggleTheme;
@@ -334,4 +346,5 @@ function getRootAncestor(catId) {
   window.getCategoryFullPath = getCategoryFullPath;
   window.getRootAncestorId = getRootAncestorId;
   window.getRootAncestor = getRootAncestor;
+  window.refreshCurrentPage = refreshCurrentPage;
 })();
