@@ -66,12 +66,12 @@ function showBudgetSelector(month) {
   // Load current selection
   let selected = budgetMonitoredIds ? [...budgetMonitoredIds] : budgeted.map(c => c.id);
   
-  let html = '<div class="modal-title">选择监控分类</div>';
+  let html = '<div class="modal-title">' + __('budgetProgress.selectTitle') + '</div>';
   html += '<div style="max-height:50vh;overflow-y:auto;margin-bottom:12px">';
   html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">';
-  html += '<button class="btn btn-sm btn-outline" onclick="(function(){var c=document.querySelectorAll(\'.budget-sel-cb\');c.forEach(function(e){e.checked=true})})()">全选</button>';
-  html += '<button class="btn btn-sm btn-outline" onclick="(function(){var c=document.querySelectorAll(\'.budget-sel-cb\');c.forEach(function(e){e.checked=false})})()">取消全选</button>';
-  html += '<button class="btn btn-sm btn-outline" onclick="(function(){var c=document.querySelectorAll(\'.budget-sel-cb\');c.forEach(function(e){e.checked=!e.checked})})()">反选</button>';
+  html += '<button class="btn btn-sm btn-outline" onclick="(function(){var c=document.querySelectorAll(\'.budget-sel-cb\');c.forEach(function(e){e.checked=true})})()">' + __('budgetProgress.selectAll') + '</button>';
+  html += '<button class="btn btn-sm btn-outline" onclick="(function(){var c=document.querySelectorAll(\'.budget-sel-cb\');c.forEach(function(e){e.checked=false})})()">' + __('budgetProgress.deselectAll') + '</button>';
+  html += '<button class="btn btn-sm btn-outline" onclick="(function(){var c=document.querySelectorAll(\'.budget-sel-cb\');c.forEach(function(e){e.checked=!e.checked})})()">' + __('budgetProgress.invert') + '</button>';
   html += '</div>';
   
   budgeted.forEach(cat => {
@@ -86,8 +86,8 @@ function showBudgetSelector(month) {
   
   html += '</div>';
   html += '<div class="modal-actions">';
-  html += '<button class="btn btn-ghost" onclick="closeModal()">取消</button>';
-  html += '<button class="btn btn-primary" onclick="confirmBudgetSelection(\'' + month + '\')">确认</button>';
+  html += '<button class="btn btn-ghost" onclick="closeModal()">' + __('budgetProgress.cancel') + '</button>';
+  html += '<button class="btn btn-primary" onclick="confirmBudgetSelection(\'' + month + '\')">' + __('budgetProgress.confirm') + '</button>';
   html += '</div>';
   
   showModal(html);
@@ -97,7 +97,7 @@ function confirmBudgetSelection(month) {
   const cbs = document.querySelectorAll('.budget-sel-cb:checked');
   const ids = Array.from(cbs).map(cb => cb.value);
   if (ids.length === 0) {
-    showToast('请至少选择一个分类', 'warning');
+    showToast(__('budgetProgress.selectAtLeastOne'), 'warning');
     return;
   }
   if (ids.length === DataStore.getRootCategories().filter(c => {
@@ -164,7 +164,7 @@ function renderBudgetProgressCard(month, showHeader) {
   else if (_sort === 'amount') rows.sort((a, b) => b.spent - a.spent);
   else if (_sort === 'name') rows.sort((a, b) => a.cat.name.localeCompare(b.cat.name));
 
-  if (!rows.length) { console.log('[budgetProgress] no budgeted categories for month:', month); return '<div class="card mb-16"><div class="card-title">📊 预算进度</div><div class="text-sm text-muted" style="padding:12px 0;text-align:center">暂未设置分类预算，前往「分类」页面设置</div></div>'; }
+  if (!rows.length) { console.log('[budgetProgress] no budgeted categories for month:', month); return '<div class="card mb-16"><div class="card-title">' + __('budgetProgress.emptyTitle') + '</div><div class="text-sm text-muted" style="padding:12px 0;text-align:center">' + __('budgetProgress.emptyMessage') + '</div></div>'; }
 
   const totalBudget = rows.reduce((s, r) => s + r.budget, 0);
   const totalSpent = rows.reduce((s, r) => s + r.spent, 0);
@@ -172,23 +172,23 @@ function renderBudgetProgressCard(month, showHeader) {
 
   let html = '<div class="card mb-16">';
   html += '<div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
-  html += '<span>📊 预算进度</span>';
+  html += '<span>' + __('budgetProgress.cardTitle') + '</span>';
   // View toggle — single slider-style toggle
   html += '<div id="budgetViewToggle" class="budget-view-toggle' + (budgetProgressView === 'segmented' ? ' segmented' : '') + '" onclick="toggleBudgetView(\'' + month + '\')">';
   html += '<div class="bvt-slider"></div>';
-  html += '<span class="bvt-label' + (budgetProgressView === 'solid' ? ' active' : '') + '">▬ 单色</span>';
-  html += '<span class="bvt-label' + (budgetProgressView === 'segmented' ? ' active' : '') + '">▣ 分段</span>';
+  html += '<span class="bvt-label' + (budgetProgressView === 'solid' ? ' active' : '') + '">' + __('budgetProgress.solidView') + '</span>';
+  html += '<span class="bvt-label' + (budgetProgressView === 'segmented' ? ' active' : '') + '">' + __('budgetProgress.segmentedView') + '</span>';
   html += '</div>';
   // Sort dropdown
   html += '<select class="input-field" style="width:auto;font-size:0.72rem;padding:2px 6px" onchange="budgetProgressSort=this.value;localStorage.setItem(\'budgetProgressSort\',this.value);refreshBudgetCards(\'' + month + '\')">';
-  const sortOpts = [['usage','按使用率'],['amount','按金额'],['name','按名称']];
+  const sortOpts = [['usage', __('budgetProgress.sortUsage')], ['amount', __('budgetProgress.sortAmount')], ['name', __('budgetProgress.sortName')]];
   sortOpts.forEach(([v,l]) => html += '<option value="' + v + '" ' + ((window.budgetProgressSort || budgetProgressSort) === v ? 'selected' : '') + '>' + l + '</option>');
   html += '</select>';
   // Select button
-  html += '<div class="view-toggle-btn" onclick="showBudgetSelector(\'' + month + '\')" style="font-size:0.7rem" title="选择要监控的分类">👁️ 选择</div>';
+  html += '<div class="view-toggle-btn" onclick="showBudgetSelector(\'' + month + '\')" style="font-size:0.7rem" title="' + __('budgetProgress.selectBtnTitle') + '">' + __('budgetProgress.selectBtn') + '</div>';
   html += '</div>'; // end card-title
   // Guide text
-  html += '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:8px;line-height:1.4;padding:0 2px">每个分类的预算使用进度，可点击▬单色/▣分段切换视图，点击👁️选择要关注的分类，下拉菜单调整排序方式。子分类若有独立预算也会显示。</div>';
+  html += '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:8px;line-height:1.4;padding:0 2px">' + __('budgetProgress.guideText') + '</div>';
   html += '<div id="budgetProgressInner" style="animation:bpFadeIn 0.25s ease">' + renderBudgetProgressCardInner(month) + '</div>';
   html += '</div>';
   return html;
@@ -273,7 +273,7 @@ function renderBudgetProgressCardInner(month) {
     html += '<span style="font-size:0.78rem;font-weight:600">' + formatMoney(r.spent) + '</span>';
     html += '<span class="text-xs text-muted">/ ' + formatMoney(r.budget) + '</span>';
     html += '<span style="font-size:0.8rem;font-weight:700;color:' + pBarColor + ';width:48px;text-align:right">' + r.pct.toFixed(0) + '%</span>';
-    if (r.pct > 100) html += '<span class="badge badge-danger" style="font-size:0.6rem">超支</span>';
+    if (r.pct > 100) html += '<span class="badge badge-danger" style="font-size:0.6rem">' + __('budgetProgress.overspent') + '</span>';
     html += '</div>';
 
     // Progress bar
@@ -334,7 +334,7 @@ function renderBudgetProgressCardInner(month) {
       html += '<span style="font-size:0.78rem;font-weight:600">' + formatMoney(cr.spent) + '</span>';
       html += '<span class="text-xs text-muted">/ ' + formatMoney(cr.budget) + '</span>';
       html += '<span style="font-size:0.8rem;font-weight:700;color:' + cBarColor + ';width:48px;text-align:right">' + cr.pct.toFixed(0) + '%</span>';
-      if (cr.pct > 100) html += '<span class="badge badge-danger" style="font-size:0.6rem">超支</span>';
+      if (cr.pct > 100) html += '<span class="badge badge-danger" style="font-size:0.6rem">' + __('budgetProgress.overspent') + '</span>';
       html += '</div>';
       // Child solid bar
       html += '<div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">';
@@ -346,7 +346,7 @@ function renderBudgetProgressCardInner(month) {
 
   // Total row
   html += '<div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px;display:flex;align-items:center;gap:6px">';
-  html += '<span class="font-bold" style="font-size:0.85rem;flex:1">总计</span>';
+  html += '<span class="font-bold" style="font-size:0.85rem;flex:1">' + __('budgetProgress.total') + '</span>';
   html += '<span style="font-size:0.85rem;font-weight:600">' + formatMoney(totalSpent) + '</span>';
   html += '<span class="text-xs text-muted">/ ' + formatMoney(totalBudget) + '</span>';
   html += '<span style="font-size:0.85rem;font-weight:700;color:' + (totalPct >= 100 ? '#EF4444' : (totalPct >= 80 ? '#F59E0B' : '#10B981')) + '">' + totalPct.toFixed(1) + '%</span>';
@@ -355,6 +355,30 @@ function renderBudgetProgressCardInner(month) {
   console.log('[budgetProgress] rendered', rows.length, 'rows');
   return html;
 }
+
+  // i18n translations
+  addI18nEntries({
+    'budgetProgress.selectTitle': { zh: '选择监控分类', en: 'Select Categories to Monitor' },
+    'budgetProgress.selectAll': { zh: '全选', en: 'Select All' },
+    'budgetProgress.deselectAll': { zh: '取消全选', en: 'Deselect All' },
+    'budgetProgress.invert': { zh: '反选', en: 'Invert Selection' },
+    'budgetProgress.cancel': { zh: '取消', en: 'Cancel' },
+    'budgetProgress.confirm': { zh: '确认', en: 'Confirm' },
+    'budgetProgress.selectAtLeastOne': { zh: '请至少选择一个分类', en: 'Please select at least one category' },
+    'budgetProgress.emptyTitle': { zh: '📊 预算进度', en: '📊 Budget Progress' },
+    'budgetProgress.emptyMessage': { zh: '暂未设置分类预算，前往「分类」页面设置', en: 'No category budgets set. Go to Categories page to set them.' },
+    'budgetProgress.cardTitle': { zh: '📊 预算进度', en: '📊 Budget Progress' },
+    'budgetProgress.solidView': { zh: '▬ 单色', en: '▬ Solid' },
+    'budgetProgress.segmentedView': { zh: '▣ 分段', en: '▣ Segmented' },
+    'budgetProgress.sortUsage': { zh: '按使用率', en: 'By Usage' },
+    'budgetProgress.sortAmount': { zh: '按金额', en: 'By Amount' },
+    'budgetProgress.sortName': { zh: '按名称', en: 'By Name' },
+    'budgetProgress.selectBtn': { zh: '👁️ 选择', en: '👁️ Select' },
+    'budgetProgress.selectBtnTitle': { zh: '选择要监控的分类', en: 'Select categories to monitor' },
+    'budgetProgress.guideText': { zh: '每个分类的预算使用进度，可点击▬单色/▣分段切换视图，点击👁️选择要关注的分类，下拉菜单调整排序方式。子分类若有独立预算也会显示。', en: 'Budget usage per category. Click ▬Solid/▣Segmented to toggle views, click 👁️ to select categories, use the dropdown to sort. Child categories with their own budgets are also shown.' },
+    'budgetProgress.overspent': { zh: '超支', en: 'Overspent' },
+    'budgetProgress.total': { zh: '总计', en: 'Total' }
+  });
 
   // === EXPORTS ===
   window.budgetProgressSort = budgetProgressSort;

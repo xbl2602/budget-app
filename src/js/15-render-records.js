@@ -31,61 +31,61 @@ function renderRecords() {
 
   el.innerHTML = `
     <div class="card mb-16">
-      <div class="card-title mb-8">搜索筛选</div>
+      <div class="card-title mb-8">${__('records.filter.title')}</div>
       <div class="input-group" style="margin-bottom:8px">
-        <input type="text" id="filterKeyword" class="input-field" placeholder="🔍 搜索备注..." value="${escHtml(recordsFilter.keyword)}" oninput="applyRecordsFilter()">
+        <input type="text" id="filterKeyword" class="input-field" placeholder="${__('records.filter.searchPlaceholder')}" value="${escHtml(recordsFilter.keyword)}" oninput="applyRecordsFilter()">
       </div>
       <div class="input-group" style="margin-bottom:8px">
-        <label class="text-sm text-secondary">标签</label>
+        <label class="text-sm text-secondary">${__('records.filter.tags')}</label>
         <div style="display:flex;flex-wrap:wrap;gap:4px" id="recordsTagFilterDisplay">
           ${recordsFilter.tags && recordsFilter.tags.length > 0
             ? recordsFilter.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 6px;background:var(--primary);color:white;border-radius:10px;font-size:0.7rem">${escHtml(t)}<span style="cursor:pointer" onclick="removeRecordsTagFilter('${escHtml(t)}')">✕</span></span>`).join('')
-            : '<span class="text-xs text-muted">全部</span>'}
+            : '<span class="text-xs text-muted">' + __('records.filter.all') + '</span>'}
         </div>
-        <button type="button" class="btn btn-sm btn-outline" style="font-size:0.72rem" onclick="openTagPickerForRecords()">🏷️ 筛选标签</button>
+        <button type="button" class="btn btn-sm btn-outline" style="font-size:0.72rem" onclick="openTagPickerForRecords()">${__('records.filter.filterTags')}</button>
       </div>
       <div class="input-group" style="margin-bottom:8px">
-        <label class="text-sm text-secondary">分类</label>
+        <label class="text-sm text-secondary">${__('records.filter.category')}</label>
         <button type="button" class="input-field" style="text-align:left;cursor:pointer" onclick="openCategoryFilterPicker()">
-          <span id="filterCategoryDisplay">${filterCat ? escHtml(filterCat.icon) + ' ' + escHtml(filterCat.name) : '全部分类'}</span>
+          <span id="filterCategoryDisplay">${filterCat ? escHtml(filterCat.icon) + ' ' + escHtml(filterCat.name) : __('records.filter.allCategories')}</span>
         </button>
       </div>
       <div class="grid-2">
         <div class="input-group" style="margin-bottom:8px">
-          <label class="text-sm text-secondary">开始日期</label>
+          <label class="text-sm text-secondary">${__('records.filter.startDate')}</label>
           <input type="date" id="filterDateStart" class="input-field" value="${recordsFilter.dateStart}" onchange="applyRecordsFilter()">
         </div>
         <div class="input-group" style="margin-bottom:8px">
-          <label class="text-sm text-secondary">结束日期</label>
+          <label class="text-sm text-secondary">${__('records.filter.endDate')}</label>
           <input type="date" id="filterDateEnd" class="input-field" value="${recordsFilter.dateEnd}" onchange="applyRecordsFilter()">
         </div>
       </div>
       <div class="grid-2">
         <div class="input-group" style="margin-bottom:8px">
-          <label class="text-sm text-secondary">最低金额</label>
+          <label class="text-sm text-secondary">${__('records.filter.amountMin')}</label>
           <input type="number" id="filterAmountMin" class="input-field" placeholder="0" value="${recordsFilter.amountMin}" oninput="applyRecordsFilter()">
         </div>
         <div class="input-group" style="margin-bottom:8px">
-          <label class="text-sm text-secondary">最高金额</label>
+          <label class="text-sm text-secondary">${__('records.filter.amountMax')}</label>
           <input type="number" id="filterAmountMax" class="input-field" placeholder="9999" value="${recordsFilter.amountMax}" oninput="applyRecordsFilter()">
         </div>
       </div>
       <div class="flex gap-8 mt-8" style="flex-wrap:wrap">
-        <button class="btn btn-outline btn-sm" onclick="clearRecordsFilter()">清除筛选</button>
-        <button class="btn btn-sm ${recordsFilter.overspentOnly ? 'btn-danger' : 'btn-outline'}" onclick="toggleOverspentFilter()" title="只显示超支分类的记录">
-          ${recordsFilter.overspentOnly ? '⚠️ 超支分类 (已选)' : '⚠️ 超支分类'}
+        <button class="btn btn-outline btn-sm" onclick="clearRecordsFilter()">${__('records.filter.clear')}</button>
+        <button class="btn btn-sm ${recordsFilter.overspentOnly ? 'btn-danger' : 'btn-outline'}" onclick="toggleOverspentFilter()" title="${__('records.filter.overspentTitle')}">
+          ${recordsFilter.overspentOnly ? __('records.filter.overspentActive') : __('records.filter.overspent')}
         </button>
-        <button class="btn btn-sm ${batchMode ? 'btn-primary' : 'btn-outline'}" onclick="toggleBatchMode()" title="${batchMode ? '退出批量选择' : '进入批量选择'}">
-          ${batchMode ? '✅ 完成选择' : '☑️ 选择'}
+        <button class="btn btn-sm ${batchMode ? 'btn-primary' : 'btn-outline'}" onclick="toggleBatchMode()" title="${batchMode ? __('records.batch.exitTitle') : __('records.batch.enterTitle')}">
+          ${batchMode ? __('records.batch.done') : __('records.batch.select')}
         </button>
-        <button class="btn btn-primary btn-sm" onclick="exportToExcel()">📥 导出 Excel</button>
-        <button class="btn btn-ghost btn-sm" onclick="refreshPageData()" title="从 localStorage 重新读取数据并刷新页面">🔄 刷新数据</button>
-        <button class="view-toggle-btn ${compactRecordsView ? 'active' : ''}" onclick="toggleRecordsView()" title="${compactRecordsView ? '切换为卡片视图' : '切换为紧凑视图'}">
-          ${compactRecordsView ? '📋 卡片视图' : '📄 紧凑视图'}
+        <button class="btn btn-primary btn-sm" onclick="exportToExcel()">${__('records.exportExcel')}</button>
+        <button class="btn btn-ghost btn-sm" onclick="refreshPageData()" title="${__('records.refreshDataTitle')}">${__('records.refreshData')}</button>
+        <button class="view-toggle-btn ${compactRecordsView ? 'active' : ''}" onclick="toggleRecordsView()" title="${compactRecordsView ? __('records.view.cardTitle') : __('records.view.compactTitle')}">
+          ${compactRecordsView ? __('records.view.card') : __('records.view.compact')}
         </button>
         <span class="text-sm text-secondary" style="align-self:center" id="recordsCount"></span>
         <span class="text-xs text-muted" style="display:inline-flex;align-items:center;gap:4px">
-          每页 <input type="number" id="recordsPageSizeInput" value="${window.recordsPerPage || recordsPerPage}" min="5" max="200" 
+          ${__('records.pagination.perPage')} <input type="number" id="recordsPageSizeInput" value="${window.recordsPerPage || recordsPerPage}" min="5" max="200" 
           onchange="
             var v = parseInt(this.value) || 20;
             if (v < 5) v = 5;
@@ -95,26 +95,26 @@ function renderRecords() {
             recordsPerPage = v;
   window.recordsPage = 0;
   renderRecordsList();
-          " style="width:50px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:0.75rem;text-align:center;background:var(--card-bg);color:var(--text)"> 条
+          " style="width:50px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:0.75rem;text-align:center;background:var(--card-bg);color:var(--text)">${__('records.pagination.items')}
         </span>
       </div>
       <!-- Sort section -->
       <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
         <div class="flex items-center gap-8 mb-4" style="flex-wrap:wrap">
-          <span class="text-sm font-semibold">🔀 排序：</span>
+          <span class="text-sm font-semibold">${__('records.sort.title')}</span>
           <div id="sortControls"></div>
-          <button class="btn btn-ghost btn-sm" onclick="addSortLevel()">＋ 添加排序</button>
-          <button class="btn btn-ghost btn-sm" onclick="clearSort()">清除排序</button>
+          <button class="btn btn-ghost btn-sm" onclick="addSortLevel()">${__('records.sort.add')}</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearSort()">${__('records.sort.clear')}</button>
         </div>
       </div>
     </div>
     <div id="recordsList"></div>
     <!-- Batch toolbar -->
     <div id="batchToolbar" style="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:150;background:var(--card-bg);border-radius:var(--radius);box-shadow:var(--shadow-lg);padding:10px 18px;display:${batchMode ? 'flex' : 'none'};align-items:center;gap:12px;border:1px solid var(--border);white-space:nowrap">
-      <span class="text-sm font-semibold" id="batchCount">已选 0 条</span>
-      <button class="btn btn-danger btn-sm" onclick="batchDelete()">🗑️ 批量删除</button>
-      <button class="btn btn-primary btn-sm" onclick="batchChangeCategory()">📂 批量修改分类</button>
-      <button class="btn btn-ghost btn-sm" onclick="batchCancel()">取消</button>
+      <span class="text-sm font-semibold" id="batchCount">${__('records.batch.selected', 0)}</span>
+      <button class="btn btn-danger btn-sm" onclick="batchDelete()">${__('records.batch.delete')}</button>
+      <button class="btn btn-primary btn-sm" onclick="batchChangeCategory()">${__('records.batch.changeCategory')}</button>
+      <button class="btn btn-ghost btn-sm" onclick="batchCancel()">${__('records.cancel')}</button>
     </div>
   `;
 
@@ -243,14 +243,14 @@ function applyRecordsFilter() {
 
 function openCategoryFilterPicker() {
   const cats = DataStore.getRootCategories();
-  let html = '<div class="modal-title">选择分类筛选</div><div style="max-height:50vh;overflow-y:auto">';
+  let html = '<div class="modal-title">' + __('records.filter.pickCategory') + '</div><div style="max-height:50vh;overflow-y:auto">';
   html += `<div style="padding:8px 12px;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast);display:flex;align-items:center;gap:8px"
        onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"
        onclick="selectCategoryFilter('')">
-    <span>📁</span><span>全部分类</span>
+    <span>📁</span><span>${__('records.filter.allCategories')}</span>
   </div>`;
   html += buildCategoryTreeFilterPicker(cats, 0);
-  html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>';
+  html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('records.cancel') + '</button></div>';
   showModal(html);
 }
 
@@ -266,7 +266,7 @@ function buildCategoryTreeFilterPicker(cats, depth) {
         <span style="width:10px;height:10px;border-radius:50%;background:${cat.color};display:inline-block"></span>
         <span>${escHtml(cat.icon)}</span>
         <span>${escHtml(cat.name)}</span>
-        <span class="text-xs text-muted">(含子分类)</span>
+        <span class="text-xs text-muted">${__('records.filter.includesSubcategories')}</span>
       </div>
     `;
     if (children.length) {
@@ -282,9 +282,9 @@ function selectCategoryFilter(catId) {
   if (display) {
     if (catId) {
       const cat = DataStore.getCategory(catId);
-      display.textContent = cat ? cat.icon + ' ' + cat.name : '全部分类';
+      display.textContent = cat ? cat.icon + ' ' + cat.name : __('records.filter.allCategories');
     } else {
-      display.textContent = '全部分类';
+      display.textContent = __('records.filter.allCategories');
     }
   }
   closeModal();
@@ -302,7 +302,7 @@ function renderRecordsList() {
   if (!container) return;
 
   const filtered = getFilteredRecords();
-  countEl.textContent = filtered.length + ' 条记录';
+  countEl.textContent = __('records.count', filtered.length);
 
   const perPage = window.recordsPerPage || parseInt(localStorage.getItem('budgetRecordsPerPage') || '20');
   let page = window.recordsPage || 0;
@@ -314,7 +314,7 @@ function renderRecordsList() {
   const pageRecords = filtered.slice(start, end);
 
   if (!pageRecords.length) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">暂无记录</div><div class="empty-hint">点击"记账"开始记录你的第一笔支出</div></div>';
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">' + __('records.empty.title') + '</div><div class="empty-hint">' + __('records.empty.hint') + '</div></div>';
     return;
   }
 
@@ -331,13 +331,13 @@ function renderRecordsList() {
           <div class="compact-row">
             ${batchMode ? `<input type="checkbox" class="batch-checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation();toggleRecordSelection('${r.id}')" style="flex-shrink:0;width:16px;height:16px;cursor:pointer">` : ''}
             <span class="compact-date">${dateStr.slice(0, 10)}</span>
-            <span class="compact-cat">${cat ? escHtml(cat.icon) + escHtml(cat.name) : '❓未知'}</span>
+            <span class="compact-cat">${cat ? escHtml(cat.icon) + escHtml(cat.name) : __('records.unknown')}</span>
             <span class="compact-note">${r.note ? '📝 ' + escHtml(r.note) : ''}</span>
             ${r.tags && r.tags.length > 0 ? `<span style="display:inline-flex;flex-wrap:wrap;gap:2px;margin-left:4px">${r.tags.map(t => `<span style="padding:0 4px;background:var(--bg);border-radius:4px;font-size:0.6rem;color:var(--text-muted)">${escHtml(t)}</span>`).join('')}</span>` : ''}
-            ${r.excludeFromAvg ? '<span class="text-xs text-muted" style="font-size:0.6rem;margin-left:2px" title="不计日均">📌</span>' : ''}
+            ${r.excludeFromAvg ? '<span class="text-xs text-muted" style="font-size:0.6rem;margin-left:2px" title="' + __('records.excludeFromAvg') + '">📌</span>' : ''}
             <span class="compact-amount" style="color:var(--primary)">${formatMoney(r.amount)}</span>
             ${!batchMode ? `<button class="btn btn-ghost btn-sm record-del-btn" style="padding:0 4px;font-size:0.7rem;opacity:0.5;flex-shrink:0;background:none;border:none;cursor:pointer"
-              onclick="event.stopPropagation();deleteRecordConfirm('${r.id}')" title="删除">🗑️</button>` : ''}
+              onclick="event.stopPropagation();deleteRecordConfirm('${r.id}')" title="${__('records.delete')}">🗑️</button>` : ''}
           </div>
         </div>
       `;
@@ -352,11 +352,11 @@ function renderRecordsList() {
               ${cat ? escHtml(cat.icon) : '❓'}
             </div>
             <div>
-              <div class="font-semibold">${cat ? escHtml(cat.name) : '未知分类'}</div>
+              <div class="font-semibold">${cat ? escHtml(cat.name) : __('records.unknownCategory')}</div>
               <div class="text-sm text-muted">${dateStr.slice(0, 16)}</div>
               ${r.note ? '<div class="text-sm text-secondary">' + escHtml(r.note) + '</div>' : ''}
               ${r.tags && r.tags.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:2px">${r.tags.map(t => `<span style="padding:0 4px;background:var(--bg);border-radius:4px;font-size:0.65rem;color:var(--text-muted)">${escHtml(t)}</span>`).join('')}</div>` : ''}
-              ${r.excludeFromAvg ? '<span class="text-xs text-muted" style="font-size:0.6rem;margin-left:4px" title="不计日均">📌</span>' : ''}
+              ${r.excludeFromAvg ? '<span class="text-xs text-muted" style="font-size:0.6rem;margin-left:4px" title="' + __('records.excludeFromAvg') + '">📌</span>' : ''}
             </div>
           </div>
           <div class="text-right">
@@ -366,12 +366,12 @@ function renderRecordsList() {
         ${!batchMode ? `
         <!-- Swipe delete hint -->
         <div class="record-delete-btn" style="position:absolute;right:-80px;top:0;bottom:0;width:80px;background:var(--danger);color:white;display:flex;align-items:center;justify-content:center;font-weight:600;transition:right 0.25s ease;border-radius:0 var(--radius) var(--radius) 0">
-          删除
+          ${__('records.delete')}
         </div>
         <!-- Desktop delete button (always visible on hover) -->
         <button class="btn btn-ghost btn-sm record-del-btn" 
           style="position:absolute;top:4px;right:4px;padding:2px 6px;font-size:0.75rem;opacity:0;transition:opacity 0.2s"
-          onclick="event.stopPropagation();deleteRecordConfirm('${r.id}')" title="删除">🗑️</button>
+          onclick="event.stopPropagation();deleteRecordConfirm('${r.id}')" title="${__('records.delete')}">🗑️</button>
         ` : ''}
       </div>
     `;
@@ -404,7 +404,7 @@ function renderRecordsList() {
     // Last page
     html += `<button style="${p >= totalPages - 1 ? btnDisabled : btnStyle}" onclick="recordsPage=${totalPages-1};renderRecordsList()" ${p >= totalPages - 1 ? 'disabled' : ''}>»</button>`;
     
-    html += `<span class="text-xs text-muted" style="margin-left:4px">${p+1}/${totalPages} 页 (${filtered.length} 条)</span>`;
+    html += `<span class="text-xs text-muted" style="margin-left:4px">${__('records.pagination.pageInfo', p+1, totalPages, filtered.length)}</span>`;
     html += '</div>';
   }
 
@@ -491,7 +491,7 @@ function toggleRecordSelection(id) {
 function updateBatchCount() {
   const countEl = document.getElementById('batchCount');
   if (countEl) {
-    countEl.textContent = '已选 ' + selectedRecordIds.size + ' 条';
+    countEl.textContent = __('records.batch.selected', selectedRecordIds.size);
   }
   const toolbar = document.getElementById('batchToolbar');
   if (toolbar) {
@@ -509,15 +509,15 @@ function batchCancel() {
 function batchDelete() {
   const count = selectedRecordIds.size;
   if (count === 0) {
-    showToast('请先选择要删除的记录', 'warning');
+    showToast(__('records.batch.selectFirst'), 'warning');
     return;
   }
-  showModal(`
-    <div class="modal-title">确认批量删除</div>
-    <p style="color:var(--text-secondary);margin-bottom:16px">确定要删除选中的 <strong>${count}</strong> 条记录吗？此操作不可撤销。</p>
+    showModal(`
+    <div class="modal-title">${__('records.batch.confirmTitle')}</div>
+    <p style="color:var(--text-secondary);margin-bottom:16px">${__('records.batch.confirmText', count)}</p>
     <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-danger" onclick="confirmBatchDelete()">删除 ${count} 条</button>
+      <button class="btn btn-ghost" onclick="closeModal()">${__('records.cancel')}</button>
+      <button class="btn btn-danger" onclick="confirmBatchDelete()">${__('records.batch.confirmDeleteBtn', count)}</button>
     </div>
   `);
 }
@@ -530,23 +530,23 @@ function confirmBatchDelete() {
   selectedRecordIds.clear();
   batchMode = false;
   closeModal();
-  showToast(`🗑️ 已删除 ${ids.length} 条记录`);
+  showToast(__('records.batch.deleted', ids.length));
   refreshCurrentPage();
 }
 
 function batchChangeCategory() {
   const count = selectedRecordIds.size;
   if (count === 0) {
-    showToast('请先选择要修改的记录', 'warning');
+    showToast(__('records.batch.selectFirstMod'), 'warning');
     return;
   }
   // Show category picker
   const roots = DataStore.getRootCategories();
-  let html = `<div class="modal-title">批量修改分类</div>
-    <p class="text-sm text-secondary mb-8">将选中的 <strong>${count}</strong> 条记录分类修改为：</p>
+  let html = `<div class="modal-title">${__('records.batch.changeTitle')}</div>
+    <p class="text-sm text-secondary mb-8">${__('records.batch.changeText', count)}</p>
     <div style="max-height:50vh;overflow-y:auto">`;
   html += buildBatchCategoryTree(roots, 0);
-  html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>';
+  html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('records.cancel') + '</button></div>';
   showModal(html);
 }
 
@@ -580,7 +580,7 @@ function confirmBatchChangeCategory(catId) {
   selectedRecordIds.clear();
   batchMode = false;
   closeModal();
-  showToast(`✅ 已将 ${ids.length} 条记录分类改为 ${cat.icon} ${cat.name}`);
+  showToast(__('records.batch.changed', ids.length, cat.icon, cat.name));
   refreshCurrentPage();
 }
 
@@ -589,20 +589,20 @@ function deleteRecordConfirm(id) {
   if (!record) return;
   const cat = DataStore.getCategory(record.categoryId);
   showModal(`
-    <div class="modal-title">确认删除</div>
-    <p style="color:var(--text-secondary);margin-bottom:16px">确定要删除这条记录吗？</p>
+    <div class="modal-title">${__('records.deleteConfirm.title')}</div>
+    <p style="color:var(--text-secondary);margin-bottom:16px">${__('records.deleteConfirm.text')}</p>
     <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
         <span>${cat ? cat.icon : '❓'}</span>
-        <span>${cat ? escHtml(cat.name) : '未知分类'}</span>
+        <span>${cat ? escHtml(cat.name) : __('records.unknownCategory')}</span>
         <span style="margin-left:auto;font-weight:700">${formatMoney(record.amount)}</span>
       </div>
       ${record.note ? '<div style="font-size:0.85rem;color:var(--text-muted)">' + escHtml(record.note) + '</div>' : ''}
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-outline" onclick="confirmDeleteRecord('${id}')">软删除（可撤销）</button>
-      <button class="btn btn-danger" onclick="confirmHardDeleteRecord('${id}')">立即删除</button>
+      <button class="btn btn-ghost" onclick="closeModal()">${__('records.cancel')}</button>
+      <button class="btn btn-outline" onclick="confirmDeleteRecord('${id}')">${__('records.deleteConfirm.softDelete')}</button>
+      <button class="btn btn-danger" onclick="confirmHardDeleteRecord('${id}')">${__('records.deleteConfirm.hardDelete')}</button>
     </div>
   `);
 }
@@ -616,7 +616,7 @@ function confirmDeleteRecord(id) {
     const container = document.getElementById('toastContainer');
     const toast = document.createElement('div');
     toast.className = 'toast warning';
-    toast.innerHTML = `<span>🗑️</span> 已删除，<button class="btn btn-sm btn-primary" style="padding:2px 10px;font-size:0.8rem" onclick="undoDelete(this)">撤销</button>`;
+    toast.innerHTML = `<span>🗑️</span>${__('records.undoDeleted')}<button class="btn btn-sm btn-primary" style="padding:2px 10px;font-size:0.8rem" onclick="undoDelete(this)">${__('records.undoBtn')}</button>`;
     container.appendChild(toast);
     toast._pendingId = id;
     // Auto-dismiss after 5s
@@ -637,9 +637,9 @@ function confirmHardDeleteRecord(id) {
   closeModal();
   const success = DataStore.forceDeleteRecord(id);
   if (success) {
-    showToast('🗑️ 已永久删除', 'success');
+    showToast(__('records.hardDeleted'), 'success');
   } else {
-    showToast('❌ 删除失败：记录不存在', 'error');
+    showToast(__('records.deleteFail'), 'error');
   }
   refreshCurrentPage();
 }
@@ -649,7 +649,7 @@ function undoDelete(btn) {
   if (!toast) return;
   const success = DataStore.undoDelete();
   if (success) {
-    toast.innerHTML = `<span>✅</span> 已恢复`;
+    toast.innerHTML = `<span>✅</span>${__('records.undoSuccess')}`;
     toast.classList.add('success');
     toast.classList.remove('warning');
     clearTimeout(toast._autoTimeout);
@@ -663,7 +663,7 @@ function undoDelete(btn) {
     }, 2000);
     refreshCurrentPage();
   } else {
-    toast.innerHTML = `<span>❌</span> 无法撤销（已超时）`;
+    toast.innerHTML = `<span>❌</span>${__('records.undoFail')}`;
     toast.classList.add('error');
     toast.classList.remove('warning');
   }
@@ -676,50 +676,50 @@ function openEditRecord(id) {
   selectedCategoryId = record.categoryId;
 
   showModal(`
-    <div class="modal-title">编辑记录</div>
+    <div class="modal-title">${__('records.edit.title')}</div>
     <form id="editForm" onsubmit="submitEditRecord(event, '${id}')">
       <div class="input-group">
-        <label class="input-label">金额 (RM)</label>
+        <label class="input-label">${__('records.edit.amount')}</label>
         <div style="position:relative">
           <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:var(--primary)">RM</span>
           <input type="text" id="editAmount" class="input-field" value="${record.amount}" style="padding-left:44px;font-size:1.2rem;font-weight:700" inputmode="decimal">
         </div>
       </div>
       <div class="input-group">
-        <label class="input-label">分类</label>
+        <label class="input-label">${__('records.edit.category')}</label>
         <button type="button" class="input-field" style="text-align:left;cursor:pointer" onclick="openCategoryPicker('edit')">
-          <span id="editCategoryDisplay">${cat ? escHtml(cat.icon) + ' ' + escHtml(cat.name) : '请选择'}</span>
+          <span id="editCategoryDisplay">${cat ? escHtml(cat.icon) + ' ' + escHtml(cat.name) : __('records.edit.select')}</span>
         </button>
       </div>
       <div class="input-group">
-        <label class="input-label">日期时间</label>
+        <label class="input-label">${__('records.edit.dateTime')}</label>
         <input type="datetime-local" id="editDateTime" class="input-field" value="${(record.date || record.createdAt).slice(0, 16)}">
       </div>
       <div class="input-group">
-        <label class="input-label">备注</label>
+        <label class="input-label">${__('records.edit.note')}</label>
         <input type="text" id="editNote" class="input-field" value="${escHtml(record.note || '')}">
       </div>
       <!-- Tags -->
       <div class="input-group" style="margin-bottom:12px">
-        <label class="input-label">🏷️ 标签</label>
+        <label class="input-label">${__('records.edit.tags')}</label>
         <div id="editTagsDisplay" style="display:flex;flex-wrap:wrap;gap:4px;min-height:28px;padding:4px 0">
           ${record.tags && record.tags.length > 0
             ? record.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag('${escHtml(t)}')">✕</span></span>`).join('')
-            : '<span class="text-xs text-muted">无标签</span>'}
+            : '<span class="text-xs text-muted">' + __('records.edit.noTags') + '</span>'}
         </div>
-        <button type="button" class="btn btn-sm btn-outline" onclick="openEditTagPicker()">＋ 添加标签</button>
+        <button type="button" class="btn btn-sm btn-outline" onclick="openEditTagPicker()">${__('records.edit.addTag')}</button>
         <input type="hidden" id="editTagsInput" value='${JSON.stringify(record.tags || [])}'>
       </div>
       <div class="input-group">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
           <input type="checkbox" id="editExcludeAvg" ${record.excludeFromAvg ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
-          <span class="text-sm text-secondary">📌 不计日均（一次性大额消费）</span>
+          <span class="text-sm text-secondary">${__('records.edit.excludeAvg')}</span>
         </label>
       </div>
       <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" onclick="closeModal()">取消</button>
-        <button type="button" class="btn btn-danger" onclick="closeModal();deleteRecordConfirm('${id}')">🗑️ 删除</button>
-        <button type="submit" class="btn btn-primary">保存</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">${__('records.cancel')}</button>
+        <button type="button" class="btn btn-danger" onclick="closeModal();deleteRecordConfirm('${id}')">${__('records.edit.delete')}</button>
+        <button type="submit" class="btn btn-primary">${__('records.edit.save')}</button>
       </div>
     </form>
   `);
@@ -740,8 +740,8 @@ function openEditRecord(id) {
 function submitEditRecord(e, id) {
   e.preventDefault();
   const amount = parseFloat(document.getElementById('editAmount').value);
-  if (!amount || amount <= 0) { showToast('请输入有效金额', 'error'); return; }
-  if (!selectedCategoryId) { showToast('请选择分类', 'error'); return; }
+  if (!amount || amount <= 0) { showToast(__('records.edit.invalidAmount'), 'error'); return; }
+  if (!selectedCategoryId) { showToast(__('records.edit.selectCategory'), 'error'); return; }
 
   DataStore.updateRecord(id, {
     amount,
@@ -757,7 +757,7 @@ function submitEditRecord(e, id) {
   });
   selectedCategoryId = null;
   closeModal();
-  showToast('✅ 记录已更新');
+  showToast(__('records.edit.saved'));
   refreshCurrentPage();
 }
 
@@ -770,9 +770,9 @@ function refreshPageData() {
     DataStore._finalizeDelete(pending.id);
   }
   if (success) {
-    showToast('✅ 数据已刷新', 'success');
+    showToast(__('records.refresh.success'), 'success');
   } else {
-    showToast('❌ 数据刷新失败', 'error');
+    showToast(__('records.refresh.fail'), 'error');
   }
   // Re-render ALL pages to ensure every view reflects current data
   if (typeof renderOverview === 'function') renderOverview();
@@ -790,7 +790,7 @@ function refreshPageData() {
 function renderSortControls() {
   const container = document.getElementById('sortControls');
   if (!container) return;
-  const fieldLabels = { date: '日期', amount: '金额', note: '备注', category: '分类' };
+  const fieldLabels = { date: __('records.sort.fieldDate'), amount: __('records.sort.fieldAmount'), note: __('records.sort.fieldNote'), category: __('records.sort.fieldCategory') };
   let html = '';
   recordsSort.forEach((level, idx) => {
     const arrow = level.dir === 'asc' ? '↑' : '↓';
@@ -799,8 +799,8 @@ function renderSortControls() {
         <select onchange="updateSortField(${idx}, this.value)" style="padding:2px 4px;font-size:0.75rem;border:1px solid var(--border);border-radius:3px;background:var(--card-bg);color:var(--text);">
           ${['date','amount','note','category'].map(f => `<option value="${f}" ${level.field === f ? 'selected' : ''}>${fieldLabels[f]}</option>`).join('')}
         </select>
-        <button class="btn btn-ghost btn-sm" style="padding:0 4px;font-size:0.8rem;border:none;cursor:pointer;background:none" onclick="toggleSortDir(${idx})" title="切换排序方向">${arrow}</button>
-        ${recordsSort.length > 1 ? `<button class="btn btn-ghost btn-sm" style="padding:0 4px;font-size:0.8rem;border:none;cursor:pointer;background:none;color:var(--danger)" onclick="removeSortLevel(${idx})" title="移除排序">×</button>` : ''}
+        <button class="btn btn-ghost btn-sm" style="padding:0 4px;font-size:0.8rem;border:none;cursor:pointer;background:none" onclick="toggleSortDir(${idx})" title="${__('records.sort.toggleDir')}">${arrow}</button>
+        ${recordsSort.length > 1 ? `<button class="btn btn-ghost btn-sm" style="padding:0 4px;font-size:0.8rem;border:none;cursor:pointer;background:none;color:var(--danger)" onclick="removeSortLevel(${idx})" title="${__('records.sort.remove')}">×</button>` : ''}
       </div>
     `;
   });
@@ -858,7 +858,7 @@ function renderEditTagsDisplay() {
   if (!container || !input) return;
   const tags = (() => { try { return JSON.parse(input.value); } catch(e) { return []; } })();
   if (tags.length === 0) {
-    container.innerHTML = '<span class="text-xs text-muted">无标签</span>';
+    container.innerHTML = '<span class="text-xs text-muted">' + __('records.edit.noTags') + '</span>';
   } else {
     container.innerHTML = tags.map(t =>
       `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag('${escHtml(t)}')">✕</span></span>`
@@ -950,5 +950,96 @@ function setRecordsTagFilter(tag) {
     display.innerHTML = '<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 6px;background:var(--primary);color:white;border-radius:10px;font-size:0.7rem">' + escHtml(tag) + '</span>';
   }
 }
+
+  // === I18N ENTRIES ===
+  addI18nEntries({
+    'records.filter.title': { zh: '搜索筛选', en: 'Search & Filter' },
+    'records.filter.searchPlaceholder': { zh: '🔍 搜索备注...', en: '🔍 Search notes...' },
+    'records.filter.tags': { zh: '标签', en: 'Tags' },
+    'records.filter.all': { zh: '全部', en: 'All' },
+    'records.filter.filterTags': { zh: '🏷️ 筛选标签', en: '🏷️ Filter by tag' },
+    'records.filter.category': { zh: '分类', en: 'Category' },
+    'records.filter.allCategories': { zh: '全部分类', en: 'All categories' },
+    'records.filter.startDate': { zh: '开始日期', en: 'Start date' },
+    'records.filter.endDate': { zh: '结束日期', en: 'End date' },
+    'records.filter.amountMin': { zh: '最低金额', en: 'Min amount' },
+    'records.filter.amountMax': { zh: '最高金额', en: 'Max amount' },
+    'records.filter.clear': { zh: '清除筛选', en: 'Clear filters' },
+    'records.filter.overspentTitle': { zh: '只显示超支分类的记录', en: 'Show only overspent category records' },
+    'records.filter.overspentActive': { zh: '⚠️ 超支分类 (已选)', en: '⚠️ Overspent (active)' },
+    'records.filter.overspent': { zh: '⚠️ 超支分类', en: '⚠️ Overspent' },
+    'records.batch.exitTitle': { zh: '退出批量选择', en: 'Exit batch mode' },
+    'records.batch.enterTitle': { zh: '进入批量选择', en: 'Enter batch mode' },
+    'records.batch.done': { zh: '✅ 完成选择', en: '✅ Done' },
+    'records.batch.select': { zh: '☑️ 选择', en: '☑️ Select' },
+    'records.batch.selected': { zh: '已选 {0} 条', en: 'Selected {0} items' },
+    'records.batch.delete': { zh: '🗑️ 批量删除', en: '🗑️ Batch delete' },
+    'records.batch.changeCategory': { zh: '📂 批量修改分类', en: '📂 Change category' },
+    'records.batch.selectFirst': { zh: '请先选择要删除的记录', en: 'Please select records to delete first' },
+    'records.batch.confirmTitle': { zh: '确认批量删除', en: 'Confirm batch delete' },
+    'records.batch.confirmText': { zh: '确定要删除选中的 <strong>{0}</strong> 条记录吗？此操作不可撤销。', en: 'Are you sure you want to delete <strong>{0}</strong> records? This action cannot be undone.' },
+    'records.batch.confirmDeleteBtn': { zh: '删除 {0} 条', en: 'Delete {0} items' },
+    'records.batch.deleted': { zh: '🗑️ 已删除 {0} 条记录', en: '🗑️ Deleted {0} records' },
+    'records.batch.selectFirstMod': { zh: '请先选择要修改的记录', en: 'Please select records to modify first' },
+    'records.batch.changeTitle': { zh: '批量修改分类', en: 'Batch change category' },
+    'records.batch.changeText': { zh: '将选中的 <strong>{0}</strong> 条记录分类修改为：', en: 'Change category for <strong>{0}</strong> selected records to:' },
+    'records.batch.changed': { zh: '✅ 已将 {0} 条记录分类改为 {1} {2}', en: '✅ Changed {0} records to {1} {2}' },
+    'records.cancel': { zh: '取消', en: 'Cancel' },
+    'records.filter.pickCategory': { zh: '选择分类筛选', en: 'Select category filter' },
+    'records.filter.includesSubcategories': { zh: '(含子分类)', en: '(includes subcategories)' },
+    'records.count': { zh: '{0} 条记录', en: '{0} records' },
+    'records.empty.title': { zh: '暂无记录', en: 'No records yet' },
+    'records.empty.hint': { zh: '点击"记账"开始记录你的第一笔支出', en: 'Tap "Add" to record your first expense' },
+    'records.unknown': { zh: '❓未知', en: '❓Unknown' },
+    'records.unknownCategory': { zh: '未知分类', en: 'Unknown category' },
+    'records.delete': { zh: '删除', en: 'Delete' },
+    'records.exportExcel': { zh: '📥 导出 Excel', en: '📥 Export Excel' },
+    'records.refreshData': { zh: '🔄 刷新数据', en: '🔄 Refresh data' },
+    'records.refreshDataTitle': { zh: '从 localStorage 重新读取数据并刷新页面', en: 'Reload data from localStorage and refresh page' },
+    'records.view.cardTitle': { zh: '切换为卡片视图', en: 'Switch to card view' },
+    'records.view.compactTitle': { zh: '切换为紧凑视图', en: 'Switch to compact view' },
+    'records.view.card': { zh: '📋 卡片视图', en: '📋 Card view' },
+    'records.view.compact': { zh: '📄 紧凑视图', en: '📄 Compact view' },
+    'records.pagination.perPage': { zh: '每页', en: 'Per page' },
+    'records.pagination.items': { zh: '条', en: ' items' },
+    'records.pagination.pageInfo': { zh: '{0}/{1} 页 ({2} 条)', en: '{0}/{1} pages ({2} items)' },
+    'records.sort.title': { zh: '🔀 排序：', en: '🔀 Sort:' },
+    'records.sort.add': { zh: '＋ 添加排序', en: '＋ Add sort' },
+    'records.sort.clear': { zh: '清除排序', en: 'Clear sort' },
+    'records.sort.fieldDate': { zh: '日期', en: 'Date' },
+    'records.sort.fieldAmount': { zh: '金额', en: 'Amount' },
+    'records.sort.fieldNote': { zh: '备注', en: 'Note' },
+    'records.sort.fieldCategory': { zh: '分类', en: 'Category' },
+    'records.sort.toggleDir': { zh: '切换排序方向', en: 'Toggle sort direction' },
+    'records.sort.remove': { zh: '移除排序', en: 'Remove sort' },
+    'records.deleteConfirm.title': { zh: '确认删除', en: 'Confirm delete' },
+    'records.deleteConfirm.text': { zh: '确定要删除这条记录吗？', en: 'Are you sure you want to delete this record?' },
+    'records.deleteConfirm.softDelete': { zh: '软删除（可撤销）', en: 'Soft delete (undoable)' },
+    'records.deleteConfirm.hardDelete': { zh: '立即删除', en: 'Delete permanently' },
+    'records.undoDeleted': { zh: '已删除，', en: 'Deleted, ' },
+    'records.undoBtn': { zh: '撤销', en: 'Undo' },
+    'records.hardDeleted': { zh: '🗑️ 已永久删除', en: '🗑️ Permanently deleted' },
+    'records.deleteFail': { zh: '❌ 删除失败：记录不存在', en: '❌ Delete failed: record not found' },
+    'records.undoSuccess': { zh: '已恢复', en: 'Restored' },
+    'records.undoFail': { zh: '无法撤销（已超时）', en: 'Cannot undo (expired)' },
+    'records.edit.title': { zh: '编辑记录', en: 'Edit record' },
+    'records.edit.amount': { zh: '金额 (RM)', en: 'Amount (RM)' },
+    'records.edit.category': { zh: '分类', en: 'Category' },
+    'records.edit.select': { zh: '请选择', en: 'Select...' },
+    'records.edit.dateTime': { zh: '日期时间', en: 'Date & time' },
+    'records.edit.note': { zh: '备注', en: 'Note' },
+    'records.edit.tags': { zh: '🏷️ 标签', en: '🏷️ Tags' },
+    'records.edit.noTags': { zh: '无标签', en: 'No tags' },
+    'records.edit.addTag': { zh: '＋ 添加标签', en: '＋ Add tag' },
+    'records.edit.excludeAvg': { zh: '📌 不计日均（一次性大额消费）', en: '📌 Exclude from daily average' },
+    'records.excludeFromAvg': { zh: '不计日均', en: 'Exclude from daily average' },
+    'records.edit.delete': { zh: '🗑️ 删除', en: '🗑️ Delete' },
+    'records.edit.save': { zh: '保存', en: 'Save' },
+    'records.edit.invalidAmount': { zh: '请输入有效金额', en: 'Please enter a valid amount' },
+    'records.edit.selectCategory': { zh: '请选择分类', en: 'Please select a category' },
+    'records.edit.saved': { zh: '✅ 记录已更新', en: '✅ Record updated' },
+    'records.refresh.success': { zh: '✅ 数据已刷新', en: '✅ Data refreshed' },
+    'records.refresh.fail': { zh: '❌ 数据刷新失败', en: '❌ Data refresh failed' }
+  });
 })();
 

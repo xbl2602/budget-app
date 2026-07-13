@@ -8,10 +8,10 @@ function renderAddPage() {
   const el = document.getElementById('page-add');
   el.innerHTML = `
     <div class="card">
-      <div class="card-title mb-16">新增记录</div>
+      <div class="card-title mb-16">${__('addRecord.title')}</div>
       <form id="addForm" onsubmit="submitRecord(event)">
         <div class="input-group">
-          <label class="input-label">金额 (RM)</label>
+          <label class="input-label">${__('addRecord.amountLabel')}</label>
           <div style="position:relative">
             <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:var(--primary);font-size:1.1rem">RM</span>
             <input type="text" id="addAmount" class="input-field" placeholder="0.00" style="padding-left:44px;font-size:1.2rem;font-weight:700" inputmode="decimal" autocomplete="off">
@@ -19,40 +19,40 @@ function renderAddPage() {
         </div>
 
         <div class="input-group">
-          <label class="input-label">分类</label>
+          <label class="input-label">${__('addRecord.categoryLabel')}</label>
           <button type="button" class="input-field" id="addCategoryBtn" style="text-align:left;cursor:pointer" onclick="openCategoryPicker('add')">
-            <span id="addCategoryDisplay" style="color:var(--text-muted)">请选择分类</span>
+            <span id="addCategoryDisplay" style="color:var(--text-muted)">${__('addRecord.selectCategory')}</span>
           </button>
         </div>
 
         <div class="input-group">
-          <label class="input-label">日期时间</label>
+          <label class="input-label">${__('addRecord.dateLabel')}</label>
           <input type="datetime-local" id="addDateTime" class="input-field">
         </div>
 
         <div class="input-group">
-          <label class="input-label">备注</label>
-          <input type="text" id="addNote" class="input-field" placeholder="例如：Nasi Lemak" maxlength="200">
+          <label class="input-label">${__('addRecord.noteLabel')}</label>
+          <input type="text" id="addNote" class="input-field" placeholder="${__('addRecord.notePlaceholder')}" maxlength="200">
         </div>
 
         <!-- Tags -->
         <div class="input-group" style="margin-bottom:8px">
-          <label class="input-label">🏷️ 标签 <span class="text-xs text-muted">(可多选，场景标记)</span></label>
+          <label class="input-label">${__('addRecord.tagsLabel')} <span class="text-xs text-muted">${__('addRecord.tagsHint')}</span></label>
           <div id="addTagsDisplay" style="display:flex;flex-wrap:wrap;gap:4px;min-height:32px;padding:4px 0">
             <!-- Selected tags will appear here -->
           </div>
-          <button type="button" class="btn btn-sm btn-outline" onclick="openTagPickerForAdd()">＋ 添加标签</button>
+          <button type="button" class="btn btn-sm btn-outline" onclick="openTagPickerForAdd()">${__('addRecord.addTag')}</button>
         </div>
 
         <div class="input-group">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
             <input type="checkbox" id="addExcludeAvg" style="width:18px;height:18px;cursor:pointer">
-            <span class="text-sm text-secondary">📌 不计日均（一次性大额消费）</span>
+            <span class="text-sm text-secondary">${__('addRecord.excludeLabel')}</span>
           </label>
         </div>
 
         <button type="submit" class="btn btn-primary btn-lg btn-block" id="submitBtn" style="font-size:1.05rem">
-          ✅ 保存记录
+          ${__('addRecord.saveBtn')}
         </button>
       </form>
     </div>
@@ -89,13 +89,13 @@ function submitRecord(e) {
   }
 
   if (!amount || amount <= 0) {
-    showToast('请输入有效金额', 'error');
+    showToast(__('addRecord.invalidAmount'), 'error');
     amountEl.focus();
     shakeForm();
     return;
   }
   if (!categoryId) {
-    showToast('请选择分类', 'error');
+    showToast(__('addRecord.noCategory'), 'error');
     shakeForm();
     return;
   }
@@ -114,12 +114,12 @@ function submitRecord(e) {
   DataStore.addRecord(record);
   // Track tag usage
   tags.forEach(t => DataStore.addTagUsage(t));
-  showToast('✅ 记录已保存');
+  showToast(__('addRecord.saved'));
 
   // Reset form
   amountEl.value = '';
   selectedCategoryId = null;
-  document.getElementById('addCategoryDisplay').textContent = '请选择分类';
+  document.getElementById('addCategoryDisplay').textContent = __('addRecord.selectCategory');
   document.getElementById('addCategoryDisplay').style.color = 'var(--text-muted)';
   document.getElementById('addNote').value = '';
   window._addRecordTags = [];
@@ -144,7 +144,7 @@ function renderAddTagsDisplay() {
   if (!container) return;
   const tags = window._addRecordTags || [];
   if (tags.length === 0) {
-    container.innerHTML = '<span class="text-xs text-muted">还未添加标签</span>';
+    container.innerHTML = '<span class="text-xs text-muted">' + __('addRecord.noTags') + '</span>';
   } else {
     container.innerHTML = tags.map(t => 
       `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">
@@ -160,6 +160,26 @@ function removeAddTag(tag) {
   window._addRecordTags = tags.filter(t => t !== tag);
   renderAddTagsDisplay();
 }
+
+  // i18n translations
+  addI18nEntries({
+    'addRecord.title': { zh: '新增记录', en: 'New Record' },
+    'addRecord.amountLabel': { zh: '金额 (RM)', en: 'Amount (RM)' },
+    'addRecord.categoryLabel': { zh: '分类', en: 'Category' },
+    'addRecord.selectCategory': { zh: '请选择分类', en: 'Please select a category' },
+    'addRecord.dateLabel': { zh: '日期时间', en: 'Date & Time' },
+    'addRecord.noteLabel': { zh: '备注', en: 'Note' },
+    'addRecord.notePlaceholder': { zh: '例如：Nasi Lemak', en: 'e.g. Nasi Lemak' },
+    'addRecord.tagsLabel': { zh: '🏷️ 标签', en: '🏷️ Tags' },
+    'addRecord.tagsHint': { zh: '(可多选，场景标记)', en: '(multi-select, scene tags)' },
+    'addRecord.addTag': { zh: '＋ 添加标签', en: '＋ Add Tag' },
+    'addRecord.excludeLabel': { zh: '📌 不计日均（一次性大额消费）', en: '📌 Exclude from daily avg (one-time large expense)' },
+    'addRecord.saveBtn': { zh: '✅ 保存记录', en: '✅ Save Record' },
+    'addRecord.invalidAmount': { zh: '请输入有效金额', en: 'Please enter a valid amount' },
+    'addRecord.noCategory': { zh: '请选择分类', en: 'Please select a category' },
+    'addRecord.saved': { zh: '✅ 记录已保存', en: '✅ Record saved' },
+    'addRecord.noTags': { zh: '还未添加标签', en: 'No tags added yet' }
+  });
 
   // === EXPORTS ===
   window.renderAddPage = renderAddPage;

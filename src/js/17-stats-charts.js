@@ -30,9 +30,9 @@ function syncPieDrillBar() {
   if (drillCategory) {
     const c = DataStore.getCategory(drillCategory);
     backArea.innerHTML = `
-      <button class="btn btn-ghost btn-sm" onclick="resetStatsDrill()">← 返回上级</button>
+      <button class="btn btn-ghost btn-sm" onclick="resetStatsDrill()">← ${__('stats.drill.back')}</button>
       <span class="text-sm" style="color:var(--primary);font-weight:600">
-        ${c ? '🔍 ' + c.icon + ' ' + c.name : ''} 的子分类
+        ${c ? '🔍 ' + c.icon + ' ' + c.name : ''} ${__('stats.drill.subcategory')}
       </span>
     `;
   } else {
@@ -105,7 +105,7 @@ function getDailySavingsTarget(month) {
 }
 
 function renderCalendarHeatmap(month) {
-  if (!month) return '<div class="text-sm text-muted">请选择月份查看日历热力图</div>';
+  if (!month) return '<div class="text-sm text-muted">' + __('stats.heatmap.selectMonth') + '</div>';
   const parts = month.split('-');
   const year = parseInt(parts[0]);
   const mon = parseInt(parts[1]);
@@ -123,19 +123,19 @@ function renderCalendarHeatmap(month) {
   const currentMonth = getMonthKey(now.toISOString());
   const isCurrentMonth = month === currentMonth;
 
-  const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+  const weekdays = [__('stats.heatmap.wd0'), __('stats.heatmap.wd1'), __('stats.heatmap.wd2'), __('stats.heatmap.wd3'), __('stats.heatmap.wd4'), __('stats.heatmap.wd5'), __('stats.heatmap.wd6')];
 
   let html = '<div class="heatmap-container">';
 
   // Month display (linked to stats month selector)
   html += `<div class="flex items-center justify-between mb-8">
-    <span class="text-sm font-semibold">📅 ${year}年${mon}月 消费热力图</span>
-    ${dailyTarget > 0 ? `<span class="text-xs text-muted">日均可支配: ${formatMoney(dailyTarget)}</span>` : '<span class="text-xs text-muted">未设置预算/储蓄目标</span>'}
+    <span class="text-sm font-semibold">📅 ${__('stats.heatmap.title', year, mon)}</span>
+    ${dailyTarget > 0 ? `<span class="text-xs text-muted">${__('stats.heatmap.dailyBudget', formatMoney(dailyTarget))}</span>` : '<span class="text-xs text-muted">' + __('stats.heatmap.noBudget') + '</span>'}
   </div>`;
 
   // Legend
   html += '<div class="heatmap-legend">';
-  html += '<span class="heatmap-legend-label">少</span>';
+  html += '<span class="heatmap-legend-label">' + __('stats.heatmap.legendLess') + '</span>';
   const legendStops = [0, 0.5, 0.9, 1.1, 1.5, 2.0, 3.0];
   legendStops.forEach(r => {
     const color = getHeatmapColor(r);
@@ -143,8 +143,8 @@ function renderCalendarHeatmap(month) {
       html += `<div class="heatmap-legend-item" style="background:${color}"></div>`;
     }
   });
-  html += `<span class="heatmap-legend-label">多</span>`;
-  html += '<span class="heatmap-legend-label" style="margin-left:8px">⚫ 无消费</span>';
+  html += `<span class="heatmap-legend-label">${__('stats.heatmap.legendMore')}</span>`;
+  html += '<span class="heatmap-legend-label" style="margin-left:8px">⚫ ' + __('stats.heatmap.noSpending') + '</span>';
   html += '</div>';
 
   // Weekday headers
@@ -168,7 +168,7 @@ function renderCalendarHeatmap(month) {
     const isEmpty = spending === 0;
 
     const dateStr = dateStrMonth + '-' + String(day).padStart(2, '0');
-    const tooltipText = isEmpty ? '无消费' : formatMoney(spending) + ' (比目标 ' + (ratio === 0 ? '0' : (ratio * 100).toFixed(0)) + '%)';
+    const tooltipText = isEmpty ? __('stats.heatmap.noSpendingShort') : formatMoney(spending) + ' (' + __('stats.heatmap.vsTarget', (ratio === 0 ? '0' : (ratio * 100).toFixed(0))) + ')';
 
     let cellStyle = '';
     if (isFuture) {
@@ -219,7 +219,7 @@ function showDayRecords(dateStr) {
   
   if (!records.length) {
     target.innerHTML = `<div style="font-size:0.9rem;font-weight:600;margin-bottom:12px">📅 ${dateStr}</div>
-      <div class="text-sm text-muted">无记录</div>`;
+      <div class="text-sm text-muted">${__('stats.noRecords')}</div>`;
     return;
   }
 
@@ -229,14 +229,14 @@ function showDayRecords(dateStr) {
 
   let html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
     <div style="font-size:0.9rem;font-weight:600">📅 ${dateStr}</div>
-    <div style="font-size:0.85rem;font-weight:600">合计: ${formatMoney(total)}</div>
+    <div style="font-size:0.85rem;font-weight:600">${__('stats.total')}: ${formatMoney(total)}</div>
   </div>`;
   html += `<div style="display:flex;gap:6px;margin-bottom:6px">
-    <button class="btn btn-ghost btn-sm" onclick="clearRecordsFilter()" style="font-size:0.65rem;padding:2px 8px">🔄 重置流水筛选</button>
+    <button class="btn btn-ghost btn-sm" onclick="clearRecordsFilter()" style="font-size:0.65rem;padding:2px 8px">🔄 ${__('stats.resetFilter')}</button>
   </div>`;
   
   records.forEach(r => {
-    const cat = catMap[r.categoryId] || { name: '未知', icon: '❓', color: '#94A3B8' };
+    const cat = catMap[r.categoryId] || { name: __('stats.unknown'), icon: '❓', color: '#94A3B8' };
     html += `<div class="record-card compact" data-id="${r.id}" style="cursor:pointer;padding:6px 10px;margin-bottom:3px;border-radius:8px;border:1px solid var(--border);background:var(--card-bg);display:flex;align-items:center;gap:8px;font-size:0.82rem;transition:all 0.15s"
       onclick="openEditRecord('${r.id}')"
       onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border)'">
@@ -245,9 +245,9 @@ function showDayRecords(dateStr) {
       ${r.note ? `<span class="text-xs text-muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px">📝 ${escHtml(r.note)}</span>` : ''}
       <span style="font-weight:600;white-space:nowrap">${formatMoney(r.amount)}</span>
       <button class="btn btn-ghost btn-sm" style="padding:2px 4px;font-size:0.65rem;opacity:0.5;flex-shrink:0"
-        onclick="event.stopPropagation();showRecordRaw('${r.id}')" title="查看原始数据">🔍</button>
+        onclick="event.stopPropagation();showRecordRaw('${r.id}')" title="${__('stats.viewRawData')}">🔍</button>
       <button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:0.7rem;opacity:0.5;flex-shrink:0"
-        onclick="event.stopPropagation();deleteRecordConfirm('${r.id}')" title="删除">🗑️</button>
+        onclick="event.stopPropagation();deleteRecordConfirm('${r.id}')" title="${__('stats.delete')}">🗑️</button>
     </div>`;
   });
 
@@ -267,13 +267,13 @@ function expandHeatmap() {
   overlay.innerHTML = `
     <div class="chart-expand-inner" style="display:flex;flex-direction:column;max-width:900px">
       <button class="chart-expand-close" onclick="shrinkChart()">✕</button>
-      <div class="card-title" style="font-size:1.1rem;margin-bottom:12px">📅 消费热力图</div>
+      <div class="card-title" style="font-size:1.1rem;margin-bottom:12px">📅 ${__('stats.heatmap.expandTitle')}</div>
       <div style="display:flex;gap:20px;flex-wrap:wrap">
         <div style="flex:0 0 auto;max-width:420px">
           ${renderCalendarHeatmap(statsMonth)}
         </div>
         <div id="expandDayPanel" style="flex:1;min-width:250px;border-left:1px solid var(--border);padding-left:16px">
-          <div class="text-sm text-muted" style="padding:20px 0;text-align:center">← 点击左侧日期查看当日记录</div>
+          <div class="text-sm text-muted" style="padding:20px 0;text-align:center">← ${__('stats.heatmap.clickDateHint')}</div>
         </div>
       </div>
     </div>
@@ -292,7 +292,7 @@ function expandPie() {
   overlay.innerHTML = `
     <div class="chart-expand-inner" style="max-width:800px">
       <button class="chart-expand-close" onclick="shrinkChart()">✕</button>
-      <div class="card-title" style="font-size:1.1rem;margin-bottom:8px">📊 分类支出分析</div>
+      <div class="card-title" style="font-size:1.1rem;margin-bottom:8px">📊 ${__('stats.pieChart.expandTitle')}</div>
       <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <div style="flex:1;min-width:300px">
           <canvas id="expandPieChart" style="width:100%;max-width:500px;height:360px;margin:0 auto;display:block"></canvas>
@@ -331,7 +331,7 @@ function renderExpandPieTable() {
       const directTotal = breakdown.total - childrenTotal;
       data = [...childrenData];
       if (directTotal > 0.001) {
-        data.push({ id: breakdown.category.id + '-direct', total: directTotal, cat: { name: breakdown.category.name + ' (直接)', icon: '📌', color: breakdown.category.color } });
+        data.push({ id: breakdown.category.id + '-direct', total: directTotal, cat: { name: breakdown.category.name + __('stats.direct'), icon: '📌', color: breakdown.category.color } });
       }
       data = data.filter(d => d.total > 0).sort((a, b) => b.total - a.total);
     } else {
@@ -343,7 +343,7 @@ function renderExpandPieTable() {
   }
   
   if (!data.length) {
-    container.innerHTML = '<div class="text-sm text-muted" style="padding:20px;text-align:center">暂无分类数据</div>';
+    container.innerHTML = '<div class="text-sm text-muted" style="padding:20px;text-align:center">' + __('stats.noCategoryData') + '</div>';
     return;
   }
   
@@ -356,21 +356,21 @@ function renderExpandPieTable() {
   // Back button + breadcrumb
   if (drillCategory) {
     html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">';
-    html += '<button class="btn btn-ghost btn-sm" onclick="resetStatsDrill();drawPieChart(\'expandPieChart\', statsMonth, null, null, null, 360, false);renderExpandPieTable()" title="返回上级" style="padding:2px 8px;font-size:0.75rem">← 返回</button>';
-    html += '<span class="text-sm text-secondary">' + (parentCat ? parentCat.icon + ' ' + parentCat.name : '') + ' 的子分类</span>';
+    html += '<button class="btn btn-ghost btn-sm" onclick="resetStatsDrill();drawPieChart(\'expandPieChart\', statsMonth, null, null, null, 360, false);renderExpandPieTable()" title="' + __('stats.back') + '" style="padding:2px 8px;font-size:0.75rem">← ' + __('stats.back') + '</button>';
+    html += '<span class="text-sm text-secondary">' + (parentCat ? parentCat.icon + ' ' + parentCat.name : '') + ' ' + __('stats.drill.subcategory') + '</span>';
     html += '</div>';
   }
   
   // Table header with controls
   html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
-  html += '<span style="font-weight:600;font-size:0.8rem">分类明细</span>';
-  html += '<span class="text-xs text-muted">点击 ▸ 展开子分类 · 点击分类名下钻</span>';
+  html += '<span style="font-weight:600;font-size:0.8rem">' + __('stats.categoryDetail') + '</span>';
+  html += '<span class="text-xs text-muted">' + __('stats.pieChart.drillHint') + '</span>';
   html += '</div>';
   
   html += '<div style="display:flex;font-weight:600;font-size:0.75rem;color:var(--text-secondary);padding:6px 4px;border-bottom:2px solid var(--border);margin-bottom:4px">';
-  html += '<span style="flex:1">分类</span>';
-  html += '<span style="width:80px;text-align:right">金额</span>';
-  html += '<span style="width:50px;text-align:right">占比</span>';
+  html += '<span style="flex:1">' + __('stats.category') + '</span>';
+  html += '<span style="width:80px;text-align:right">' + __('stats.amount') + '</span>';
+  html += '<span style="width:50px;text-align:right">' + __('stats.percentage') + '</span>';
   html += '</div>';
   
   // Rows with inline expand
@@ -385,7 +385,7 @@ function renderExpandPieTable() {
     
     // Expand toggle (if has children)
     if (hasChildren) {
-      html += '<span style="cursor:pointer;flex-shrink:0;width:28px;text-align:center;padding:6px 0;font-size:1rem;user-select:none;border-radius:6px" onclick="event.stopPropagation();toggleExpandPieRow(\'' + rowId + '\')" title="展开/收起子分类" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">▸</span>';
+      html += '<span style="cursor:pointer;flex-shrink:0;width:28px;text-align:center;padding:6px 0;font-size:1rem;user-select:none;border-radius:6px" onclick="event.stopPropagation();toggleExpandPieRow(\'' + rowId + '\')" title="' + __('stats.pieChart.toggleChildren') + '" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">▸</span>';
     } else {
       html += '<span style="flex-shrink:0;width:16px"></span>';
     }
@@ -428,7 +428,7 @@ function renderExpandPieTable() {
   
   // Total row
   html += '<div style="display:flex;align-items:center;padding:6px 4px;margin-top:4px;font-weight:700;border-top:2px solid var(--border)">';
-  html += '<span style="flex:1">合计</span>';
+  html += '<span style="flex:1">' + __('stats.total') + '</span>';
   html += '<span style="width:80px;text-align:right">' + formatMoney(total) + '</span>';
   html += '<span style="width:50px;text-align:right;color:var(--text-muted)">100%</span>';
   html += '</div>';
@@ -487,7 +487,7 @@ function drawCompareBarChart(canvasId, month) {
     ctx.fillStyle = tc.textMuted;
     ctx.font = '14px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('暂无数据', w/2, h/2);
+    ctx.fillText(__('stats.noData'), w/2, h/2);
     return;
   }
 
@@ -553,9 +553,9 @@ function drawCompareBarChart(canvasId, month) {
   ctx.fillStyle = '#6366F1';
   ctx.font = 'bold 9px sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText('🔵 本月', padding.left, 12);
+  ctx.fillText('🔵 ' + __('stats.thisMonth'), padding.left, 12);
   ctx.fillStyle = '#10B981';
-  ctx.fillText('🟢 上月', padding.left + 80, 12);
+  ctx.fillText('🟢 ' + __('stats.lastMonth'), padding.left + 80, 12);
 }
 /* ============================================================
    BILL TOGGLE — Include/Exclude Bills from Charts
@@ -566,7 +566,7 @@ function renderBillToggle(chartId, checked = true) {
   return `<label class="bill-toggle">
     <input type="checkbox" id="toggle-${chartId}" ${isChecked ? 'checked' : ''}
       onchange="toggleBillFilter('${chartId}')">
-    📋 含账单
+    📋 ${__('stats.billToggle.includeBills')}
   </label>`;
 }
 
@@ -618,7 +618,7 @@ function refreshOverviewBudget() {
   const labelEl = parent.querySelector('.text-sm.text-secondary');
   if (labelEl) {
     labelEl.textContent = budgetPct > 100
-      ? '超支 ' + formatMoney(monthTotal - (includeBills ? budget : spendableBudget))
+      ? __('stats.overspent') + ' ' + formatMoney(monthTotal - (includeBills ? budget : spendableBudget))
       : formatMoney(monthTotal) + ' / ' + formatMoney(includeBills ? budget : spendableBudget);
     labelEl.style.color = budgetPct > 100 ? 'var(--danger)' : '';
     labelEl.style.fontWeight = budgetPct > 100 ? '600' : '';
@@ -632,7 +632,7 @@ function refreshOverviewBudget() {
   if (targetAmount > 0 && budget > 0) {
     const newFormula = document.createElement('div');
     newFormula.className = 'text-xs text-muted mt-4';
-    newFormula.textContent = `月收入 ${formatMoney(budget)}` + (totalBills > 0 ? ` − 账单 ${formatMoney(totalBills)}` : '') + ` − 储蓄 ${formatMoney(targetAmount)} = 日常可用 ${formatMoney(spendableBudget)}`;
+    newFormula.textContent = `${__('stats.monthlyIncome')} ${formatMoney(budget)}` + (totalBills > 0 ? ` − ${__('stats.bills')} ${formatMoney(totalBills)}` : '') + ` − ${__('stats.savings')} ${formatMoney(targetAmount)} = ${__('stats.dailyAvailable')} ${formatMoney(spendableBudget)}`;
     parent.appendChild(newFormula);
   }
 }
@@ -718,14 +718,14 @@ function renderStats() {
     <div class="card mb-16">
       <div class="flex items-center gap-8" style="flex-wrap:wrap">
         <div class="flex items-center gap-8">
-          <label class="text-sm text-secondary">月份</label>
+          <label class="text-sm text-secondary">${__('stats.month')}</label>
           <input type="month" id="statsMonth" class="input-field" style="width:160px" value="${statsMonth}" onchange="changeStatsMonth(this.value)">
         </div>
-        <span class="text-muted">或</span>
+        <span class="text-muted">${__('stats.or')}</span>
         <div class="flex items-center gap-8">
-          <label class="text-sm text-secondary">自定义范围</label>
+          <label class="text-sm text-secondary">${__('stats.customRange')}</label>
           <input type="date" id="statsDateStart" class="input-field" style="width:130px" value="${statsStartDate}" onchange="changeStatsCustom()">
-          <span class="text-muted">至</span>
+          <span class="text-muted">${__('stats.to')}</span>
           <input type="date" id="statsDateEnd" class="input-field" style="width:130px" value="${statsEndDate}" onchange="changeStatsCustom()">
         </div>
         </div>
@@ -735,30 +735,30 @@ function renderStats() {
 
     <!-- Stats cards row 1: Core summary -->
     <div class="grid-4 mb-16">
-      <div class="card"><div class="card-title">${isCustom ? '范围总支出' : (isRolling ? '近30天支出' : '本月总支出')}</div><div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">日常 ${formatMoney(monthTotal - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)))} · 账单 ${formatMoney(isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth))}</div>` : ''}</div>
-      <div class="card"><div class="card-title">${isCustom ? '记录数' : '日均支出'}</div><div class="text-xl font-bold">${isCustom ? rangeTotal.count : formatMoney(dailyAvg)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">日常日均 ${formatMoney(isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(statsMonth))}</div>` : ''}</div>
-      <div class="card"><div class="card-title">${isRolling ? '预测30天总支出' : '预测月总支出'}</div><div class="text-xl font-bold">${formatMoney(predicted)}</div></div>
-      <div class="card"><div class="card-title">储蓄预测</div><div class="text-xl font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div></div>
+      <div class="card"><div class="card-title">${isCustom ? __('stats.rangeTotal') : (isRolling ? __('stats.rollingTotal') : __('stats.monthTotal'))}</div><div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">${__('stats.daily')} ${formatMoney(monthTotal - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)))} · ${__('stats.bills')} ${formatMoney(isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth))}</div>` : ''}</div>
+      <div class="card"><div class="card-title">${isCustom ? __('stats.recordCount') : __('stats.dailyAvg')}</div><div class="text-xl font-bold">${isCustom ? rangeTotal.count : formatMoney(dailyAvg)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">${__('stats.dailyAvgDaily')} ${formatMoney(isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(statsMonth))}</div>` : ''}</div>
+      <div class="card"><div class="card-title">${isRolling ? __('stats.predictedRolling') : __('stats.predicted')}</div><div class="text-xl font-bold">${formatMoney(predicted)}</div></div>
+      <div class="card"><div class="card-title">${__('stats.savingsPrediction')}</div><div class="text-xl font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div></div>
     </div>
 
     <!-- Stats cards row 2: Transaction analysis -->
     <div class="grid-4 mb-16">
       <div class="card">
-        <div class="card-title">交易笔数</div>
-        <div class="text-xl font-bold">${totalCount} 笔</div>
-        <div class="text-xs text-muted mt-4">有消费天数: ${daysWithTxns} 天</div>
+        <div class="card-title">${__('stats.transactionCount')}</div>
+        <div class="text-xl font-bold">${totalCount} ${__('stats.transactions')}</div>
+        <div class="text-xs text-muted mt-4">${__('stats.spendingDays')}: ${daysWithTxns} ${__('stats.days')}</div>
       </div>
       <div class="card">
-        <div class="card-title">平均每笔</div>
+        <div class="card-title">${__('stats.avgPerTransaction')}</div>
         <div class="text-xl font-bold">${formatMoney(avgAmount)}</div>
       </div>
       <div class="card">
-        <div class="card-title">单笔最高</div>
+        <div class="card-title">${__('stats.maxTransaction')}</div>
         <div class="text-xl font-bold" style="color:var(--danger)">${formatMoney(maxAmount)}</div>
         ${maxCat ? `<div class="text-xs text-muted mt-4">${maxCat.icon} ${maxCat.name}</div>` : ''}
       </div>
       <div class="card">
-        <div class="card-title">最高消费日</div>
+        <div class="card-title">${__('stats.maxSpendingDay')}</div>
         <div class="text-xl font-bold">${maxDay ? formatMoney(maxDay.total) : ''}</div>
         ${maxDay ? `<div class="text-xs text-muted mt-4">${isCustom ? maxDay.day : statsMonth.slice(0,7) + '-' + String(maxDay.day).padStart(2,'0')}</div>` : ''}
       </div>
@@ -766,31 +766,30 @@ function renderStats() {
 
       ${!isCustom && remainingLimitSpendableStats > 0 ? `
       <div class="card mb-16" style="border-left:4px solid var(--warning)">
-        ⏳ 剩余 ${new Date(parseInt(statsMonth.split('-')[0]), parseInt(statsMonth.split('-')[1]), 0).getDate() - now.getDate()} 天，
-        扣除储蓄后日均需控制在 ${formatMoney(remainingLimitSpendableStats)} 以内
+        ⏳ ${__('stats.remainingDays', new Date(parseInt(statsMonth.split('-')[0]), parseInt(statsMonth.split('-')[1]), 0).getDate() - now.getDate())}${__('stats.remainingControl', formatMoney(remainingLimitSpendableStats))}
       </div>
     ` : ''}
 
     <!-- Savings prediction card (stats) -->
     ${!isCustom ? `
       <div class="card mb-16">
-        <div class="card-title">💵 当月储蓄预估</div>
+        <div class="card-title">💵 ${__('stats.savingsEstimate')}</div>
         <div class="grid-4" style="margin-bottom:8px">
           <div>
-            <div class="text-xs text-secondary">月收入</div>
-            <div class="text-lg font-bold">${budget ? formatMoney(budget) : '未设置'}</div>
-            ${totalBillsStats > 0 ? `<div class="text-xs text-muted" style="margin-top:2px">净收入 ${formatMoney(netDisposableStats)}</div>` : ''}
+            <div class="text-xs text-secondary">${__('stats.monthlyIncome')}</div>
+            <div class="text-lg font-bold">${budget ? formatMoney(budget) : __('stats.notSet')}</div>
+            ${totalBillsStats > 0 ? `<div class="text-xs text-muted" style="margin-top:2px">${__('stats.netIncome')} ${formatMoney(netDisposableStats)}</div>` : ''}
           </div>
           <div>
-            <div class="text-xs text-secondary">当前已存</div>
+            <div class="text-xs text-secondary">${__('stats.currentSavings')}</div>
             <div class="text-lg font-bold" style="color:${actualSavings > 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(actualSavings)}</div>
           </div>
           <div>
-            <div class="text-xs text-secondary">预计月末储蓄</div>
+            <div class="text-xs text-secondary">${__('stats.estimatedMonthEnd')}</div>
             <div class="text-lg font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div>
           </div>
           <div>
-            <div class="text-xs text-secondary">收支结余</div>
+            <div class="text-xs text-secondary">${__('stats.balance')}</div>
             <div class="text-lg font-bold" style="color:${(budget - effectiveTotalStats) >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(budget - effectiveTotalStats)}</div>
           </div>
         </div>
@@ -810,19 +809,19 @@ function renderStats() {
             return `
             <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
             <div style="flex:1;min-width:140px;padding:6px 10px;border-radius:8px;background:var(--card-bg);border:1px solid var(--border)">
-              <div class="text-xs text-secondary">剩余总额/天</div>
-              <div class="font-bold" style="font-size:1rem;color:${remainingTotalPerDay > 0 ? 'var(--warning)' : 'var(--text-muted)'}">${formatMoney(remainingTotalPerDay)}/天</div>
-              <div class="text-xs text-muted" style="margin-top:2px">${formatMoney(remainingTotal)} ÷ ${remainingDays}天</div>
+              <div class="text-xs text-secondary">${__('stats.remainingTotalPerDay')}</div>
+              <div class="font-bold" style="font-size:1rem;color:${remainingTotalPerDay > 0 ? 'var(--warning)' : 'var(--text-muted)'}">${formatMoney(remainingTotalPerDay)}/${__('stats.dayUnit')}</div>
+              <div class="text-xs text-muted" style="margin-top:2px">${formatMoney(remainingTotal)} ÷ ${remainingDays}${__('stats.days')}</div>
             </div>
             <div style="flex:1;min-width:140px;padding:6px 10px;border-radius:8px;background:var(--card-bg);border:1px solid var(--border)">
-              <div class="text-xs text-secondary">日常可用/天（已扣账单+储蓄）</div>
-              <div class="font-bold" style="font-size:1rem;color:${remainingDailyPerDay > 0 ? 'var(--primary)' : 'var(--text-muted)'}">${formatMoney(remainingDailyPerDay)}/天</div>
-              <div class="text-xs text-muted" style="margin-top:2px">${formatMoney(remainingDaily)} ÷ ${remainingDays}天</div>
+              <div class="text-xs text-secondary">${__('stats.dailyAvailablePerDay')}</div>
+              <div class="font-bold" style="font-size:1rem;color:${remainingDailyPerDay > 0 ? 'var(--primary)' : 'var(--text-muted)'}">${formatMoney(remainingDailyPerDay)}/${__('stats.dayUnit')}</div>
+              <div class="text-xs text-muted" style="margin-top:2px">${formatMoney(remainingDaily)} ÷ ${remainingDays}${__('stats.days')}</div>
             </div>
           </div>`;
           })()}
         ` : ''}
-        ${!budget ? '<div class="text-xs text-muted mt-4">💡 在「月账单中心」设定月收入后可查看储蓄预估</div>' : ''}
+        ${!budget ? '<div class="text-xs text-muted mt-4">' + __('stats.savingsHint') + '</div>' : ''}
       </div>
     ` : ''}
 
@@ -831,29 +830,29 @@ function renderStats() {
       ${!isCustom ? `
       <div class="card" id="heatmapCard">
         <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span>📅 消费热力图</span>
-          <button class="view-toggle-btn" onclick="expandHeatmap()" title="放大" style="font-size:0.7rem">⛶ 展开</button>
+          <span>📅 ${__('stats.heatmap.cardTitle')}</span>
+          <button class="view-toggle-btn" onclick="expandHeatmap()" title="${__('stats.zoomIn')}" style="font-size:0.7rem">⛶ ${__('stats.expand')}</button>
         </div>
         ${renderCalendarHeatmap(statsMonth)}
       </div>
       ` : ''}
       <div class="card" id="pieCard">
         <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span>分类支出 (饼图)</span>
+          <span>${__('stats.categoryExpenditure')} (${__('stats.pieChart.label')})</span>
           <span class="pie-drill-bar" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:0.82rem"></span>
           ${renderBillToggle('pieChart')}
-          <button class="view-toggle-btn" onclick="expandPie()" title="放大" style="font-size:0.7rem">⛶ 展开</button>
+          <button class="view-toggle-btn" onclick="expandPie()" title="${__('stats.zoomIn')}" style="font-size:0.7rem">⛶ ${__('stats.expand')}</button>
         </div>
         <canvas id="pieChart" width="400" height="300" style="width:100%;height:250px"></canvas>
-        <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('pieChart')">📥 下载 PNG</button>
+        <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('pieChart')">📥 ${__('stats.downloadPNG')}</button>
       </div>
     </div>
     <div class="card mb-16">
       <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span>每日趋势 (折线图)</span>
+        <span>${__('stats.dailyTrend')} (${__('stats.lineChart.label')})</span>
       </div>
       <canvas id="lineChart" width="400" height="300" style="width:100%;height:250px"></canvas>
-      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('lineChart')">📥 下载 PNG</button>
+      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('lineChart')">📥 ${__('stats.downloadPNG')}</button>
     </div>
 
     <div id="budgetProgressContainer">${renderBudgetProgressCard(statsMonth)}</div>
@@ -861,23 +860,23 @@ function renderStats() {
     <!-- Waffle Chart: Tag Distribution -->
     <div class="card mb-16" id="waffleCard">
       <div class="flex items-center justify-between" style="margin-bottom:10px">
-        <div class="card-title" style="margin-bottom:0">🏷️ 标签分布</div>
+        <div class="card-title" style="margin-bottom:0">🏷️ ${__('stats.waffle.title')}</div>
         <div class="flex items-center gap-8">
           <!-- Include untagged toggle -->
           <label class="flex items-center gap-4" style="cursor:pointer;font-size:0.72rem;color:var(--text-secondary)" onclick="toggleWaffleUntagged()">
             <span id="waffleUntaggedCheck" style="width:16px;height:16px;border:2px solid var(--text-muted);border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:0.6rem">${waffleIncludeUntagged ? '✓' : ''}</span>
-            含无标签
+            ${__('stats.waffle.includeUntagged')}
           </label>
           <!-- Month selector -->
           <select class="input-field" id="waffleMonthSelect" style="width:auto;font-size:0.7rem;padding:2px 6px" onchange="changeWaffleMonth(this.value)">
-            <option value="">📅 跟随统计范围</option>
+            <option value="">📅 ${__('stats.waffle.followRange')}</option>
             ${function(){
               var opts = '';
               var now = new Date();
               for (var i = 0; i < 12; i++) {
                 var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
                 var val = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
-                var label = d.getFullYear() + '年' + (d.getMonth()+1) + '月';
+                var label = d.getFullYear() + __('stats.year') + (d.getMonth()+1) + __('stats.month');
                 opts += '<option value="' + val + '"' + (waffleSelectedMonth === val ? ' selected' : '') + '>' + label + '</option>';
               }
               return opts;
@@ -894,7 +893,7 @@ function renderStats() {
       </div>
       <canvas id="waffleChart" width="400" height="250" style="width:100%;height:220px;cursor:pointer"></canvas>
           <div style="text-align:right;margin-top:4px">
-            <button class="btn btn-ghost btn-sm" onclick="exportWafflePNG()" style="font-size:0.65rem">📥 下载 PNG</button>
+            <button class="btn btn-ghost btn-sm" onclick="exportWafflePNG()" style="font-size:0.65rem">📥 ${__('stats.downloadPNG')}</button>
           </div>
       <div id="waffleLegend" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;font-size:0.72rem"></div>
     </div>
@@ -903,24 +902,24 @@ function renderStats() {
     ${showMonthCompare && !isCustom ? `
     <div class="card mb-16">
       <div class="card-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <span>📊 月度分类对比 — 本月 vs 上月</span>
-        <span class="text-xs text-muted">🔵 本月 &nbsp;|&nbsp; 🟢 上月</span>
+        <span>📊 ${__('stats.monthCompare.title')}</span>
+        <span class="text-xs text-muted">🔵 ${__('stats.thisMonth')} &nbsp;|&nbsp; 🟢 ${__('stats.lastMonth')}</span>
       </div>
       <canvas id="compareChart" width="600" height="280" style="width:100%;height:230px"></canvas>
-      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('compareChart')">📥 下载 PNG</button>
+      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('compareChart')">📥 ${__('stats.downloadPNG')}</button>
     </div>
     ` : ''}
 
     <div class="card mb-16">
-      <div class="card-title">月度支出趋势 (近6个月)</div>
+      <div class="card-title">${__('stats.monthlyTrend')} (${__('stats.last6Months')})</div>
       <canvas id="monthlyChart" width="600" height="250" style="width:100%;height:200px"></canvas>
-      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('monthlyChart')">📥 下载 PNG</button>
+      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('monthlyChart')">📥 ${__('stats.downloadPNG')}</button>
     </div>
 
     <div class="card mb-16">
-      <div class="card-title">月度储蓄趋势 (近6个月)</div>
+      <div class="card-title">${__('stats.savingsTrend')} (${__('stats.last6Months')})</div>
       <canvas id="savingsChart" width="600" height="250" style="width:100%;height:200px"></canvas>
-      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('savingsChart')">📥 下载 PNG</button>
+      <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('savingsChart')">📥 ${__('stats.downloadPNG')}</button>
     </div>
   `;
 
@@ -968,7 +967,7 @@ function changeStatsCustom() {
       window.statsEndDate = statsEndDate;
       document.getElementById('statsDateStart').value = statsStartDate;
       document.getElementById('statsDateEnd').value = statsEndDate;
-      showToast('日期范围已自动修正', 'warning');
+      showToast(__('stats.dateRangeAutoFixed'), 'warning');
     }
     statsMonth = '';
     window.statsMonth = '';
@@ -1118,7 +1117,7 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
         data.push({
           id: breakdown.category.id + '-direct',
           total: directTotal,
-          cat: { name: breakdown.category.name + ' (直接)', icon: '📌', color: breakdown.category.color }
+          cat: { name: breakdown.category.name + __('stats.direct'), icon: '📌', color: breakdown.category.color }
         });
       }
       if (data.length === 0) {
@@ -1141,7 +1140,7 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
     ctx.fillStyle = tc.textMuted;
     ctx.font = '14px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('暂无数据', w/2, h/2);
+    ctx.fillText(__('stats.noData'), w/2, h/2);
     return;
   }
 
@@ -1503,7 +1502,7 @@ function drawLineChart(canvasId, month, startDate, endDate) {
     ctx.fillStyle = tc.textMuted;
     ctx.font = '14px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('暂无数据', w/2, h/2);
+    ctx.fillText(__('stats.noData'), w/2, h/2);
     return;
   }
 
@@ -1556,7 +1555,7 @@ function drawLineChart(canvasId, month, startDate, endDate) {
       ctx.fillStyle = '#10B981';
       ctx.font = '11px sans-serif';
       ctx.textAlign = 'right';
-      ctx.fillText('日均可支配 ' + formatMoney(dailyTarget), w - padding.right - 5, targetY - 6);
+      ctx.fillText(__('stats.heatmap.dailyBudgetLabel', formatMoney(dailyTarget)), w - padding.right - 5, targetY - 6);
       ctx.restore();
     }
 
@@ -1665,7 +1664,7 @@ function drawBarChart(canvasId, month, startDate, endDate) {
     ctx.fillStyle = tc.textMuted;
     ctx.font = '14px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('暂无数据', w/2, h/2);
+    ctx.fillText(__('stats.noData'), w/2, h/2);
     return;
   }
 
@@ -1774,7 +1773,7 @@ function drawMonthlyChart(canvasId) {
     ctx.fillStyle = tc.textMuted;
     ctx.font = '14px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('暂无月度数据', w/2, h/2);
+    ctx.fillText(__('stats.noMonthlyData'), w/2, h/2);
     return;
   }
 
@@ -1803,7 +1802,7 @@ function drawMonthlyChart(canvasId) {
     x: padding.left + (i / (data.length - 1)) * plotW,
     y: padding.top + plotH - (d.total / maxVal) * plotH,
     total: d.total,
-    label: d.month.slice(5, 7) + '月'
+    label: d.month.slice(5, 7) + __('stats.month')
   }));
 
   // Fill area
@@ -1870,7 +1869,7 @@ function drawSavingsChart(canvasId) {
     ctx.fillStyle = tc.textMuted;
     ctx.font = '14px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('暂无数据', w/2, h/2);
+    ctx.fillText(__('stats.noData'), w/2, h/2);
     return;
   }
 
@@ -1926,7 +1925,7 @@ function drawSavingsChart(canvasId) {
     ctx.fillStyle = tc.text;
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(s.month.slice(5, 7) + '月', x + barW/2, h - 8);
+    ctx.fillText(s.month.slice(5, 7) + __('stats.month'), x + barW/2, h - 8);
 
     // Value label
     ctx.fillStyle = isPositive ? '#10B981' : '#EF4444';
@@ -2001,14 +2000,14 @@ function drawWaffleChart(canvasId, records) {
   tagData.sort(function(a, b) { return b.amount - a.amount; });
 
   if (waffleIncludeUntagged && untaggedTotal > 0) {
-    tagData.push({ name: '未标签', amount: untaggedTotal, color: '#999' });
+    tagData.push({ name: __('stats.waffle.untagged'), amount: untaggedTotal, color: '#999' });
   }
 
   var totalAmount = tagData.reduce(function(s, d) { return s + d.amount; }, 0);
   if (totalAmount === 0) {
     ctx.fillStyle = 'var(--text-muted)';
     ctx.textAlign = 'center';
-    ctx.fillText('暂无标签数据', w / 2, h / 2);
+    ctx.fillText(__('stats.waffle.noData'), w / 2, h / 2);
     return;
   }
 
@@ -2355,14 +2354,14 @@ function toggleWaffleUntagged() {
 
 function openWaffleTagColorPicker(tagName, currentColor) {
   var colors = window.COLORS || ['#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6','#F97316','#06B6D4','#84CC16','#A855F7','#E11D48','#0EA5E9','#D97706'];
-  var html = '<div class="modal-title">🎨 选择标签颜色 — ' + escHtml(tagName) + '</div>' +
+  var html = '<div class="modal-title">🎨 ' + __('stats.waffle.chooseColor') + ' — ' + escHtml(tagName) + '</div>' +
     '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;padding:8px 0">' +
     colors.map(function(c) {
       return '<span style="display:inline-block;width:32px;height:32px;border-radius:50%;background:' + c + ';cursor:pointer;border:' + (c === currentColor ? '3px solid var(--text-primary)' : '2px solid transparent') + '" onclick="DataStore.setTagColor(\'' + escHtml(tagName) + '\',\'' + c + '\');closeModal();renderStats()"></span>';
     }).join('') +
     '</div>' +
-    (DataStore.getTagColor(tagName) ? '<div style="text-align:center;padding-top:4px"><button class="btn btn-ghost btn-sm" onclick="DataStore.resetTagColor(\'' + escHtml(tagName) + '\');closeModal();renderStats()">↩ 恢复默认</button></div>' : '') +
-    '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>';
+    (DataStore.getTagColor(tagName) ? '<div style="text-align:center;padding-top:4px"><button class="btn btn-ghost btn-sm" onclick="DataStore.resetTagColor(\'' + escHtml(tagName) + '\');closeModal();renderStats()">↩ ' + __('stats.waffle.resetDefault') + '</button></div>' : '') +
+    '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('stats.cancel') + '</button></div>';
   showModal(html);
 }
 
@@ -2373,13 +2372,120 @@ function exportWafflePNG() {
   link.download = 'waffle-tags-' + new Date().toISOString().substr(0, 10) + '.png';
   link.href = canvas.toDataURL('image/png');
   link.click();
-  showToast('✅ Waffle 已导出为 PNG');
+  showToast(__('stats.waffle.exported'));
 }
 
 function changeWaffleMonth(monthKey) {
   waffleSelectedMonth = monthKey;
   renderStats();
 }
+
+  // === I18N ENTRIES ===
+addI18nEntries({
+  'stats.drill.back': { zh: '返回上级', en: 'Back to parent' },
+  'stats.drill.subcategory': { zh: '的子分类', en: 'subcategories' },
+  'stats.heatmap.selectMonth': { zh: '请选择月份查看日历热力图', en: 'Select a month to view calendar heatmap' },
+  'stats.heatmap.wd0': { zh: '日', en: 'Sun' },
+  'stats.heatmap.wd1': { zh: '一', en: 'Mon' },
+  'stats.heatmap.wd2': { zh: '二', en: 'Tue' },
+  'stats.heatmap.wd3': { zh: '三', en: 'Wed' },
+  'stats.heatmap.wd4': { zh: '四', en: 'Thu' },
+  'stats.heatmap.wd5': { zh: '五', en: 'Fri' },
+  'stats.heatmap.wd6': { zh: '六', en: 'Sat' },
+  'stats.heatmap.title': { zh: '{0}年{1}月 消费热力图', en: '{0}/{1} Spending Heatmap' },
+  'stats.heatmap.dailyBudget': { zh: '日均可支配: {0}', en: 'Daily budget: {0}' },
+  'stats.heatmap.dailyBudgetLabel': { zh: '日均可支配 {0}', en: 'Daily budget {0}' },
+  'stats.heatmap.noBudget': { zh: '未设置预算/储蓄目标', en: 'No budget/savings target set' },
+  'stats.heatmap.legendLess': { zh: '少', en: 'Less' },
+  'stats.heatmap.legendMore': { zh: '多', en: 'More' },
+  'stats.heatmap.noSpending': { zh: '无消费', en: 'No spending' },
+  'stats.heatmap.noSpendingShort': { zh: '无消费', en: 'No spending' },
+  'stats.heatmap.vsTarget': { zh: '比目标 {0}%', en: 'vs target {0}%' },
+  'stats.heatmap.expandTitle': { zh: '消费热力图', en: 'Spending Heatmap' },
+  'stats.heatmap.cardTitle': { zh: '消费热力图', en: 'Spending Heatmap' },
+  'stats.heatmap.clickDateHint': { zh: '点击左侧日期查看当日记录', en: 'Click a date on the left to view records' },
+  'stats.noRecords': { zh: '无记录', en: 'No records' },
+  'stats.total': { zh: '合计', en: 'Total' },
+  'stats.resetFilter': { zh: '重置流水筛选', en: 'Reset filter' },
+  'stats.unknown': { zh: '未知', en: 'Unknown' },
+  'stats.viewRawData': { zh: '查看原始数据', en: 'View raw data' },
+  'stats.delete': { zh: '删除', en: 'Delete' },
+  'stats.noData': { zh: '暂无数据', en: 'No data' },
+  'stats.noCategoryData': { zh: '暂无分类数据', en: 'No category data' },
+  'stats.back': { zh: '返回', en: 'Back' },
+  'stats.direct': { zh: '(直接)', en: '(direct)' },
+  'stats.categoryDetail': { zh: '分类明细', en: 'Category details' },
+  'stats.category': { zh: '分类', en: 'Category' },
+  'stats.amount': { zh: '金额', en: 'Amount' },
+  'stats.percentage': { zh: '占比', en: 'Percentage' },
+  'stats.thisMonth': { zh: '本月', en: 'This month' },
+  'stats.lastMonth': { zh: '上月', en: 'Last month' },
+  'stats.billToggle.includeBills': { zh: '含账单', en: 'Include bills' },
+  'stats.overspent': { zh: '超支', en: 'Overspent' },
+  'stats.monthlyIncome': { zh: '月收入', en: 'Monthly income' },
+  'stats.bills': { zh: '账单', en: 'Bills' },
+  'stats.savings': { zh: '储蓄', en: 'Savings' },
+  'stats.dailyAvailable': { zh: '日常可用', en: 'Daily available' },
+  'stats.month': { zh: '月份', en: 'Month' },
+  'stats.or': { zh: '或', en: 'or' },
+  'stats.customRange': { zh: '自定义范围', en: 'Custom range' },
+  'stats.to': { zh: '至', en: 'to' },
+  'stats.rangeTotal': { zh: '范围总支出', en: 'Range total' },
+  'stats.rollingTotal': { zh: '近30天支出', en: 'Last 30 days' },
+  'stats.monthTotal': { zh: '本月总支出', en: 'This month total' },
+  'stats.daily': { zh: '日常', en: 'Daily' },
+  'stats.recordCount': { zh: '记录数', en: 'Records' },
+  'stats.dailyAvg': { zh: '日均支出', en: 'Daily avg' },
+  'stats.dailyAvgDaily': { zh: '日常日均', en: 'Daily avg (variable)' },
+  'stats.predictedRolling': { zh: '预测30天总支出', en: 'Predicted 30-day total' },
+  'stats.predicted': { zh: '预测月总支出', en: 'Predicted monthly total' },
+  'stats.savingsPrediction': { zh: '储蓄预测', en: 'Savings prediction' },
+  'stats.transactionCount': { zh: '交易笔数', en: 'Transactions' },
+  'stats.transactions': { zh: '笔', en: 'txns' },
+  'stats.spendingDays': { zh: '有消费天数', en: 'Days with spending' },
+  'stats.days': { zh: '天', en: 'days' },
+  'stats.avgPerTransaction': { zh: '平均每笔', en: 'Avg per txn' },
+  'stats.maxTransaction': { zh: '单笔最高', en: 'Max transaction' },
+  'stats.maxSpendingDay': { zh: '最高消费日', en: 'Max spending day' },
+  'stats.remainingDays': { zh: '剩余 {0} 天，', en: '{0} days left, ' },
+  'stats.remainingControl': { zh: '扣除储蓄后日均需控制在 {0} 以内', en: 'daily spending (ex-savings) must stay under {0}' },
+  'stats.savingsEstimate': { zh: '当月储蓄预估', en: 'Savings estimate' },
+  'stats.notSet': { zh: '未设置', en: 'Not set' },
+  'stats.netIncome': { zh: '净收入', en: 'Net income' },
+  'stats.currentSavings': { zh: '当前已存', en: 'Saved so far' },
+  'stats.estimatedMonthEnd': { zh: '预计月末储蓄', en: 'Est. month-end savings' },
+  'stats.balance': { zh: '收支结余', en: 'Balance' },
+  'stats.remainingTotalPerDay': { zh: '剩余总额/天', en: 'Remaining total/day' },
+  'stats.dayUnit': { zh: '天', en: 'day' },
+  'stats.dailyAvailablePerDay': { zh: '日常可用/天（已扣账单+储蓄）', en: 'Daily available/day (ex-bills & savings)' },
+  'stats.savingsHint': { zh: '💡 在「月账单中心」设定月收入后可查看储蓄预估', en: '💡 Set monthly income in Bills Center to see savings estimate' },
+  'stats.expand': { zh: '展开', en: 'Expand' },
+  'stats.zoomIn': { zh: '放大', en: 'Zoom in' },
+  'stats.categoryExpenditure': { zh: '分类支出', en: 'Category spending' },
+  'stats.downloadPNG': { zh: '下载 PNG', en: 'Download PNG' },
+  'stats.dailyTrend': { zh: '每日趋势', en: 'Daily trend' },
+  'stats.lineChart.label': { zh: '折线图', en: 'Line chart' },
+  'stats.pieChart.label': { zh: '饼图', en: 'Pie chart' },
+  'stats.pieChart.expandTitle': { zh: '分类支出分析', en: 'Category spending analysis' },
+  'stats.pieChart.drillHint': { zh: '点击 ▸ 展开子分类 · 点击分类名下钻', en: 'Click ▸ to expand · Click name to drill down' },
+  'stats.pieChart.toggleChildren': { zh: '展开/收起子分类', en: 'Expand/collapse subcategories' },
+  'stats.waffle.title': { zh: '标签分布', en: 'Tag distribution' },
+  'stats.waffle.includeUntagged': { zh: '含无标签', en: 'Include untagged' },
+  'stats.waffle.followRange': { zh: '跟随统计范围', en: 'Follow stats range' },
+  'stats.waffle.untagged': { zh: '未标签', en: 'Untagged' },
+  'stats.waffle.noData': { zh: '暂无标签数据', en: 'No tag data' },
+  'stats.waffle.chooseColor': { zh: '选择标签颜色', en: 'Choose tag color' },
+  'stats.waffle.resetDefault': { zh: '恢复默认', en: 'Reset default' },
+  'stats.waffle.exported': { zh: '✅ Waffle 已导出为 PNG', en: '✅ Waffle exported as PNG' },
+  'stats.cancel': { zh: '取消', en: 'Cancel' },
+  'stats.monthCompare.title': { zh: '月度分类对比 — 本月 vs 上月', en: 'Month comparison — This month vs Last month' },
+  'stats.monthlyTrend': { zh: '月度支出趋势', en: 'Monthly spending trend' },
+  'stats.savingsTrend': { zh: '月度储蓄趋势', en: 'Monthly savings trend' },
+  'stats.last6Months': { zh: '近6个月', en: 'Last 6 months' },
+  'stats.dateRangeAutoFixed': { zh: '日期范围已自动修正', en: 'Date range auto-corrected' },
+  'stats.noMonthlyData': { zh: '暂无月度数据', en: 'No monthly data' },
+  'stats.year': { zh: '年', en: '-' },
+});
 
   // === EXPORTS ===
   window.statsMonth = statsMonth;

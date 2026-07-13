@@ -4,15 +4,27 @@
 (function() {
 'use strict';
 
+  // i18n translations — MUST register before pageTitles uses them
+  addI18nEntries({
+    'router.pageOverview': { zh: '总览', en: 'Overview' },
+    'router.pageAdd': { zh: '记账', en: 'Add Record' },
+    'router.pageRecords': { zh: '流水', en: 'Records' },
+    'router.pageCategories': { zh: '分类', en: 'Categories' },
+    'router.pageStats': { zh: '统计', en: 'Statistics' },
+    'router.pageReport': { zh: '月度报告', en: 'Monthly Report' },
+    'router.pageWhatif': { zh: '假设分析', en: 'What-If Analysis' },
+    'router.pageSettings': { zh: '设置', en: 'Settings' }
+  });
+
 const pageTitles = {
-  overview: '总览',
-  add: '记账',
-  records: '流水',
-  categories: '分类',
-  stats: '统计',
-  report: '月度报告',
-  whatif: '假设分析',
-  settings: '设置'
+  overview: __('router.pageOverview'),
+  add: __('router.pageAdd'),
+  records: __('router.pageRecords'),
+  categories: __('router.pageCategories'),
+  stats: __('router.pageStats'),
+  report: __('router.pageReport'),
+  whatif: __('router.pageWhatif'),
+  settings: __('router.pageSettings')
 };
 
 let currentTab = 'overview';
@@ -49,6 +61,8 @@ function navigateTo(tab) {
   else if (tab === 'report') renderReport();
   else if (tab === 'whatif') renderWhatIf();
   else if (tab === 'settings') renderSettings();
+
+  applyI18nToDOM();
 }
 
 // Navigation event listeners

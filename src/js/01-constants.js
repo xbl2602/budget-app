@@ -69,7 +69,7 @@ function getPeriodDateRange() {
       start, end, 
       daysInPeriod: end.getDate(), 
       daysPassed: now.getDate(),
-      label: now.getFullYear() + '年' + (now.getMonth()+1) + '月',
+      label: __('constants.yearMonth', now.getFullYear(), now.getMonth() + 1),
       key: now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0')
     };
   } else {
@@ -86,6 +86,11 @@ function getPeriodDateRange() {
     };
   }
 }
+
+  // i18n translations
+  addI18nEntries({
+    'constants.yearMonth': { zh: '{0}年{1}月', en: '{1}/{0}' }
+  });
 
   // === EXPORTS ===
   window.COLORS = COLORS;

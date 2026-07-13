@@ -41,16 +41,24 @@ function showBillRolloverReminder(lastMonth, currentMonth) {
   const year = currentMonth.split('-')[0];
   const mon = currentMonth.split('-')[1];
   showModal(`
-    <div class="modal-title">📋 新月份已开始</div>
+    <div class="modal-title">' + __('rollover.title') + '</div>
     <div style="padding:8px 0 16px">
-      <p style="margin-bottom:12px">已沿用上月账单设置 <strong>${formatMoney(total)}</strong></p>
+      <p style="margin-bottom:12px">${__('rollover.message', formatMoney(total))}</p>
       <div class="flex flex-col gap-8">
-        <button class="btn btn-primary" onclick="closeModal();openBillsCenter()">🔧 查看并调整</button>
-        <button class="btn btn-ghost" onclick="closeModal();if(currentTab==='overview')renderOverview();else if(currentTab==='stats')renderStats();">✅ 保持不变</button>
+        <button class="btn btn-primary" onclick="closeModal();openBillsCenter()">' + __('rollover.adjustBtn') + '</button>
+        <button class="btn btn-ghost" onclick="closeModal();if(currentTab==='overview')renderOverview();else if(currentTab==='stats')renderStats();">' + __('rollover.keepBtn') + '</button>
       </div>
     </div>
   `);
 }
+
+  // i18n translations
+  addI18nEntries({
+    'rollover.title': { zh: '📋 新月份已开始', en: '📋 New Month Started' },
+    'rollover.message': { zh: '已沿用上月账单设置 {0}', en: 'Carried over last month\'s bills: {0}' },
+    'rollover.adjustBtn': { zh: '🔧 查看并调整', en: '🔧 Review & Adjust' },
+    'rollover.keepBtn': { zh: '✅ 保持不变', en: '✅ Keep as Is' }
+  });
 
   // === EXPORTS ===
   window.checkMonthRollover = checkMonthRollover;

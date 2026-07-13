@@ -80,7 +80,7 @@ function openBillsCenter() {
   // Title + scrollable wrapper
   content.innerHTML = '';
   content.insertAdjacentHTML('beforeend',
-    `<div class="modal-title" style="font-size:1.1rem">📋 月账单中心 · ${year}年${mon}月</div>` +
+    `<div class="modal-title" style="font-size:1.1rem">📋 ${__('ui.bills.modalTitle', year, mon)}</div>` +
     `<div style="max-height:60vh;overflow-y:auto;padding:4px 0" id="${bodyId}"></div>`
   );
   const body = document.getElementById(bodyId);
@@ -88,63 +88,63 @@ function openBillsCenter() {
   // Income
   body.insertAdjacentHTML('beforeend',
     `<div class="card bills-card">` +
-      `<div class="card-title" style="font-size:0.75rem">💰 月收入</div>` +
-      `<input type="number" class="input-field bills-income-input" id="billIncomeInput" value="${income || ''}" placeholder="输入月收入" min="0" step="0.01" onchange="saveBillIncome(this.value)">` +
+      `<div class="card-title" style="font-size:0.75rem">💰 ${__('ui.bills.incomeTitle')}</div>` +
+      `<input type="number" class="input-field bills-income-input" id="billIncomeInput" value="${income || ''}" placeholder="${__('ui.bills.incomePlaceholder')}" min="0" step="0.01" onchange="saveBillIncome(this.value)">` +
     `</div>`
   );
 
   // Bill list
   let billListHtml = `<div class="card bills-card">` +
     `<div class="bills-card-title">` +
-      `<span>📋 账单列表</span>` +
-      `<span class="text-sm text-secondary">共 ${billCats.length} 项</span>` +
+      `<span>📋 ${__('ui.bills.billListTitle')}</span>` +
+      `<span class="text-sm text-secondary">${__('ui.bills.itemCount', billCats.length)}</span>` +
     `</div>` +
     `<div id="billListContainer">`;
   if (billCats.length === 0) {
-    billListHtml += `<div class="text-sm text-muted" style="padding:12px 0;text-align:center">暂无账单分类，请添加</div>`;
+    billListHtml += `<div class="text-sm text-muted" style="padding:12px 0;text-align:center">${__('ui.bills.emptyState')}</div>`;
   } else {
     billCats.forEach(cat => {
       const amt = amounts[cat.id] || '';
       billListHtml +=
         `<div class="bills-list-item" data-bill-id="${cat.id}">` +
-          `<span class="bills-cat-icon" onclick="editBillCategory('${cat.id}')" title="点击编辑">${cat.icon}</span>` +
+          `<span class="bills-cat-icon" onclick="editBillCategory('${cat.id}')" title="${__('ui.bills.editHint')}">${cat.icon}</span>` +
           `<span style="flex:1;font-weight:500;cursor:pointer" onclick="editBillCategory('${cat.id}')">${cat.name}</span>` +
           `<div style="display:flex;align-items:center;gap:4px">` +
             `<span style="font-size:0.75rem;color:var(--text-muted)">RM</span>` +
             `<input type="number" class="input-field bills-amount-input" value="${amt}" placeholder="0" min="0" step="0.01" onchange="saveBillAmount('${cat.id}', this.value)">` +
           `</div>` +
-          `<button class="btn btn-ghost btn-sm bills-delete-btn" onclick="deleteBillCategoryFromCenter('${cat.id}')" title="删除账单">✕</button>` +
+          `<button class="btn btn-ghost btn-sm bills-delete-btn" onclick="deleteBillCategoryFromCenter('${cat.id}')" title="${__('ui.bills.deleteTitle')}">✕</button>` +
         `</div>`;
     });
   }
   billListHtml += `</div>` +
-    `<button class="btn btn-sm btn-outline btn-block mt-8" onclick="addNewBillRow()">＋ 添加账单</button>` +
+    `<button class="btn btn-sm btn-outline btn-block mt-8" onclick="addNewBillRow()">${__('ui.bills.addBill')}</button>` +
     `</div>`;
   body.insertAdjacentHTML('beforeend', billListHtml);
 
   // Management buttons
   body.insertAdjacentHTML('beforeend',
     `<div class="flex gap-8 mb-8">` +
-      `<button class="btn btn-sm btn-ghost" onclick="openBillCategoryManager()" style="flex:1">📂 管理账单分类</button>` +
+      `<button class="btn btn-sm btn-ghost" onclick="openBillCategoryManager()" style="flex:1">📂 ${__('ui.bills.manageCategories')}</button>` +
     `</div>`
   );
 
   // Summary
   body.insertAdjacentHTML('beforeend',
     `<div class="card bills-summary">` +
-      `<div class="card-title" style="font-size:0.75rem">📊 月度汇总</div>` +
+      `<div class="card-title" style="font-size:0.75rem">📊 ${__('ui.bills.summaryTitle')}</div>` +
       `<div style="padding:4px 0">` +
         `<div class="flex items-center justify-between" style="padding:4px 0">` +
-          `<span class="text-sm">月收入</span>` +
+          `<span class="text-sm">${__('ui.bills.incomeLabel')}</span>` +
           `<span class="font-bold">${formatMoney(income)}</span>` +
         `</div>` +
         `<div class="flex items-center justify-between" style="padding:4px 0">` +
-          `<span class="text-sm">账单合计</span>` +
+          `<span class="text-sm">${__('ui.bills.totalBillsLabel')}</span>` +
           `<span class="font-bold" style="color:var(--danger)">${formatMoney(totalBills)}</span>` +
         `</div>` +
         `<div class="bills-summary-divider"></div>` +
         `<div class="flex items-center justify-between" style="padding:4px 0">` +
-          `<span class="text-sm font-semibold">每月可支配</span>` +
+          `<span class="text-sm font-semibold">${__('ui.bills.disposableLabel')}</span>` +
           `<span class="font-bold bills-total-amount">${formatMoney(netDisp)}</span>` +
         `</div>` +
       `</div>` +
@@ -154,7 +154,7 @@ function openBillsCenter() {
   // Close button
   content.insertAdjacentHTML('beforeend',
     `<div class="modal-actions">` +
-      `<button class="btn btn-primary" onclick="closeBillsCenter()">✅ 完成</button>` +
+      `<button class="btn btn-primary" onclick="closeBillsCenter()">✅ ${__('ui.bills.doneButton')}</button>` +
     `</div>`
   );
 
@@ -199,7 +199,7 @@ function addNewBillRow() {
   // Add a new bill category inline
   const month = getMonthKey(new Date().toISOString());
   const cat = DataStore.addBillCategory({
-    name: '新账单',
+    name: __('ui.bills.defaultBillName'),
     icon: '📄',
     color: COLORS[(DataStore._data.billCategories.length) % COLORS.length],
     sortOrder: DataStore.getBillCategories().length
@@ -211,7 +211,7 @@ function addNewBillRow() {
 }
 
 function deleteBillCategoryFromCenter(id) {
-  if (!confirm('确认删除此账单分类？')) return;
+  if (!confirm(__('ui.bills.confirmDelete'))) return;
   // Clean up amounts
   const month = getMonthKey(new Date().toISOString());
   if (DataStore._data.billAmounts && DataStore._data.billAmounts[month]) {
@@ -226,17 +226,17 @@ function editBillCategory(id) {
   if (!cat) return;
   const colors = COLORS;
   showModal(`
-    <div class="modal-title">编辑账单分类</div>
+    <div class="modal-title">${__('ui.bills.editTitle')}</div>
     <div class="input-group">
-      <label class="input-label">名称</label>
-      <input type="text" id="editBillCatName" class="input-field" value="${cat.name}" placeholder="分类名称">
+      <label class="input-label">${__('ui.bills.nameLabel')}</label>
+      <input type="text" id="editBillCatName" class="input-field" value="${cat.name}" placeholder="${__('ui.bills.namePlaceholder')}">
     </div>
     <div class="input-group">
-      <label class="input-label">图标 (Emoji)</label>
+      <label class="input-label">${__('ui.bills.iconLabel')}</label>
       <input type="text" id="editBillCatIcon" class="input-field" value="${cat.icon}" placeholder="📄" style="font-size:1.5rem">
     </div>
     <div class="input-group">
-      <label class="input-label">颜色</label>
+      <label class="input-label">${__('ui.bills.colorLabel')}</label>
       <div class="flex gap-6" style="flex-wrap:wrap">
         ${colors.map(c => `
           <span style="display:inline-block;width:28px;height:28px;border-radius:50%;background:${c};cursor:pointer;border:${cat.color === c ? '3px solid var(--text-primary)' : '2px solid transparent'}"
@@ -247,8 +247,8 @@ function editBillCategory(id) {
       <input type="hidden" id="billColorInput" value="${cat.color}">
     </div>
     <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal();openBillsCenter()">取消</button>
-      <button class="btn btn-primary" onclick="saveBillCategoryEdit('${id}')">💾 保存</button>
+      <button class="btn btn-ghost" onclick="closeModal();openBillsCenter()">${__('ui.bills.cancelButton')}</button>
+      <button class="btn btn-primary" onclick="saveBillCategoryEdit('${id}')">💾 ${__('ui.bills.saveButton')}</button>
     </div>
   `);
 }
@@ -257,7 +257,7 @@ function saveBillCategoryEdit(id) {
   const name = document.getElementById('editBillCatName').value.trim();
   const icon = document.getElementById('editBillCatIcon').value.trim();
   const color = document.getElementById('billColorInput').value;
-  if (!name) { showToast('请输入名称', 'error'); return; }
+  if (!name) { showToast(__('ui.bills.nameRequired'), 'error'); return; }
   DataStore.updateBillCategory(id, { name, icon: icon || '📄', color });
   closeModal();
   openBillsCenter();
@@ -266,9 +266,9 @@ function saveBillCategoryEdit(id) {
 function openBillCategoryManager() {
   const billCats = DataStore.getBillCategories();
   let html = `
-    <div class="modal-title">📂 管理账单分类</div>
+    <div class="modal-title">📂 ${__('ui.bills.managerTitle')}</div>
     <div style="max-height:50vh;overflow-y:auto">
-      ${billCats.length === 0 ? '<div class="text-sm text-muted" style="padding:12px;text-align:center">暂无账单分类</div>' : ''}
+      ${billCats.length === 0 ? `<div class="text-sm text-muted" style="padding:12px;text-align:center">${__('ui.bills.managerEmpty')}</div>` : ''}
       ${billCats.map(cat => `
         <div class="flex items-center justify-between" style="padding:8px 4px;border-bottom:1px solid var(--border)">
           <div class="flex items-center gap-8" style="cursor:pointer" onclick="closeModal();editBillCategory('${cat.id}')">
@@ -276,13 +276,13 @@ function openBillCategoryManager() {
             <span style="font-size:1.2rem">${cat.icon}</span>
             <span>${cat.name}</span>
           </div>
-          <button class="btn btn-ghost btn-sm" style="color:var(--danger);font-size:0.7rem" onclick="deleteBillCategoryFromCenter('${cat.id}')">删除</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--danger);font-size:0.7rem" onclick="deleteBillCategoryFromCenter('${cat.id}')">${__('ui.bills.deleteButton')}</button>
         </div>
       `).join('')}
     </div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeModal();addNewBillRow()">＋ 添加账单分类</button>
-      <button class="btn btn-ghost" onclick="closeModal();openBillsCenter()">返回</button>
+      <button class="btn btn-outline" onclick="closeModal();addNewBillRow()">${__('ui.bills.addCategory')}</button>
+      <button class="btn btn-ghost" onclick="closeModal();openBillsCenter()">${__('ui.bills.backButton')}</button>
     </div>
   `;
   showModal(html);
@@ -333,17 +333,17 @@ function refreshCurrentPage() {
 // ===== PIN PROTECTION UI =====
 function showPinModal() {
   showModal(`
-    <div class="modal-title">🔐 应用已锁定</div>
+    <div class="modal-title">🔐 ${__('ui.pin.lockedTitle')}</div>
     <div style="padding:12px 0">
-      <p class="text-sm text-muted" style="margin-bottom:12px">请输入PIN码解锁应用</p>
-      <input type="password" id="pinInput" class="input-field" placeholder="输入PIN码" 
+      <p class="text-sm text-muted" style="margin-bottom:12px">${__('ui.pin.unlockInstruction')}</p>
+      <input type="password" id="pinInput" class="input-field" placeholder="${__('ui.pin.enterPinPlaceholder')}" 
         style="font-size:1.2rem;text-align:center;letter-spacing:4px" 
         autocomplete="off" inputmode="numeric"
         onkeydown="if(event.key==='Enter') submitPin()">
-      <div id="pinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px;text-align:center">PIN码错误，请重试</div>
+      <div id="pinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px;text-align:center">${__('ui.pin.wrongPin')}</div>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-primary btn-block" onclick="submitPin()">🔓 解锁</button>
+      <button class="btn btn-primary btn-block" onclick="submitPin()">🔓 ${__('ui.pin.unlockButton')}</button>
     </div>
   `, false);  // <-- non-dismissable
   // Focus the input after modal is shown
@@ -379,23 +379,23 @@ async function submitPin() {
 
 function showSetPinModal() {
   showModal(`
-    <div class="modal-title">🔐 设置PIN锁</div>
+    <div class="modal-title">🔐 ${__('ui.pin.setPinTitle')}</div>
     <div style="padding:12px 0">
       <div class="input-group" style="margin-bottom:12px">
-        <label class="input-label">设置PIN码 (6位数字)</label>
-        <input type="password" id="newPinInput" class="input-field" placeholder="输入6位数字" 
+        <label class="input-label">${__('ui.pin.setPinLabel')}</label>
+        <input type="password" id="newPinInput" class="input-field" placeholder="${__('ui.pin.digitPlaceholder')}" 
           maxlength="6" inputmode="numeric" autocomplete="off">
       </div>
       <div class="input-group">
-        <label class="input-label">确认PIN码</label>
-        <input type="password" id="confirmPinInput" class="input-field" placeholder="再次输入" 
+        <label class="input-label">${__('ui.pin.confirmPinLabel')}</label>
+        <input type="password" id="confirmPinInput" class="input-field" placeholder="${__('ui.pin.reEnterPlaceholder')}" 
           maxlength="6" inputmode="numeric" autocomplete="off">
       </div>
       <div id="setPinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px"></div>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-primary" onclick="saveNewPin()">✅ 确认</button>
+      <button class="btn btn-ghost" onclick="closeModal()">${__('ui.pin.cancelButton')}</button>
+      <button class="btn btn-primary" onclick="saveNewPin()">✅ ${__('ui.pin.confirmButton')}</button>
     </div>
   `);
 }
@@ -405,18 +405,18 @@ async function saveNewPin() {
   const confirm = document.getElementById('confirmPinInput').value;
   const errEl = document.getElementById('setPinError');
   if (!pin || pin.length < 4) {
-    errEl.textContent = 'PIN码至少4位';
+    errEl.textContent = __('ui.pin.pinTooShort');
     errEl.style.display = 'block';
     return;
   }
   if (pin !== confirm) {
-    errEl.textContent = '两次输入不一致';
+    errEl.textContent = __('ui.pin.pinMismatch');
     errEl.style.display = 'block';
     return;
   }
   await DataStore.setPin(pin);
   closeModal();
-  showToast('✅ PIN码设置成功，数据已加密');
+  showToast('✅ ' + __('ui.pin.setSuccess'));
   startInactivityCheck();
   bindActivityListeners();
   if (typeof renderSettings === 'function') renderSettings();
@@ -424,28 +424,28 @@ async function saveNewPin() {
 
 function showChangePinModal() {
   showModal(`
-    <div class="modal-title">🔐 修改PIN码</div>
+    <div class="modal-title">🔐 ${__('ui.pin.changePinTitle')}</div>
     <div style="padding:12px 0">
       <div class="input-group" style="margin-bottom:8px">
-        <label class="input-label">当前PIN码</label>
-        <input type="password" id="oldPinInput" class="input-field" placeholder="输入当前PIN" 
+        <label class="input-label">${__('ui.pin.currentPinLabel')}</label>
+        <input type="password" id="oldPinInput" class="input-field" placeholder="${__('ui.pin.enterCurrentPlaceholder')}" 
           inputmode="numeric" autocomplete="off">
       </div>
       <div class="input-group" style="margin-bottom:8px">
-        <label class="input-label">新PIN码 (6位数字)</label>
-        <input type="password" id="newPinInput2" class="input-field" placeholder="输入新PIN" 
+        <label class="input-label">${__('ui.pin.newPinLabel')}</label>
+        <input type="password" id="newPinInput2" class="input-field" placeholder="${__('ui.pin.enterNewPlaceholder')}" 
           inputmode="numeric" autocomplete="off">
       </div>
       <div class="input-group">
-        <label class="input-label">确认新PIN码</label>
-        <input type="password" id="confirmPinInput2" class="input-field" placeholder="再次输入" 
+        <label class="input-label">${__('ui.pin.confirmNewPinLabel')}</label>
+        <input type="password" id="confirmPinInput2" class="input-field" placeholder="${__('ui.pin.reEnterPlaceholder')}" 
           inputmode="numeric" autocomplete="off">
       </div>
       <div id="changePinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px"></div>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-primary" onclick="saveChangedPin()">✅ 确认</button>
+      <button class="btn btn-ghost" onclick="closeModal()">${__('ui.pin.cancelButton')}</button>
+      <button class="btn btn-primary" onclick="saveChangedPin()">✅ ${__('ui.pin.confirmButton')}</button>
     </div>
   `);
 }
@@ -455,31 +455,31 @@ async function saveChangedPin() {
   const pin = document.getElementById('newPinInput2').value;
   const confirm = document.getElementById('confirmPinInput2').value;
   const errEl = document.getElementById('changePinError');
-  if (!old) { errEl.textContent = '请输入当前PIN码'; errEl.style.display = 'block'; return; }
-  if (!pin || pin.length < 4) { errEl.textContent = '新PIN码至少4位'; errEl.style.display = 'block'; return; }
-  if (pin !== confirm) { errEl.textContent = '两次输入不一致'; errEl.style.display = 'block'; return; }
+  if (!old) { errEl.textContent = __('ui.pin.enterCurrentPinError'); errEl.style.display = 'block'; return; }
+  if (!pin || pin.length < 4) { errEl.textContent = __('ui.pin.newPinTooShort'); errEl.style.display = 'block'; return; }
+  if (pin !== confirm) { errEl.textContent = __('ui.pin.pinMismatch'); errEl.style.display = 'block'; return; }
   const ok = await DataStore.changePin(old, pin);
-  if (!ok) { errEl.textContent = '当前PIN码错误'; errEl.style.display = 'block'; return; }
+  if (!ok) { errEl.textContent = __('ui.pin.currentPinWrong'); errEl.style.display = 'block'; return; }
   closeModal();
-  showToast('✅ PIN码已修改');
+  showToast('✅ ' + __('ui.pin.changeSuccess'));
   if (typeof renderSettings === 'function') renderSettings();
 }
 
 function showClearPinModal() {
   showModal(`
-    <div class="modal-title">🔓 关闭PIN锁</div>
+    <div class="modal-title">🔓 ${__('ui.pin.clearPinTitle')}</div>
     <div style="padding:12px 0">
-      <p class="text-sm text-muted" style="margin-bottom:12px">关闭后数据将恢复为明文存储</p>
+      <p class="text-sm text-muted" style="margin-bottom:12px">${__('ui.pin.clearWarning')}</p>
       <div class="input-group">
-        <label class="input-label">输入当前PIN码确认</label>
-        <input type="password" id="clearPinInput" class="input-field" placeholder="输入PIN码" 
+        <label class="input-label">${__('ui.pin.confirmClearLabel')}</label>
+        <input type="password" id="clearPinInput" class="input-field" placeholder="${__('ui.pin.enterPinPlaceholder')}" 
           inputmode="numeric" autocomplete="off">
       </div>
       <div id="clearPinError" class="text-sm" style="color:var(--danger);display:none;margin-top:8px"></div>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-danger" onclick="confirmClearPin()">🔓 关闭</button>
+      <button class="btn btn-ghost" onclick="closeModal()">${__('ui.pin.cancelButton')}</button>
+      <button class="btn btn-danger" onclick="confirmClearPin()">🔓 ${__('ui.pin.clearButton')}</button>
     </div>
   `);
 }
@@ -487,11 +487,11 @@ function showClearPinModal() {
 async function confirmClearPin() {
   const pin = document.getElementById('clearPinInput').value;
   const errEl = document.getElementById('clearPinError');
-  if (!pin) { errEl.textContent = '请输入PIN码'; errEl.style.display = 'block'; return; }
+  if (!pin) { errEl.textContent = __('ui.pin.enterPinError'); errEl.style.display = 'block'; return; }
   const ok = await DataStore.clearPin(pin);
-  if (!ok) { errEl.textContent = 'PIN码错误'; errEl.style.display = 'block'; return; }
+  if (!ok) { errEl.textContent = __('ui.pin.pinError'); errEl.style.display = 'block'; return; }
   closeModal();
-  showToast('✅ PIN锁已关闭，数据已解密');
+  showToast('✅ ' + __('ui.pin.clearSuccess'));
   stopInactivityCheck();
   if (typeof renderSettings === 'function') renderSettings();
 }
@@ -502,14 +502,14 @@ function openTagPicker(selectedTags, callback) {
   const selected = new Set(selectedTags || []);
   
   let html = `
-    <div class="modal-title">🏷️ 选择标签</div>
+    <div class="modal-title">🏷️ ${__('ui.tag.selectTitle')}</div>
     <div style="padding:8px 0">
-      <input type="text" id="tagSearchInput" class="input-field" placeholder="搜索或创建标签..." 
+      <input type="text" id="tagSearchInput" class="input-field" placeholder="${__('ui.tag.searchPlaceholder')}" 
         style="margin-bottom:8px" oninput="filterTagList()" autocomplete="off">
       <div id="tagListContainer" style="max-height:40vh;overflow-y:auto">`;
   
   if (allTags.length === 0) {
-    html += `<div class="text-sm text-muted" style="padding:12px;text-align:center">暂无标签，在上方输入新标签名称创建</div>`;
+    html += `<div class="text-sm text-muted" style="padding:12px;text-align:center">${__('ui.tag.emptyState')}</div>`;
   } else {
     allTags.forEach(tag => {
       const stats = DataStore.getTagStats(tag);
@@ -520,7 +520,7 @@ function openTagPicker(selectedTags, callback) {
             ${selected.has(tag) ? '✅' : '⬜'}
           </span>
           <span style="flex:1">${escHtml(tag)}</span>
-          <span class="text-xs text-muted">${stats.count}次 · ${formatMoney(stats.total)}</span>
+          <span class="text-xs text-muted">${stats.count}${__('ui.tag.countSuffix')} · ${formatMoney(stats.total)}</span>
         </div>`;
     });
   }
@@ -528,14 +528,14 @@ function openTagPicker(selectedTags, callback) {
   html += `</div>
       <div id="createTagSection" style="display:none;margin-top:8px">
         <div class="flex items-center gap-8">
-          <span>创建标签: "</span><span id="newTagNameDisplay" style="font-weight:700"></span><span>"</span>
-          <button class="btn btn-primary btn-sm" onclick="createAndSelectTag()">创建</button>
+          <span>${__('ui.tag.createLabelPrefix')}</span><span id="newTagNameDisplay" style="font-weight:700"></span><span>${__('ui.tag.createLabelSuffix')}</span>
+          <button class="btn btn-primary btn-sm" onclick="createAndSelectTag()">${__('ui.tag.createButton')}</button>
         </div>
       </div>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
-      <button class="btn btn-primary" onclick="confirmTagPick()">✅ 完成 (已选 ${selected.size})</button>
+      <button class="btn btn-ghost" onclick="closeModal()">${__('ui.tag.cancelButton')}</button>
+      <button class="btn btn-primary" onclick="confirmTagPick()">✅ ${__('ui.tag.doneButton', selected.size)}</button>
     </div>`;
   
   // Store callback
@@ -601,7 +601,7 @@ function toggleTagPick(tag) {
   }
   // Update button text
   const btn = document.querySelector('#modalContent .btn-primary');
-  if (btn) btn.textContent = `✅ 完成 (已选 ${selected.size})`;
+  if (btn) btn.textContent = `✅ ${__('ui.tag.doneButton', selected.size)}`;
 }
 
 function createAndSelectTag() {
@@ -695,6 +695,84 @@ function bindActivityListeners() {
     document.addEventListener(evt, resetActivityTimer, { passive: true });
   });
 }
+
+  // === I18N ENTRIES ===
+  window.addI18nEntries({
+    // Bills Center
+    'ui.bills.modalTitle': { zh: '月账单中心 · {0}年{1}月', en: 'Monthly Bills Center · {0}/{1}' },
+    'ui.bills.incomeTitle': { zh: '月收入', en: 'Monthly Income' },
+    'ui.bills.incomePlaceholder': { zh: '输入月收入', en: 'Enter monthly income' },
+    'ui.bills.billListTitle': { zh: '账单列表', en: 'Bill List' },
+    'ui.bills.itemCount': { zh: '共 {0} 项', en: '{0} item(s)' },
+    'ui.bills.emptyState': { zh: '暂无账单分类，请添加', en: 'No categories yet. Add one.' },
+    'ui.bills.deleteTitle': { zh: '删除账单', en: 'Delete bill' },
+    'ui.bills.addBill': { zh: '＋ 添加账单', en: '＋ Add Bill' },
+    'ui.bills.manageCategories': { zh: '管理账单分类', en: 'Manage Categories' },
+    'ui.bills.summaryTitle': { zh: '月度汇总', en: 'Monthly Summary' },
+    'ui.bills.incomeLabel': { zh: '月收入', en: 'Income' },
+    'ui.bills.totalBillsLabel': { zh: '账单合计', en: 'Total Bills' },
+    'ui.bills.disposableLabel': { zh: '每月可支配', en: 'Monthly Disposable' },
+    'ui.bills.doneButton': { zh: '完成', en: 'Done' },
+    'ui.bills.defaultBillName': { zh: '新账单', en: 'New Bill' },
+    'ui.bills.confirmDelete': { zh: '确认删除此账单分类？', en: 'Are you sure you want to delete this category?' },
+    'ui.bills.editTitle': { zh: '编辑账单分类', en: 'Edit Category' },
+    'ui.bills.nameLabel': { zh: '名称', en: 'Name' },
+    'ui.bills.namePlaceholder': { zh: '分类名称', en: 'Category name' },
+    'ui.bills.iconLabel': { zh: '图标 (Emoji)', en: 'Icon (Emoji)' },
+    'ui.bills.colorLabel': { zh: '颜色', en: 'Color' },
+    'ui.bills.cancelButton': { zh: '取消', en: 'Cancel' },
+    'ui.bills.saveButton': { zh: '保存', en: 'Save' },
+    'ui.bills.nameRequired': { zh: '请输入名称', en: 'Please enter a name' },
+    'ui.bills.managerTitle': { zh: '管理账单分类', en: 'Manage Categories' },
+    'ui.bills.managerEmpty': { zh: '暂无账单分类', en: 'No categories yet' },
+    'ui.bills.deleteButton': { zh: '删除', en: 'Delete' },
+    'ui.bills.addCategory': { zh: '＋ 添加账单分类', en: '＋ Add Category' },
+    'ui.bills.backButton': { zh: '返回', en: 'Back' },
+    'ui.bills.editHint': { zh: '点击编辑', en: 'Click to edit' },
+    // PIN
+    'ui.pin.lockedTitle': { zh: '应用已锁定', en: 'App Locked' },
+    'ui.pin.unlockInstruction': { zh: '请输入PIN码解锁应用', en: 'Enter PIN to unlock the app' },
+    'ui.pin.enterPinPlaceholder': { zh: '输入PIN码', en: 'Enter PIN' },
+    'ui.pin.wrongPin': { zh: 'PIN码错误，请重试', en: 'Wrong PIN, please try again' },
+    'ui.pin.unlockButton': { zh: '解锁', en: 'Unlock' },
+    'ui.pin.setPinTitle': { zh: '设置PIN锁', en: 'Set PIN Lock' },
+    'ui.pin.setPinLabel': { zh: '设置PIN码 (6位数字)', en: 'Set PIN (6 digits)' },
+    'ui.pin.digitPlaceholder': { zh: '输入6位数字', en: 'Enter 6 digits' },
+    'ui.pin.confirmPinLabel': { zh: '确认PIN码', en: 'Confirm PIN' },
+    'ui.pin.reEnterPlaceholder': { zh: '再次输入', en: 'Enter again' },
+    'ui.pin.cancelButton': { zh: '取消', en: 'Cancel' },
+    'ui.pin.confirmButton': { zh: '确认', en: 'Confirm' },
+    'ui.pin.pinTooShort': { zh: 'PIN码至少4位', en: 'PIN must be at least 4 digits' },
+    'ui.pin.pinMismatch': { zh: '两次输入不一致', en: 'PINs do not match' },
+    'ui.pin.setSuccess': { zh: 'PIN码设置成功，数据已加密', en: 'PIN set successfully, data encrypted' },
+    'ui.pin.changePinTitle': { zh: '修改PIN码', en: 'Change PIN' },
+    'ui.pin.currentPinLabel': { zh: '当前PIN码', en: 'Current PIN' },
+    'ui.pin.enterCurrentPlaceholder': { zh: '输入当前PIN', en: 'Enter current PIN' },
+    'ui.pin.newPinLabel': { zh: '新PIN码 (6位数字)', en: 'New PIN (6 digits)' },
+    'ui.pin.enterNewPlaceholder': { zh: '输入新PIN', en: 'Enter new PIN' },
+    'ui.pin.confirmNewPinLabel': { zh: '确认新PIN码', en: 'Confirm New PIN' },
+    'ui.pin.enterCurrentPinError': { zh: '请输入当前PIN码', en: 'Please enter current PIN' },
+    'ui.pin.newPinTooShort': { zh: '新PIN码至少4位', en: 'New PIN must be at least 4 digits' },
+    'ui.pin.currentPinWrong': { zh: '当前PIN码错误', en: 'Current PIN is incorrect' },
+    'ui.pin.changeSuccess': { zh: 'PIN码已修改', en: 'PIN changed successfully' },
+    'ui.pin.clearPinTitle': { zh: '关闭PIN锁', en: 'Disable PIN Lock' },
+    'ui.pin.clearWarning': { zh: '关闭后数据将恢复为明文存储', en: 'Data will be stored in plain text after disabling' },
+    'ui.pin.confirmClearLabel': { zh: '输入当前PIN码确认', en: 'Enter current PIN to confirm' },
+    'ui.pin.clearButton': { zh: '关闭', en: 'Disable' },
+    'ui.pin.enterPinError': { zh: '请输入PIN码', en: 'Please enter PIN' },
+    'ui.pin.pinError': { zh: 'PIN码错误', en: 'Wrong PIN' },
+    'ui.pin.clearSuccess': { zh: 'PIN锁已关闭，数据已解密', en: 'PIN lock disabled, data decrypted' },
+    // Tag Picker
+    'ui.tag.selectTitle': { zh: '选择标签', en: 'Select Tags' },
+    'ui.tag.searchPlaceholder': { zh: '搜索或创建标签...', en: 'Search or create tag...' },
+    'ui.tag.emptyState': { zh: '暂无标签，在上方输入新标签名称创建', en: 'No tags yet. Type above to create one.' },
+    'ui.tag.countSuffix': { zh: '次', en: 'x' },
+    'ui.tag.createLabelPrefix': { zh: '创建标签: "', en: 'Create tag: "' },
+    'ui.tag.createLabelSuffix': { zh: '"', en: '"' },
+    'ui.tag.createButton': { zh: '创建', en: 'Create' },
+    'ui.tag.cancelButton': { zh: '取消', en: 'Cancel' },
+    'ui.tag.doneButton': { zh: '完成 (已选 {0})', en: 'Done ({0} selected)' },
+  });
 
   // === EXPORTS ===
   window.applyTheme = applyTheme;

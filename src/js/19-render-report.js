@@ -58,7 +58,7 @@ function renderReport() {
     const catBudget = DataStore.getCategoryBudget(c.id, month).value || 0;
     const remaining = catBudget > 0 ? catBudget - spent : 0;
     const pct = catBudget > 0 ? (spent / catBudget * 100) : 0;
-    const status = catBudget > 0 ? (spent <= catBudget ? '✅ 预算内' : '⚠️ 超支') : '—';
+    const status = catBudget > 0 ? (spent <= catBudget ? __('report.withinBudget') : __('report.overspent')) : __('report.dash');
     return { cat: c, spent, catBudget, remaining, pct, status };
   }).sort((a,b) => b.spent - a.spent);
 
@@ -74,38 +74,38 @@ function renderReport() {
       <div class="card mb-16 report-header-buttons">
         <div class="flex items-center gap-12" style="flex-wrap:wrap">
           <div class="flex items-center gap-8">
-          <label class="text-sm text-secondary">${isRolling ? '统计周期' : '选择月份'}</label>
+          <label class="text-sm text-secondary">${isRolling ? __('report.selectPeriod') : __('report.selectMonth')}</label>
           <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${isRolling ? month : month}" onchange="changeReportMonth(this.value)">
           </div>
-          <button class="btn btn-outline" onclick="printReport()">🖨️ 打印报告</button>
+          <button class="btn btn-outline" onclick="printReport()">${__('report.printReport')}</button>
         </div>
       </div>
 
       <!-- Summary row -->
       <div class="grid-4 mb-16">
         <div class="card" style="text-align:center">
-          <div class="card-title">月收入</div>
-          <div class="text-xl font-bold" style="color:var(--primary)">${budget ? formatMoney(budget) : '未设置'}</div>
-          ${totalBills > 0 ? `<div class="text-xs text-muted">净收入 ${formatMoney(Math.max(0, budget - totalBills))}</div>` : ''}
+          <div class="card-title">${__('report.monthlyIncome')}</div>
+          <div class="text-xl font-bold" style="color:var(--primary)">${budget ? formatMoney(budget) : __('report.notSet')}</div>
+          ${totalBills > 0 ? `<div class="text-xs text-muted">${__('report.netIncome')} ${formatMoney(Math.max(0, budget - totalBills))}</div>` : ''}
         </div>
         <div class="card" style="text-align:center">
-          <div class="card-title">总支出</div>
+          <div class="card-title">${__('report.totalExpenditure')}</div>
           <div class="text-xl font-bold" style="color:${monthTotal <= spendableBudget ? 'var(--success)' : 'var(--danger)'}">${formatMoney(monthTotal)}</div>
           ${(() => {
             const billActual = StatsEngine.getBillSpendingActual(month);
             if (billActual > 0) {
               const varSpend = monthTotal - billActual;
-              return `<div class="text-xs text-muted mt-4">日常 ${formatMoney(varSpend)} · 账单 ${formatMoney(billActual)}</div>`;
+              return `<div class="text-xs text-muted mt-4">${__('report.daily')} ${formatMoney(varSpend)} · ${__('report.bills')} ${formatMoney(billActual)}</div>`;
             }
             return '';
           })()}
         </div>
         <div class="card" style="text-align:center">
-          <div class="card-title">储蓄</div>
+          <div class="card-title">${__('report.savings')}</div>
           <div class="text-xl font-bold" style="color:${actualSavings >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(actualSavings)}</div>
         </div>
         <div class="card" style="text-align:center">
-          <div class="card-title">储蓄率</div>
+          <div class="card-title">${__('report.savingsRate')}</div>
           <div class="text-xl font-bold" style="color:${savingsRate >= 20 ? 'var(--success)' : (savingsRate > 0 ? 'var(--warning)' : 'var(--danger)')}">${savingsRate.toFixed(1)}%</div>
         </div>
       </div>
@@ -113,35 +113,35 @@ function renderReport() {
       <!-- Budget & Savings rings -->
       <div class="grid-2 mb-16">
         <div class="card" style="text-align:center">
-          <div class="card-title">收支进度</div>
+          <div class="card-title">${__('report.incomeExpenseProgress')}</div>
           <canvas id="reportBudgetRing" width="160" height="160" style="max-width:160px;margin:8px auto"></canvas>
           <div class="text-sm text-secondary">
-            ${budget > 0 ? formatMoney(monthTotal) + ' / ' + formatMoney(budget) : '未设置月收入'}
-            ${totalBills > 0 ? `<div class="text-xs text-muted mt-4">净收入 ${formatMoney(netDisposable)} · 日常可用 ${formatMoney(spendableBudget)}</div>` : ''}
+            ${budget > 0 ? formatMoney(monthTotal) + ' / ' + formatMoney(budget) : __('report.notSetIncome')}
+            ${totalBills > 0 ? `<div class="text-xs text-muted mt-4">${__('report.netIncome')} ${formatMoney(netDisposable)} · ${__('report.dailySpendable')} ${formatMoney(spendableBudget)}</div>` : ''}
           </div>
         </div>
         <div class="card" style="text-align:center">
-          <div class="card-title">预计储蓄/储蓄目标</div>
+          <div class="card-title">${__('report.savingsProgressTitle')}</div>
           <canvas id="reportSavingsRing" width="160" height="160" style="max-width:160px;margin:8px auto"></canvas>
           <div class="text-sm text-secondary">
-            ${targetAmount > 0 ? formatMoney(savingsPred) + ' / ' + formatMoney(targetAmount) : '未设置目标'}
+            ${targetAmount > 0 ? formatMoney(savingsPred) + ' / ' + formatMoney(targetAmount) : __('report.notSetTarget')}
           </div>
         </div>
       </div>
 
       <!-- Category breakdown table -->
       <div class="card mb-16">
-        <div class="card-title">分类支出明细</div>
+        <div class="card-title">${__('report.categoryBreakdown')}</div>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
             <thead>
               <tr style="border-bottom:2px solid var(--border);color:var(--text-secondary);font-size:0.78rem">
-                <th style="text-align:left;padding:8px 4px">分类</th>
-                <th style="text-align:right;padding:8px 4px">预算 (RM)</th>
-                <th style="text-align:right;padding:8px 4px">支出 (RM)</th>
-                <th style="text-align:right;padding:8px 4px">占比</th>
-                <th style="text-align:right;padding:8px 4px">剩余 (RM)</th>
-                <th style="text-align:center;padding:8px 4px">状态</th>
+                <th style="text-align:left;padding:8px 4px">${__('report.category')}</th>
+                <th style="text-align:right;padding:8px 4px">${__('report.budget')}</th>
+                <th style="text-align:right;padding:8px 4px">${__('report.expense')}</th>
+                <th style="text-align:right;padding:8px 4px">${__('report.percentage')}</th>
+                <th style="text-align:right;padding:8px 4px">${__('report.remaining')}</th>
+                <th style="text-align:center;padding:8px 4px">${__('report.status')}</th>
               </tr>
             </thead>
             <tbody>
@@ -160,7 +160,7 @@ function renderReport() {
             </tbody>
             <tfoot>
               <tr style="border-top:2px solid var(--border);font-weight:700">
-                <td style="padding:8px 4px">合计</td>
+                <td style="padding:8px 4px">${__('report.total')}</td>
                 <td style="text-align:right;padding:8px 4px">${budget > 0 ? formatMoney(budget) : '—'}</td>
                 <td style="text-align:right;padding:8px 4px;color:var(--primary)">${formatMoney(monthTotal)}</td>
                 <td style="text-align:right;padding:8px 4px">100%</td>
@@ -174,13 +174,13 @@ function renderReport() {
 
       <!-- Daily trend sparkline -->
       <div class="card mb-16">
-        <div class="card-title">${isRolling ? '每日消费趋势 (' + periodRange.label + ')' : '每日消费趋势 (' + year + '年' + mon + '月)'}</div>
+        <div class="card-title">${isRolling ? __('report.dailyTrend') + ' (' + periodRange.label + ')' : __('report.dailyTrend') + ' (' + __('report.yearMonth', year, mon) + ')'}</div>
         <canvas id="reportSparkline" width="600" height="160" style="width:100%;height:80px"></canvas>
       </div>
 
       <!-- TOP 5 spending -->
       <div class="card mb-16">
-        <div class="card-title">支出排行 TOP 5</div>
+        <div class="card-title">${__('report.top5')}</div>
         ${top5.length > 0 ? top5.map((r, i) => `
           <div class="flex items-center justify-between" style="padding:6px 0;border-bottom:1px solid var(--border)">
             <div class="flex items-center gap-8">
@@ -190,22 +190,22 @@ function renderReport() {
             </div>
             <span class="font-bold" style="color:var(--primary)">${formatMoney(r.spent)}</span>
           </div>
-        `).join('') : '<div class="text-sm text-muted">暂无支出</div>'}
+        `).join('') : '<div class="text-sm text-muted">' + __('report.noExpenses') + '</div>'}
       </div>
 
       <!-- Savings prediction summary -->
       <div class="card mb-16" style="border-left:4px solid ${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">
-        <div class="card-title">💰 储蓄预测总结</div>
+        <div class="card-title">${__('report.savingsSummary')}</div>
         <div class="text-sm" style="line-height:1.8">
           ${budget > 0 ? `
-            <p>📅 ${year}年${mon}月收入为 <strong>${formatMoney(budget)}</strong>。${totalBills > 0 ? `账单合计 <strong>${formatMoney(totalBills)}</strong>，净收入 <strong>${formatMoney(netDisposable)}</strong>。` : ''}</p>
-            ${targetAmount > 0 ? `<p>🎯 储蓄目标 <strong>${formatMoney(targetAmount)}</strong>，日常可用 <strong>${formatMoney(spendableBudget)}</strong>。</p>` : ''}
-            <p>📊 本月至今已消费 <strong>${formatMoney(monthTotal)}</strong>，日均 ${dailyTotals.length > 0 ? formatMoney(monthTotal / Math.max(1, dailyTotals.filter(d => d.total > 0).length)) : 0}。</p>
+            <p>${__('report.predictionIncome', year, mon, formatMoney(budget))}${totalBills > 0 ? ' ' + __('report.predictionBillsDetail', formatMoney(totalBills), formatMoney(netDisposable)) : ''}</p>
+            ${targetAmount > 0 ? `<p>${__('report.predictionSavingsTarget', formatMoney(targetAmount), formatMoney(spendableBudget))}</p>` : ''}
+            <p>${__('report.predictionSpentSoFar', formatMoney(monthTotal), dailyTotals.length > 0 ? formatMoney(monthTotal / Math.max(1, dailyTotals.filter(d => d.total > 0).length)) : 0)}</p>
             <p>${savingsPred >= 0
-              ? `📈 如果维持当前消费习惯，预计月末可存 <strong style="color:var(--success)">${formatMoney(savingsPred)}</strong>。`
-              : `⚠️ 按当前趋势预计超支 <strong style="color:var(--danger)">${formatMoney(Math.abs(savingsPred))}</strong>，建议控制支出。`}
+              ? __('report.predictionPositive', formatMoney(savingsPred))
+              : __('report.predictionNegative', formatMoney(Math.abs(savingsPred)))}
             </p>
-          ` : '<p>💡 在「月账单中心」设定月收入，在「设置」设定储蓄目标后可查看完整预测。</p>'}
+          ` : '<p>' + __('report.predictionSetupHint') + '</p>'}
         </div>
       </div>
     </div>
@@ -239,4 +239,47 @@ function printReport() {
   window.renderReport = renderReport;
   window.changeReportMonth = changeReportMonth;
   window.printReport = printReport;
+
+  // === I18N ENTRIES ===
+  addI18nEntries({
+    'report.selectPeriod': { zh: '统计周期', en: 'Period' },
+    'report.selectMonth': { zh: '选择月份', en: 'Select Month' },
+    'report.printReport': { zh: '🖨️ 打印报告', en: '🖨️ Print Report' },
+    'report.monthlyIncome': { zh: '月收入', en: 'Monthly Income' },
+    'report.notSet': { zh: '未设置', en: 'Not Set' },
+    'report.netIncome': { zh: '净收入', en: 'Net Income' },
+    'report.totalExpenditure': { zh: '总支出', en: 'Total Spending' },
+    'report.daily': { zh: '日常', en: 'Daily' },
+    'report.bills': { zh: '账单', en: 'Bills' },
+    'report.savings': { zh: '储蓄', en: 'Savings' },
+    'report.savingsRate': { zh: '储蓄率', en: 'Savings Rate' },
+    'report.incomeExpenseProgress': { zh: '收支进度', en: 'Income vs Expenses' },
+    'report.notSetIncome': { zh: '未设置月收入', en: 'No income set' },
+    'report.dailySpendable': { zh: '日常可用', en: 'Spendable' },
+    'report.savingsProgressTitle': { zh: '预计储蓄/储蓄目标', en: 'Savings / Target' },
+    'report.notSetTarget': { zh: '未设置目标', en: 'No target set' },
+    'report.categoryBreakdown': { zh: '分类支出明细', en: 'Category Breakdown' },
+    'report.category': { zh: '分类', en: 'Category' },
+    'report.budget': { zh: '预算 (RM)', en: 'Budget (RM)' },
+    'report.expense': { zh: '支出 (RM)', en: 'Expense (RM)' },
+    'report.percentage': { zh: '占比', en: '%' },
+    'report.remaining': { zh: '剩余 (RM)', en: 'Remaining (RM)' },
+    'report.status': { zh: '状态', en: 'Status' },
+    'report.withinBudget': { zh: '✅ 预算内', en: '✅ Within Budget' },
+    'report.overspent': { zh: '⚠️ 超支', en: '⚠️ Overspent' },
+    'report.dash': { zh: '—', en: '—' },
+    'report.total': { zh: '合计', en: 'Total' },
+    'report.dailyTrend': { zh: '每日消费趋势', en: 'Daily Trend' },
+    'report.yearMonth': { zh: '{0}年{1}月', en: '{0}/{1}' },
+    'report.top5': { zh: '支出排行 TOP 5', en: 'Top 5 Categories' },
+    'report.noExpenses': { zh: '暂无支出', en: 'No expenses' },
+    'report.savingsSummary': { zh: '💰 储蓄预测总结', en: '💰 Savings Summary' },
+    'report.predictionIncome': { zh: '📅 {0}年{1}月收入为 <strong>{2}</strong>。', en: '📅 Income for {0}/{1} is <strong>{2}</strong>.' },
+    'report.predictionBillsDetail': { zh: '账单合计 <strong>{0}</strong>，净收入 <strong>{1}</strong>。', en: 'Bills <strong>{0}</strong>, net income <strong>{1}</strong>.' },
+    'report.predictionSavingsTarget': { zh: '🎯 储蓄目标 <strong>{0}</strong>，日常可用 <strong>{1}</strong>。', en: '🎯 Savings target <strong>{0}</strong>, spendable <strong>{1}</strong>.' },
+    'report.predictionSpentSoFar': { zh: '📊 本月至今已消费 <strong>{0}</strong>，日均 {1}。', en: '📊 Spent so far <strong>{0}</strong>, daily avg {1}.' },
+    'report.predictionPositive': { zh: '📈 如果维持当前消费习惯，预计月末可存 <strong style="color:var(--success)">{0}</strong>。', en: '📈 At this rate, est. to save <strong style="color:var(--success)">{0}</strong> by month end.' },
+    'report.predictionNegative': { zh: '⚠️ 按当前趋势预计超支 <strong style="color:var(--danger)">{0}</strong>，建议控制支出。', en: '⚠️ On track to overspend <strong style="color:var(--danger)">{0}</strong>, consider cutting back.' },
+    'report.predictionSetupHint': { zh: '💡 在「月账单中心」设定月收入，在「设置」设定储蓄目标后可查看完整预测。', en: '💡 Set income in Bills Center & savings target in Settings for full forecast.' }
+  });
 })();

@@ -6,15 +6,15 @@ let selectedCategoryId = null;
 function openCategoryPicker(context) {
   const cats = DataStore.getRootCategories();
   const billCats = DataStore.getBillCategories();
-  let html = '<div class="modal-title">选择分类</div><div style="max-height:50vh;overflow-y:auto">';
+  let html = '<div class="modal-title">' + __('categoryPicker.title') + '</div><div style="max-height:50vh;overflow-y:auto">';
 
   // Regular categories section
-  html += '<div class="text-sm font-semibold" style="padding:6px 4px;color:var(--text-secondary)">日常消费</div>';
+  html += '<div class="text-sm font-semibold" style="padding:6px 4px;color:var(--text-secondary)">' + __('categoryPicker.daily') + '</div>';
   html += buildCategoryTreePicker(cats, 0, context);
 
   // Bill categories section
   if (billCats.length > 0) {
-    html += '<div class="picker-section-header">📋 月账单</div>';
+    html += '<div class="picker-section-header">' + __('categoryPicker.monthlyBills') + '</div>';
     billCats.forEach(cat => {
       html += `
         <div class="picker-bill-item"
@@ -22,13 +22,13 @@ function openCategoryPicker(context) {
           <span style="width:10px;height:10px;border-radius:50%;background:${cat.color};display:inline-block"></span>
           <span>${escHtml(cat.icon)}</span>
           <span>${escHtml(cat.name)}</span>
-          <span class="picker-bill-badge">📋 账单</span>
+          <span class="picker-bill-badge">' + __('categoryPicker.billBadge') + '</span>
         </div>
       `;
     });
   }
 
-  html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">取消</button></div>';
+  html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('categoryPicker.cancel') + '</button></div>';
   showModal(html);
 }
 
@@ -71,6 +71,15 @@ function selectCategory(catId, context) {
   }
   closeModal();
 }
+
+  // i18n translations
+  addI18nEntries({
+    'categoryPicker.title': { zh: '选择分类', en: 'Select Category' },
+    'categoryPicker.daily': { zh: '日常消费', en: 'Daily Expenses' },
+    'categoryPicker.monthlyBills': { zh: '📋 月账单', en: '📋 Monthly Bills' },
+    'categoryPicker.billBadge': { zh: '📋 账单', en: '📋 Bill' },
+    'categoryPicker.cancel': { zh: '取消', en: 'Cancel' }
+  });
 
   // === EXPORTS ===
   window.selectedCategoryId = selectedCategoryId;

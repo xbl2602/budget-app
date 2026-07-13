@@ -246,7 +246,7 @@ window.DataStore.clearDiagnosticLog = function() { DIAG.clearLog(); };
 window.showRecordRaw = function showRecordRaw(id) {
   const record = DataStore.getRecord(id);
   if (!record) {
-    showToast('❌ 记录不存在: ' + id, 'error');
+    showToast(__('diag.recordNotFound', id), 'error');
     return;
   }
   
@@ -272,28 +272,46 @@ window.showRecordRaw = function showRecordRaw(id) {
   const catInfo = cat ? { id: cat.id, name: cat.name, icon: cat.icon, color: cat.color, parentId: cat.parentId } : null;
   
   const html = `
-    <div class="modal-title">🔍 记录原始数据</div>
+        <div class="modal-title">${__('diag.rawDataTitle')}</div>
     <div style="max-height:70vh;overflow-y:auto;font-family:monospace;font-size:0.75rem;line-height:1.6">
       <div style="margin-bottom:12px;padding:8px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
-        <div class="font-semibold" style="margin-bottom:6px">📋 记录状态</div>
-        <div>在统计引擎审计中: ${inStatsEngine ? '✅ 是' : '❌ 否'}</div>
-        <div>在流水页过滤结果中: ${inFilteredRecords ? '✅ 是' : '❌ 否'}</div>
+        <div class="font-semibold" style="margin-bottom:6px">${__('diag.recordStatus')}</div>
+        <div>${__('diag.inStatsEngine')}${inStatsEngine ? __('diag.yes') : __('diag.no')}</div>
+        <div>${__('diag.inFiltered')}${inFilteredRecords ? __('diag.yes') : __('diag.no')}</div>
         <div>getMonthKey(日期) = ${monthKey}</div>
-        <div>日期前10字符: "${datePrefix}"</div>
-        <div>分类: ${cat ? cat.icon + ' ' + cat.name + ' (id=' + cat.id + ', parentId=' + cat.parentId + ')' : '❌ 已删除 (id=' + record.categoryId + ')'}</div>
-        ${cat && cat.parentId ? '<div style="color:var(--warning)">⚠️ 注意：该记录分类有父级，不是根分类</div>' : ''}
+        <div>${__('diag.datePrefix')}"${datePrefix}"</div>
+        <div>${__('diag.category')}${cat ? cat.icon + ' ' + cat.name + ' (id=' + cat.id + ', parentId=' + cat.parentId + ')' : __('diag.deleted', record.categoryId)}</div>
+        ${cat && cat.parentId ? '<div style="color:var(--warning)">' + __('diag.hasParentWarning') + '</div>' : ''}
         ${record.excludeFromAvg ? '<div>📌 excludeFromAvg = true</div>' : ''}
       </div>
-      <div style="font-weight:600;margin-bottom:4px">完整 JSON:</div>
+      <div style="font-weight:600;margin-bottom:4px">${__('diag.fullJson')}</div>
       <pre style="background:var(--bg);padding:8px;border-radius:8px;border:1px solid var(--border);overflow-x:auto;white-space:pre-wrap;word-break:break-all">${escHtml(recordJSON)}</pre>
     </div>
     <div class="modal-actions" style="margin-top:12px">
-      <button class="btn btn-primary" onclick="closeModal()">关闭</button>
-      <button class="btn btn-outline" onclick="closeModal();openEditRecord('${id}')">✏️ 编辑</button>
-      <button class="btn btn-danger" onclick="closeModal();deleteRecordConfirm('${id}')">🗑️ 删除</button>
+      <button class="btn btn-primary" onclick="closeModal()">${__('diag.close')}</button>
+      <button class="btn btn-outline" onclick="closeModal();openEditRecord('${id}')">${__('diag.edit')}</button>
+      <button class="btn btn-danger" onclick="closeModal();deleteRecordConfirm('${id}')">${__('diag.delete')}</button>
     </div>
   `;
   showModal(html);
 };
 
+  // i18n translations
+  addI18nEntries({
+    'diag.recordNotFound': { zh: '❌ 记录不存在: {0}', en: '❌ Record not found: {0}' },
+    'diag.rawDataTitle': { zh: '🔍 记录原始数据', en: '🔍 Raw Record Data' },
+    'diag.recordStatus': { zh: '📋 记录状态', en: '📋 Record Status' },
+    'diag.inStatsEngine': { zh: '在统计引擎审计中: ', en: 'In StatsEngine audit: ' },
+    'diag.inFiltered': { zh: '在流水页过滤结果中: ', en: 'In Records page filter: ' },
+    'diag.yes': { zh: '✅ 是', en: '✅ Yes' },
+    'diag.no': { zh: '❌ 否', en: '❌ No' },
+    'diag.datePrefix': { zh: '日期前10字符: ', en: 'Date first 10 chars: ' },
+    'diag.category': { zh: '分类: ', en: 'Category: ' },
+    'diag.deleted': { zh: '❌ 已删除 (id={0})', en: '❌ Deleted (id={0})' },
+    'diag.hasParentWarning': { zh: '⚠️ 注意：该记录分类有父级，不是根分类', en: '⚠️ Note: This record\'s category has a parent, not a root category' },
+    'diag.fullJson': { zh: '完整 JSON:', en: 'Full JSON:' },
+    'diag.close': { zh: '关闭', en: 'Close' },
+    'diag.edit': { zh: '✏️ 编辑', en: '✏️ Edit' },
+    'diag.delete': { zh: '🗑️ 删除', en: '🗑️ Delete' }
+  });
 })();

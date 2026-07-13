@@ -95,7 +95,7 @@ function exportToExcel() {
   const dataStartRow = 2; // row 1 = header, data starts row 2
   const dataEndRow = dataStartRow + sortedRecords.length - 1;
 
-  xml += ' <Worksheet ss:Name="消费记录">\n';
+  xml += ' <Worksheet ss:Name="' + __('excel.sheet.records') + '">\n';
   xml += '  <Table>\n';
   xml += '   <Column ss:Width="50"/>\n';   // A: 序号
   xml += '   <Column ss:Width="110"/>\n';  // B: 日期
@@ -107,7 +107,7 @@ function exportToExcel() {
   xml += '   <Column ss:Width="60"/>\n';   // H: 不计日均
   // Header row
   xml += '   <Row>\n';
-  ['序号','日期','金额 (RM)','分类','子分类','备注','月份','不计日均'].forEach(h => {
+  [__('excel.header.seq'),__('excel.header.date'),__('excel.header.amount'),__('excel.header.category'),__('excel.header.subcategory'),__('excel.header.note'),__('excel.header.month'),__('excel.header.excludeFromAvg')].forEach(h => {
     xml += `    <Cell ss:StyleID="header"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
   });
   xml += '   </Row>\n';
@@ -115,7 +115,7 @@ function exportToExcel() {
   // Data rows
   sortedRecords.forEach((r, idx) => {
     const rowNum = dataStartRow + idx;
-    const cat = catMap[r.categoryId] || { name: '未知', icon: '❓' };
+    const cat = catMap[r.categoryId] || { name: __('excel.label.unknown'), icon: '❓' };
     const parentCat = cat.parentId ? (catMap[cat.parentId] || null) : null;
     const rootCat = cat.parentId ? (catMap[getRootCatId(r.categoryId)] || null) : cat;
     const dateVal = r.date || r.createdAt.slice(0,10);
@@ -131,7 +131,7 @@ function exportToExcel() {
     xml += `    <Cell><Data ss:Type="String">${esc(subName)}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="String">${esc(r.note || '')}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="String">${esc(monthKey)}</Data></Cell>\n`;
-    xml += `    <Cell><Data ss:Type="String">${r.excludeFromAvg ? '是' : ''}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${r.excludeFromAvg ? __('excel.label.yes') : ''}</Data></Cell>\n`;
     xml += '   </Row>\n';
   });
 
@@ -144,17 +144,17 @@ function exportToExcel() {
   const rLast = dataEndRow;
 
   xml += `   <Row>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">合计</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">记录数: ${sortedRecords.length}</Data></Cell>\n`;
+  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.total')}</Data></Cell>\n`;
+  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.records')}: ${sortedRecords.length}</Data></Cell>\n`;
   // =SUM formula
   xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${rFirst}C${cAmountCol}:R${rLast}C${cAmountCol})"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">平均</Data></Cell>\n`;
+  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.average')}</Data></Cell>\n`;
   // =AVERAGE formula  
   xml += `    <Cell ss:StyleID="money" ss:Formula="=AVERAGE(R${rFirst}C${cAmountCol}:R${rLast}C${cAmountCol})"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">最高: </Data></Cell>\n`;
+  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.max')}: </Data></Cell>\n`;
   // =MAX formula
   xml += `    <Cell ss:StyleID="money" ss:Formula="=MAX(R${rFirst}C${cAmountCol}:R${rLast}C${cAmountCol})"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">最低: </Data></Cell>\n`;
+  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.min')}: </Data></Cell>\n`;
   // =MIN formula
   xml += `    <Cell ss:StyleID="money" ss:Formula="=MIN(R${rFirst}C${cAmountCol}:R${rLast}C${cAmountCol})"><Data ss:Type="Number">0</Data></Cell>\n`;
   xml += `   </Row>\n`;
@@ -174,14 +174,14 @@ function exportToExcel() {
 
   // ===== SHEET 2: 分类统计 (Category Breakdown) =====
   // Columns: A=分类, B=总支出, C=占比, D=记录数
-  xml += ' <Worksheet ss:Name="分类统计">\n';
+  xml += ' <Worksheet ss:Name="' + __('excel.sheet.categoryBreakdown') + '">\n';
   xml += '  <Table>\n';
   xml += '   <Column ss:Width="150"/>\n';
   xml += '   <Column ss:Width="100"/>\n';
   xml += '   <Column ss:Width="80"/>\n';
   xml += '   <Column ss:Width="80"/>\n';
   xml += '   <Row>\n';
-  ['分类','总支出 (RM)','占比','记录数'].forEach(h => {
+  [__('excel.header.category'),__('excel.header.totalExpenditure'),__('excel.header.percentage'),__('excel.header.recordCount')].forEach(h => {
     xml += `    <Cell ss:StyleID="headerGreen"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
   });
   xml += '   </Row>\n';
@@ -233,7 +233,7 @@ function exportToExcel() {
   const catEndRow = catStartRow + rootCats.length - 1; // only root cats in total
   const catTotalRow = catStartRow + sortedCats.length + rootCats.reduce((s, c) => s + DataStore.getChildren(c.id).length, 0);
   xml += '   <Row>\n';
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">总计</Data></Cell>\n`;
+  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.grandTotal')}</Data></Cell>\n`;
   xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R2C2:R${catEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
   xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=IF(R[-1]C[-1]>0, RC[-1]/R[-1]C[-1], 0)"><Data ss:Type="Number">1</Data></Cell>\n`;
   xml += `    <Cell ss:StyleID="total" ss:Formula="=SUM(R2C4:R${catEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
@@ -244,7 +244,7 @@ function exportToExcel() {
 
   // ===== SHEET 3: 月度统计 (Monthly Summary) =====
   // Columns: A=月份, B=总支出, C=记录数, D=日均支出, E=预算, F=可支配, G=储蓄, H=预算使用率
-  xml += ' <Worksheet ss:Name="月度统计">\n';
+  xml += ' <Worksheet ss:Name="' + __('excel.sheet.monthlySummary') + '">\n';
   xml += '  <Table>\n';
   xml += '   <Column ss:Width="90"/>\n';
   xml += '   <Column ss:Width="100"/>\n';
@@ -255,7 +255,7 @@ function exportToExcel() {
   xml += '   <Column ss:Width="100"/>\n';
   xml += '   <Column ss:Width="100"/>\n';
   xml += '   <Row>\n';
-  ['月份','总支出 (RM)','记录数','日均支出 (RM)','预算 (RM)','可支配 (RM)','储蓄 (RM)','预算使用率'].forEach(h => {
+  [__('excel.header.month'),__('excel.header.totalExpenditure'),__('excel.header.recordCount'),__('excel.header.dailyAvgExpenditure'),__('excel.header.budget'),__('excel.header.spendable'),__('excel.header.savings'),__('excel.header.budgetUsageRate')].forEach(h => {
     xml += `    <Cell ss:StyleID="header"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
   });
   xml += '   </Row>\n';
@@ -292,7 +292,7 @@ function exportToExcel() {
     if (budget > 0) {
       xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-3]>0, RC[-6]/RC[-3], 0)"><Data ss:Type="Number">${fmtNum(md.total / budget)}</Data></Cell>\n`;
     } else {
-      xml += `    <Cell><Data ss:Type="String">无预算</Data></Cell>\n`;
+      xml += `    <Cell><Data ss:Type="String">${__('excel.summary.noBudget')}</Data></Cell>\n`;
     }
     xml += '   </Row>\n';
   });
@@ -300,7 +300,7 @@ function exportToExcel() {
   // Totals row
   const monthEndRow = monthStartRow + monthsDesc.length - 1;
   xml += '   <Row>\n';
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">合计/平均</Data></Cell>\n`;
+  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.totalAvg')}</Data></Cell>\n`;
   // Total spending across all months
   xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C2:R${monthEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
   // Total records
@@ -322,7 +322,7 @@ function exportToExcel() {
 
   // ===== SHEET 4: 预算跟踪 (Budget Tracking) =====
   // Detailed per-month: 预算, 储蓄目标, 可支配, 实际支出, 剩余, 超支警告
-  xml += ' <Worksheet ss:Name="预算跟踪">\n';
+  xml += ' <Worksheet ss:Name="' + __('excel.sheet.budgetTracking') + '">\n';
   xml += '  <Table>\n';
   xml += '   <Column ss:Width="90"/>\n';
   xml += '   <Column ss:Width="100"/>\n';
@@ -333,7 +333,7 @@ function exportToExcel() {
   xml += '   <Column ss:Width="120"/>\n';
   xml += '   <Column ss:Width="200"/>\n';
   xml += '   <Row>\n';
-  ['月份','预算 (RM)','储蓄目标 (RM)','可支配 (RM)','实际支出 (RM)','剩余 (RM)','使用率','状态'].forEach(h => {
+  [__('excel.header.month'),__('excel.header.budget'),__('excel.header.savingsTarget'),__('excel.header.spendable'),__('excel.header.actualExpenditure'),__('excel.header.remaining'),__('excel.header.usageRate'),__('excel.header.status')].forEach(h => {
     xml += `    <Cell ss:StyleID="header"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
   });
   xml += '   </Row>\n';
@@ -350,7 +350,7 @@ function exportToExcel() {
     const spendable = Math.max(0, budget - targetAmount);
     const remaining = spendable - md.total;
     const usagePct = spendable > 0 ? (md.total / spendable) : 0;
-    const status = remaining >= 0 ? '✅ 正常' : '⚠️ 超支';
+    const status = remaining >= 0 ? __('excel.status.normal') : __('excel.status.overspent');
 
     xml += '   <Row>\n';
     xml += `    <Cell><Data ss:Type="String">${esc(m)}</Data></Cell>\n`;
@@ -367,16 +367,18 @@ function exportToExcel() {
     } else {
       xml += `    <Cell><Data ss:Type="String">N/A</Data></Cell>\n`;
     }
-    // 状态 = IF(剩余>=0, "✅ 正常", "⚠️ 超支")
+    // 状态 = IF(剩余>=0, "正常", "超支")
     const fRow = rowNum;
-    xml += `    <Cell ss:StyleID="${remaining >= 0 ? 'success' : 'danger'}" ss:Formula="=IF(RC[-1]>=0, &quot;✅ 正常&quot;, &quot;⚠️ 超支&quot;)"><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
+    const statusOk = __('excel.status.normal');
+    const statusFail = __('excel.status.overspent');
+    xml += `    <Cell ss:StyleID="${remaining >= 0 ? 'success' : 'danger'}" ss:Formula="=IF(RC[-1]>=0, &quot;${esc(statusOk)}&quot;, &quot;${esc(statusFail)}&quot;)"><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
     xml += '   </Row>\n';
   });
 
   // Totals
   const btEndRow = monthStartRow + monthsDesc.length - 1;
   xml += '   <Row>\n';
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">合计</Data></Cell>\n`;
+  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.total')}</Data></Cell>\n`;
   xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C2:R${btEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
   xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C3:R${btEndRow}C3)"><Data ss:Type="Number">0</Data></Cell>\n`;
   xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C4:R${btEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
@@ -391,7 +393,7 @@ function exportToExcel() {
 
   // ===== SHEET 5: 储蓄统计 (Savings Stats) =====
   // Monthly savings breakdown
-  xml += ' <Worksheet ss:Name="储蓄统计">\n';
+  xml += ' <Worksheet ss:Name="' + __('excel.sheet.savingsStats') + '">\n';
   xml += '  <Table>\n';
   xml += '   <Column ss:Width="90"/>\n';
   xml += '   <Column ss:Width="100"/>\n';
@@ -400,7 +402,7 @@ function exportToExcel() {
   xml += '   <Column ss:Width="100"/>\n';
   xml += '   <Column ss:Width="120"/>\n';
   xml += '   <Row>\n';
-  ['月份','预算 (RM)','储蓄目标 (RM)','实际支出 (RM)','实际储蓄 (RM)','目标达成率'].forEach(h => {
+  [__('excel.header.month'),__('excel.header.budget'),__('excel.header.savingsTarget'),__('excel.header.actualExpenditure'),__('excel.header.actualSavings'),__('excel.header.targetAchievementRate')].forEach(h => {
     xml += `    <Cell ss:StyleID="headerGreen"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
   });
   xml += '   </Row>\n';
@@ -437,7 +439,7 @@ function exportToExcel() {
   // Totals
   const svEndRow = monthStartRow + monthsDesc.length - 1;
   xml += '   <Row>\n';
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">合计</Data></Cell>\n`;
+  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.total')}</Data></Cell>\n`;
   xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C2:R${svEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
   xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C3:R${svEndRow}C3)"><Data ss:Type="Number">0</Data></Cell>\n`;
   xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C4:R${svEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
@@ -459,7 +461,7 @@ function exportToExcel() {
   const ts = now.getFullYear().toString() +
     String(now.getMonth()+1).padStart(2,'0') +
     String(now.getDate()).padStart(2,'0');
-  a.download = '记账数据_' + ts + '.xlsx';
+  a.download = __('excel.filename.prefix') + '_' + ts + '.xlsx';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -468,4 +470,49 @@ function exportToExcel() {
 
   // === EXPORTS ===
   window.exportToExcel = exportToExcel;
+
+  // === I18N ENTRIES ===
+  addI18nEntries({
+    'excel.sheet.records': { zh: '消费记录', en: 'Records' },
+    'excel.sheet.categoryBreakdown': { zh: '分类统计', en: 'Category Breakdown' },
+    'excel.sheet.monthlySummary': { zh: '月度统计', en: 'Monthly Summary' },
+    'excel.sheet.budgetTracking': { zh: '预算跟踪', en: 'Budget Tracking' },
+    'excel.sheet.savingsStats': { zh: '储蓄统计', en: 'Savings Stats' },
+    'excel.header.seq': { zh: '序号', en: '#' },
+    'excel.header.date': { zh: '日期', en: 'Date' },
+    'excel.header.amount': { zh: '金额 (RM)', en: 'Amount (RM)' },
+    'excel.header.category': { zh: '分类', en: 'Category' },
+    'excel.header.subcategory': { zh: '子分类', en: 'Subcategory' },
+    'excel.header.note': { zh: '备注', en: 'Note' },
+    'excel.header.month': { zh: '月份', en: 'Month' },
+    'excel.header.excludeFromAvg': { zh: '不计日均', en: 'Excl. Avg' },
+    'excel.header.totalExpenditure': { zh: '总支出 (RM)', en: 'Total (RM)' },
+    'excel.header.percentage': { zh: '占比', en: '%' },
+    'excel.header.recordCount': { zh: '记录数', en: 'Records' },
+    'excel.header.dailyAvgExpenditure': { zh: '日均支出 (RM)', en: 'Daily Avg (RM)' },
+    'excel.header.budget': { zh: '预算 (RM)', en: 'Budget (RM)' },
+    'excel.header.spendable': { zh: '可支配 (RM)', en: 'Spendable (RM)' },
+    'excel.header.savings': { zh: '储蓄 (RM)', en: 'Savings (RM)' },
+    'excel.header.budgetUsageRate': { zh: '预算使用率', en: 'Usage Rate' },
+    'excel.header.savingsTarget': { zh: '储蓄目标 (RM)', en: 'Savings Target (RM)' },
+    'excel.header.actualExpenditure': { zh: '实际支出 (RM)', en: 'Actual (RM)' },
+    'excel.header.remaining': { zh: '剩余 (RM)', en: 'Remaining (RM)' },
+    'excel.header.usageRate': { zh: '使用率', en: 'Usage Rate' },
+    'excel.header.status': { zh: '状态', en: 'Status' },
+    'excel.header.actualSavings': { zh: '实际储蓄 (RM)', en: 'Actual Savings (RM)' },
+    'excel.header.targetAchievementRate': { zh: '目标达成率', en: 'Target Rate' },
+    'excel.summary.total': { zh: '合计', en: 'Total' },
+    'excel.summary.totalAvg': { zh: '合计/平均', en: 'Total / Avg' },
+    'excel.summary.grandTotal': { zh: '总计', en: 'Grand Total' },
+    'excel.summary.records': { zh: '记录数', en: 'Records' },
+    'excel.summary.average': { zh: '平均', en: 'Average' },
+    'excel.summary.max': { zh: '最高', en: 'Max' },
+    'excel.summary.min': { zh: '最低', en: 'Min' },
+    'excel.summary.noBudget': { zh: '无预算', en: 'No Budget' },
+    'excel.label.unknown': { zh: '未知', en: 'Unknown' },
+    'excel.label.yes': { zh: '是', en: 'Yes' },
+    'excel.status.normal': { zh: '✅ 正常', en: '✅ Normal' },
+    'excel.status.overspent': { zh: '⚠️ 超支', en: '⚠️ Overspent' },
+    'excel.filename.prefix': { zh: '记账数据', en: 'BudgetData' }
+  });
 })();

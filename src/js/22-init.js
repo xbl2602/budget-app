@@ -21,6 +21,7 @@ function initApp() {
   checkMonthRollover();
   applyTheme();
   handleHash();
+  applyI18nToDOM();
 }
 
 // Start auto-lock & activity monitoring
@@ -36,6 +37,7 @@ function handleHash() {
 window.addEventListener('hashchange', handleHash);
 window.addEventListener('load', () => {
   handleHash();
+  applyI18nToDOM();
   // Re-draw charts on resize
   let resizeTimer;
   window.addEventListener('resize', () => {

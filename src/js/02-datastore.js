@@ -129,7 +129,7 @@ const DataStore = {
       this._log('save_error', e.message);
       // Try to notify user via toast if available
       if (typeof showToast === 'function') {
-        showToast('❌ 数据保存失败: ' + e.message, 'error');
+        showToast(__('datastore.saveFailed', e.message), 'error');
       }
     }
   },
@@ -495,13 +495,13 @@ const DataStore = {
     const cats = this._data.categories;
     const catMap = {};
     cats.forEach(c => catMap[c.id] = c);
-    const header = 'ID,金额,分类,日期,备注,创建时间,不计日均';
+    const header = __('datastore.csvHeader');
     const rows = this._data.records.map(r => {
-      const cat = catMap[r.categoryId] || { name: '未知', icon: '❓' };
+      const cat = catMap[r.categoryId] || { name: __('datastore.unknown'), icon: '❓' };
       const amount = r.amount.toFixed(2);
       const date = r.date || '';
       const note = (r.note || '').replace(/"/g, '""');
-      return `${r.id},"${amount}","${cat.icon}${cat.name}","${date}","${note}","${r.createdAt}","${r.excludeFromAvg ? '是' : ''}"`;
+      return `${r.id},"${amount}","${cat.icon}${cat.name}","${date}","${note}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}"`;
     });
     return '\uFEFF' + header + '\n' + rows.join('\n');
   },
@@ -537,14 +537,14 @@ const DataStore = {
   // Data hash for sync verification
   getLastUpdateTime() {
     const records = this._data.records;
-    if (!records.length) return '无数据';
+    if (!records.length) return __('datastore.noData');
     let latest = '';
     records.forEach(r => {
       if (r.updatedAt && r.updatedAt > latest) latest = r.updatedAt;
       if (r.createdAt && r.createdAt > latest) latest = r.createdAt;
       if (r.date && r.date > latest) latest = r.date;
     });
-    return latest || '无数据';
+    return latest || __('datastore.noData');
   },
 
   getDataHash() {
@@ -756,6 +756,15 @@ const DataStore = {
     return this._data.tagColors || {};
   },
 };
+
+  // i18n translations
+  addI18nEntries({
+    'datastore.saveFailed': { zh: '❌ 数据保存失败: {0}', en: '❌ Save failed: {0}' },
+    'datastore.csvHeader': { zh: 'ID,金额,分类,日期,备注,创建时间,不计日均', en: 'ID,Amount,Category,Date,Note,CreatedAt,ExcludeFromAvg' },
+    'datastore.unknown': { zh: '未知', en: 'Unknown' },
+    'datastore.yes': { zh: '是', en: 'Yes' },
+    'datastore.noData': { zh: '无数据', en: 'No data' }
+  });
 
   // === EXPORTS ===
   window.DataStore = DataStore;

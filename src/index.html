@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
-  <title>记账软件 v2.7.0</title>
+  <title data-i18n="app.name">记账软件 v2.7.0</title>
   <!--build:css-->
 </head>
 <body>
@@ -21,17 +21,17 @@
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-logo">
-        <span>💰</span> 记账软件
+        <span>💰</span><span data-i18n="app.name">记账软件</span>
       </div>
       <nav class="sidebar-nav" id="sidebarNav">
-        <div class="sidebar-item active" data-tab="overview"><span class="icon">📊</span> 总览</div>
-        <div class="sidebar-item" data-tab="add"><span class="icon">✏️</span> 记账</div>
-        <div class="sidebar-item" data-tab="records"><span class="icon">📋</span> 流水</div>
-        <div class="sidebar-item" data-tab="categories"><span class="icon">🏷️</span> 分类</div>
-        <div class="sidebar-item" data-tab="stats"><span class="icon">📈</span> 统计</div>
-        <div class="sidebar-item" data-tab="report"><span class="icon">📋</span> 报告</div>
-        <div class="sidebar-item" data-tab="whatif"><span class="icon">🔮</span> 假设分析</div>
-        <div class="sidebar-item" data-tab="settings"><span class="icon">⚙️</span> 设置</div>
+        <div class="sidebar-item active" data-tab="overview"><span class="icon">📊</span> <span data-i18n="nav.overview">总览</span></div>
+        <div class="sidebar-item" data-tab="add"><span class="icon">✏️</span> <span data-i18n="nav.add">记账</span></div>
+        <div class="sidebar-item" data-tab="records"><span class="icon">📋</span> <span data-i18n="nav.records">流水</span></div>
+        <div class="sidebar-item" data-tab="categories"><span class="icon">🏷️</span> <span data-i18n="nav.categories">分类</span></div>
+        <div class="sidebar-item" data-tab="stats"><span class="icon">📈</span> <span data-i18n="nav.stats">统计</span></div>
+        <div class="sidebar-item" data-tab="report"><span class="icon">📋</span> <span data-i18n="nav.report">报告</span></div>
+        <div class="sidebar-item" data-tab="whatif"><span class="icon">🔮</span> <span data-i18n="nav.whatif">假设分析</span></div>
+        <div class="sidebar-item" data-tab="settings"><span class="icon">⚙️</span> <span data-i18n="nav.settings">设置</span></div>
       </nav>
     </aside>
 
@@ -40,7 +40,7 @@
       <!-- Top header -->
       <div class="top-header" id="topHeader">
         <h1 id="pageTitle">总览</h1>
-        <button class="guide-btn" onclick="showPageGuide(window.currentTab)" title="页面引导">❓</button>
+        <button class="guide-btn" onclick="showPageGuide(window.currentTab)" title="" data-i18n-title="btn.guide">❓</button>
       </div>
 
       <!-- 总览 (Overview) -->
@@ -71,14 +71,14 @@
 
   <!-- Bottom tab navigation (mobile) -->
   <nav class="bottom-nav" id="bottomNav">
-    <div class="nav-item active" data-tab="overview"><span class="nav-icon">📊</span><span class="nav-label">总览</span></div>
-    <div class="nav-item" data-tab="add"><span class="nav-icon">➕</span><span class="nav-label">记账</span></div>
-    <div class="nav-item" data-tab="records"><span class="nav-icon">📋</span><span class="nav-label">流水</span></div>
-    <div class="nav-item" data-tab="categories"><span class="nav-icon">🏷️</span><span class="nav-label">分类</span></div>
-    <div class="nav-item" data-tab="stats"><span class="nav-icon">📈</span><span class="nav-label">统计</span></div>
-    <div class="nav-item" data-tab="report"><span class="nav-icon">📋</span><span class="nav-label">报告</span></div>
-    <div class="nav-item" data-tab="whatif"><span class="nav-icon">🔮</span><span class="nav-label">假设分析</span></div>
-    <div class="nav-item" data-tab="settings"><span class="nav-icon">⚙️</span><span class="nav-label">设置</span></div>
+    <div class="nav-item active" data-tab="overview"><span class="nav-icon">📊</span><span class="nav-label" data-i18n="nav.overview">总览</span></div>
+    <div class="nav-item" data-tab="add"><span class="nav-icon">➕</span><span class="nav-label" data-i18n="nav.add">记账</span></div>
+    <div class="nav-item" data-tab="records"><span class="nav-icon">📋</span><span class="nav-label" data-i18n="nav.records">流水</span></div>
+    <div class="nav-item" data-tab="categories"><span class="nav-icon">🏷️</span><span class="nav-label" data-i18n="nav.categories">分类</span></div>
+    <div class="nav-item" data-tab="stats"><span class="nav-icon">📈</span><span class="nav-label" data-i18n="nav.stats">统计</span></div>
+    <div class="nav-item" data-tab="report"><span class="nav-icon">📋</span><span class="nav-label" data-i18n="nav.report">报告</span></div>
+    <div class="nav-item" data-tab="whatif"><span class="nav-icon">🔮</span><span class="nav-label" data-i18n="nav.whatif">假设分析</span></div>
+    <div class="nav-item" data-tab="settings"><span class="nav-icon">⚙️</span><span class="nav-label" data-i18n="nav.settings">设置</span></div>
   </nav>
 
   <!--build:js-->
