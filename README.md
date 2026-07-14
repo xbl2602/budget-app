@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v2.7.0
+# 记账软件 · Budget App v2.8.0
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 

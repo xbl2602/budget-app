@@ -219,7 +219,7 @@ function renderSettings() {
     <div style="text-align:center;padding:12px 0 4px">
       <button class="btn btn-ghost btn-sm" onclick="refreshPageData()" style="font-size:0.8rem">🔄 ${__('settings.refreshPage')}</button>
     </div>
-    <div style="text-align:center;padding:8px 0 8px;font-size:0.65rem;color:var(--text-muted);opacity:0.5">v2.7.0</div>
+    <div style="text-align:center;padding:8px 0 8px;font-size:0.65rem;color:var(--text-muted);opacity:0.5">v2.8.0</div>
   `;
   // Set current locale in language switcher
   var sel = document.getElementById('localeSelect');
@@ -359,7 +359,7 @@ function exportDiagnosticLog() {
   }
   let text = '=== Budget App Diagnostic Log ===\n';
   text += 'Exported: ' + new Date().toISOString() + '\n';
-  text += 'Version: v2.7.0\n';
+  text += 'Version: v2.8.0\n';
   text += 'Records: ' + DataStore.getRecords().length + '\n';
   text += 'Pending Delete: ' + (DataStore.getPendingDelete() ? DataStore.getPendingDelete().id : 'none') + '\n';
   text += 'LocalStorage: ' + (localStorage.getItem('budgetAppData') || '').length + ' bytes\n';
