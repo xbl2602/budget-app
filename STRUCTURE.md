@@ -2,6 +2,8 @@
 
 > 本文件供开发者 / AI Agent 快速理解代码库结构。编辑源文件在 `src/`，编辑后运行 `bash build.sh` 生成可部署的 `index.html`。
 
+> **⚠️ 修改前必读：** 本项目的全部代码由 AI Agent 生成。在开始任何修改之前，请先阅读 [`docs/ai/README.md`](./docs/ai/README.md) 了解 AI 编程规范和开发工作流。
+
 ---
 
 ## 构建说明
@@ -765,3 +767,42 @@ Canvas Drawing Functions / DOM innerHTML
 3. 在 `06-router.js` 的 `navigateTo()` 和 `pageTitles` 中注册
 4. 在 `src/index.html` 的侧边栏和底部导航中添加 tab 项
 5. 运行 `bash build.sh`
+
+---
+
+## 🔄 广义开发工作流
+
+> 本文档描述本项目的**完整开发周期**（角色分工、阶段流转、决策节点），适用于新增功能、大版本迭代、重要重构等场景。
+> 完整说明详见 [`docs/ai/WORKFLOW.md`](./docs/ai/WORKFLOW.md)。
+
+### 角色定义
+
+| 角色 | 职责 |
+|------|------|
+| **User**（项目所有者） | 提出需求、验收功能、终审决策 |
+| **Director**（AI） | 理解需求、拆解任务、分派工作、审查结果 |
+| **Team-Leader**（AI） | 接收任务、协调执行、汇总结果、写日志 |
+| **Researcher/Tester/Writer/UI-Agent/Organizer**（AI） | 各司其职的执行角色 |
+
+### 开发阶段概要
+
+1. **需求理解** — User → Director，澄清需求、确定范围
+2. **探索与设计** — Director 探索上下文 → 出方案 → User 批准
+3. **设计文档化** — 写 spec 文档 → self-review → User 审阅
+4. **实施计划** — 拆解任务，确定依赖与并行关系
+5. **执行与构建** — Team-Leader 分派 → 执行 → `bash build.sh`
+6. **验证与审查** — Tester 验证 → Director 审查 → 合格交付
+7. **文档收尾** — 更新 STRUCTURE.md / README.md / technical 日志 / user 日志
+8. **交付** — git commit → User 验收
+
+### 决策节点
+
+| 节点 | 决策者 | 决策内容 |
+|------|--------|----------|
+| 方案选择 | User | 选方案 A/B/C |
+| 设计批准 | User | 设计是否完整正确 |
+| 代码审查 | Director | 代码是否合格 |
+| 版本号 | AI（B/C）/ User（A）| 变更属于哪个级别 |
+| 最终验收 | User | 功能是否满足需求 |
+
+> **版本号规则**：`vA.B.C` — A 由人类决定，AI 只可调整 B（中规中矩更新）和 C（令人羞耻的小修复）。
