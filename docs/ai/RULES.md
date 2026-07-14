@@ -140,8 +140,9 @@
 - 新增数据字段时，如果影响记录/分类数据格式，同步更新手机版
 - 手机版仅支持记账、流水、分类、JSON 导入导出，不涉及图表/统计/设置
 
-### #18 STRUCTURE.md 开发工作流
-**STRUCTURE.md 新增一个「广义开发工作流」章节。**
-- 描述完整开发周期的角色分工和阶段流转
-- 不是"当前任务"步骤，而是**通用的、针对整个项目的**工作流
-- 详见 [WORKFLOW.md](./WORKFLOW.md) 的完整说明
+### #18 开发工作流
+**遵循 Director 级编排流程（orchestration-flow skill）进行工作。**
+- Director 只规划、分派、审查，绝不执行
+- 任何类型任务都走 7 阶段流程（接收→规划→设计→交办→执行→审查→交付）
+- 详见 [`orchestration-flow` skill] 或 [WORKFLOW.md](./WORKFLOW.md)
+- 执行细节参考 execution-discipline（5 步纪律）和 parallel-dispatch（并行调度）skills

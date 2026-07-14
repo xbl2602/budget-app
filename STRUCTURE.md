@@ -773,7 +773,7 @@ Canvas Drawing Functions / DOM innerHTML
 ## 🔄 通用作业工作流
 
 > 本文档描述在整个项目中 **任何类型任务** 下的 AI Agent 协作方式。不限于编程，适用于写文档、做研究、整理文件、设计方案等所有场景。
-> 完整说明详见 [`docs/ai/WORKFLOW.md`](./docs/ai/WORKFLOW.md)。
+> 规范来源：[`orchestration-flow` skill](https://opencode.ai)（全局 skill 已安装）。项目级参考见 [`docs/ai/WORKFLOW.md`](./docs/ai/WORKFLOW.md)。
 
 ### Agent 生态
 
