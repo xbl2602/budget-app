@@ -75,7 +75,7 @@ function renderReport() {
         <div class="flex items-center gap-12" style="flex-wrap:wrap">
           <div class="flex items-center gap-8">
           <label class="text-sm text-secondary">${isRolling ? __('report.selectPeriod') : __('report.selectMonth')}</label>
-          <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${isRolling ? month : month}" onchange="changeReportMonth(this.value)">
+          <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${month}" onchange="changeReportMonth(this.value)">
           </div>
           <button class="btn btn-outline" onclick="printReport()">${__('report.printReport')}</button>
         </div>

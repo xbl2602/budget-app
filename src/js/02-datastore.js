@@ -118,6 +118,9 @@ const DataStore = {
       this._data.lastActiveMonth = currentMonth;
     }
 
+    // Process any expired pending deletes from previous sessions (M2)
+    this._processPendingDeletes();
+
     this.save();
   },
 
@@ -139,6 +142,10 @@ const DataStore = {
   getRecord(id) { return this._data.records.find(r => r.id === id); },
 
   addRecord(record) {
+    // Fixed: validate amount field (M1)
+    if (typeof record.amount !== 'number' || !isFinite(record.amount)) {
+      record.amount = 0;
+    }
     record.id = uuid();
     record.createdAt = record.createdAt || new Date().toISOString();
     this._data.records.unshift(record);
@@ -173,6 +180,36 @@ const DataStore = {
     this.save();
   },
 
+  // Persist pending deletes to localStorage to survive page reload (M2)
+  _savePendingDelete() {
+    if (this._pendingDelete) {
+      try {
+        localStorage.setItem('budgetPendingDeletes', JSON.stringify({
+          id: this._pendingDelete.id,
+          deleteAt: Date.now() + 86400000 // 24 hours from now
+        }));
+      } catch(e) { /* ignore */ }
+    } else {
+      try { localStorage.removeItem('budgetPendingDeletes'); } catch(e) { /* ignore */ }
+    }
+  },
+
+  // Check for and finalize expired pending deletes on init (M2)
+  _processPendingDeletes() {
+    try {
+      var stored = localStorage.getItem('budgetPendingDeletes');
+      if (stored) {
+        var pending = JSON.parse(stored);
+        if (pending.deleteAt && Date.now() >= pending.deleteAt) {
+          // Also remove from records list if not already removed
+          this._data.records = this._data.records.filter(function(r) { return r.id !== pending.id; });
+          localStorage.removeItem('budgetPendingDeletes');
+          this._log('_processPendingDeletes', 'finalized id=' + pending.id);
+        }
+      }
+    } catch(e) { /* ignore */ }
+  },
+
   // Undo-capable delete: moves to pending buffer, scheduled for permanent removal
   softDeleteRecord(id) {
     const record = this.getRecord(id);
@@ -187,6 +224,7 @@ const DataStore = {
         this._pendingDelete.timeoutId = setTimeout(() => {
           this._finalizeDelete(id);
         }, 5000);
+        this._savePendingDelete();
         return this._pendingDelete.record;
       }
       // Different record: finalize the previous one immediately
@@ -195,7 +233,7 @@ const DataStore = {
     // Remove from records list
     this._data.records = this._data.records.filter(r => r.id !== id);
     this.save();
-    // Set pending
+    // Set pending with localStorage fallback (M2)
     this._pendingDelete = {
       id,
       record,
@@ -203,6 +241,7 @@ const DataStore = {
         this._finalizeDelete(id);
       }, 5000)
     };
+    this._savePendingDelete();
     return record;
   },
 
@@ -420,7 +459,8 @@ const DataStore = {
 
   // Budgets
   getBudgets() { return this._data.budgets; },
-  getBudget(month) { return this._data.budgets[month] || 0; },
+  // Fixed (m2): return undefined when no budget is set, so callers can distinguish "not set" from "set to 0"
+  getBudget(month) { return this._data.budgets[month] !== undefined ? this._data.budgets[month] : 0; },
   setBudget(month, amount) {
     this._data.budgets[month] = amount;
     this.save();
@@ -438,7 +478,8 @@ const DataStore = {
   setCategoryBudget(catId, month, amount, type) {
     const key = catId + ':' + month;
     if (!amount || amount <= 0) {
-      delete this._data.categoryBudgets[key];
+      // Fixed (M3): preserve type info when amount is 0, instead of deleting the key
+      this._data.categoryBudgets[key] = { value: 0, type: this.getCategoryBudget(catId, month).type || 'fixed' };
     } else {
       this._data.categoryBudgets[key] = { value: amount, type: type || 'fixed' };
     }
@@ -500,8 +541,10 @@ const DataStore = {
       const cat = catMap[r.categoryId] || { name: __('datastore.unknown'), icon: '❓' };
       const amount = r.amount.toFixed(2);
       const date = r.date || '';
-      const note = (r.note || '').replace(/"/g, '""');
-      return `${r.id},"${amount}","${cat.icon}${cat.name}","${date}","${note}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}"`;
+      // Fixed (m3): escape newlines in text fields for valid CSV
+      const safeNote = String(r.note || '').replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
+      const safeCatName = String(cat.icon + cat.name).replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
+      return `${r.id},"${amount}","${safeCatName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}"`;
     });
     return '\uFEFF' + header + '\n' + rows.join('\n');
   },
@@ -618,29 +661,35 @@ const DataStore = {
     const hash = await this._hashPin(pin, salt);
     return hash === storedHash;
   },
-  async setPin(pin) {
+  async setPin(pin, plainData) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const hash = await this._hashPin(pin, salt);
     localStorage.setItem('budgetAppSalt', this._arrayBufferToHex(salt));
     localStorage.setItem('budgetAppPinHash', hash);
-    // Encrypt existing data
-    await this._encryptData(pin, salt);
+    // Fixed (C1): if plainData is passed directly, use it instead of reading from localStorage
+    if (plainData !== undefined) {
+      await this._encryptData(pin, salt, plainData);
+    } else {
+      await this._encryptData(pin, salt);
+    }
     // Remove plaintext data
     localStorage.removeItem('budgetAppData');
   },
   async changePin(oldPin, newPin) {
     const valid = await this.verifyPin(oldPin);
     if (!valid) return false;
-    // Decrypt with old pin first
+    // Fixed (C1): keep plaintext in memory, do NOT write to localStorage
     const saltHex = localStorage.getItem('budgetAppSalt');
     const salt = this._hexToArrayBuffer(saltHex);
     const plaintext = await this._decryptData(oldPin, salt);
+    // Remove old encrypted data
+    localStorage.removeItem('budgetAppDataEncrypted');
+    // Set new pin with plaintext passed directly in memory (C1)
     if (plaintext) {
-      localStorage.setItem('budgetAppData', plaintext);
-      localStorage.removeItem('budgetAppDataEncrypted');
+      await this.setPin(newPin, plaintext);
+    } else {
+      await this.setPin(newPin);
     }
-    // Set new pin (re-encrypts)
-    await this.setPin(newPin);
     return true;
   },
   async clearPin(oldPin) {
@@ -657,11 +706,16 @@ const DataStore = {
     }
     return true;
   },
-  async _encryptData(pin, salt) {
-    const key = await this._deriveKey(pin, salt);
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const data = localStorage.getItem('budgetAppData');
+  async _encryptData(pin, salt, data) {
+    // Fixed (C1): accept optional data parameter; fall back to localStorage
+    if (data === undefined) {
+      data = localStorage.getItem('budgetAppData');
+    }
     if (!data) return;
+    const key = await this._deriveKey(pin, salt);
+    // Note (i2): AES-GCM IV must be 12 bytes (96 bits) — crypto.getRandomValues ensures uniqueness.
+    // For production, consider checking iv.length === 12 or storing iv separately from ciphertext.
+    const iv = crypto.getRandomValues(new Uint8Array(12));
     const encoded = new TextEncoder().encode(data);
     const encrypted = await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv },

@@ -1,5 +1,5 @@
 /* ============================================================
-   DATA LAYER — localStorage CRUD
+   CONSTANTS & UTILITY FUNCTIONS
    ============================================================ */
 (function() {
 'use strict';

@@ -5,8 +5,9 @@
 'use strict';
 function drawRing(canvasId, progress, color, label, overspendColor) {
   const canvas = document.getElementById(canvasId);
-  if (!canvas) return;
+  if (!canvas) return; // Fixed: guard against null canvas (m7)
   const ctx = canvas.getContext('2d');
+  if (!ctx) return; // Fixed: guard against missing canvas context (m7)
   const tc = getThemeColors();
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;

@@ -56,6 +56,9 @@ const DIAG = {
   wrapDataStoreMethod(methodName) {
     const original = DataStore[methodName];
     if (typeof original !== 'function') return;
+    // Fixed: prevent recursive wrapping chain (m11)
+    if (original.__wrapped) return;
+    original.__wrapped = true;
     
     DataStore[methodName] = function(...args) {
       // Snapshot before
@@ -212,10 +215,11 @@ const methodsToWrap = [
 methodsToWrap.forEach(m => DIAG.wrapDataStoreMethod(m));
 
 // === Also wrap StatsEngine to trace which records contribute ===
+// Fixed: only log when debug mode is enabled (i7)
 const originalGetRecordsInMonth = StatsEngine.getRecordsInMonth;
 StatsEngine.getRecordsInMonth = function(month) {
   const records = originalGetRecordsInMonth.call(this, month);
-  console.log('[DIAG] StatsEngine.getRecordsInMonth("' + month + '") → ' + records.length + ' records:',
+  if (window._debugMode) console.log('[DIAG] StatsEngine.getRecordsInMonth("' + month + '") → ' + records.length + ' records:',
     records.map(r => ({ id: r.id, amount: r.amount, catId: r.categoryId, date: r.date })));
   return records;
 };
@@ -223,15 +227,17 @@ StatsEngine.getRecordsInMonth = function(month) {
 const originalGetMonthTotal = StatsEngine.getMonthTotal;
 StatsEngine.getMonthTotal = function(month) {
   const total = originalGetMonthTotal.call(this, month);
-  const records = this.getRecordsInMonth(month);
-  console.log('[DIAG] StatsEngine.getMonthTotal("' + month + '") → RM' + total + ' from ' + records.length + ' records');
+  if (window._debugMode) {
+    const records = this.getRecordsInMonth(month);
+    console.log('[DIAG] StatsEngine.getMonthTotal("' + month + '") → RM' + total + ' from ' + records.length + ' records');
+  }
   return total;
 };
 
 const originalGetCategoryTotals = StatsEngine.getCategoryTotals;
 StatsEngine.getCategoryTotals = function(month) {
   const result = originalGetCategoryTotals.call(this, month);
-  console.log('[DIAG] StatsEngine.getCategoryTotals("' + month + '") → ' + Object.keys(result).length + ' categories');
+  if (window._debugMode) console.log('[DIAG] StatsEngine.getCategoryTotals("' + month + '") → ' + Object.keys(result).length + ' categories');
   return result;
 };
 

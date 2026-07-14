@@ -2,12 +2,17 @@
 (function() {
 'use strict';
 
-let budgetProgressSort = localStorage.getItem('budgetProgressSort') || 'usage';
-let budgetProgressView = localStorage.getItem('budgetProgressView') || 'solid';
+let budgetProgressSort = 'usage';
+let budgetProgressView = 'solid';
 let budgetMonitoredIds = null; // null = show all; array of category IDs
 
 function loadBudgetMonitored() {
-  const stored = localStorage.getItem('budgetMonitoredIds');
+  // Fixed: wrap localStorage access in try-catch (m6)
+  try {
+    budgetProgressSort = localStorage.getItem('budgetProgressSort') || 'usage';
+    budgetProgressView = localStorage.getItem('budgetProgressView') || 'solid';
+  } catch(e) { /* use defaults */ }
+  const stored = (function() { try { return localStorage.getItem('budgetMonitoredIds'); } catch(e) { return null; } })();
   if (stored) {
     try { budgetMonitoredIds = JSON.parse(stored); }
     catch(e) { budgetMonitoredIds = null; }

@@ -88,6 +88,13 @@ function submitRecord(e) {
     setTimeout(() => form.classList.remove('shake'), 500);
   }
 
+  // Fixed: validate amount is a finite number (M8)
+  if (!isFinite(amount) || amount < 0) {
+    showToast(__('addRecord.invalidAmount'), 'error');
+    amountEl.focus();
+    shakeForm();
+    return;
+  }
   if (!amount || amount <= 0) {
     showToast(__('addRecord.invalidAmount'), 'error');
     amountEl.focus();

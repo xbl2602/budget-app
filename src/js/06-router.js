@@ -30,10 +30,15 @@ const pageTitles = {
 let currentTab = 'overview';
 
 function navigateTo(tab) {
+  console.log('[NAV] navigateTo(' + tab + ') | currentTab:', currentTab, '| prevTab would be:', currentTab);
   if (tab === currentTab && tab !== 'add') {
     // Force re-render if page is empty (e.g., on initial load)
     const pageEl = document.getElementById('page-' + tab);
-    if (pageEl && pageEl.innerHTML.trim()) return;
+    if (pageEl && pageEl.innerHTML.trim()) {
+      console.log('[NAV] navigateTo -> early return (page already has content)');
+      return;
+    }
+    console.log('[NAV] navigateTo -> page empty, proceeding to render');
   }
   const prevTab = currentTab;
   currentTab = tab;
@@ -52,6 +57,7 @@ function navigateTo(tab) {
   // Update title
   document.getElementById('pageTitle').textContent = pageTitles[tab] || tab;
 
+  console.log('[NAV] rendering page:', tab);
   // Trigger render
   if (tab === 'overview') renderOverview();
   else if (tab === 'add') renderAddPage();
@@ -65,15 +71,27 @@ function navigateTo(tab) {
   applyI18nToDOM();
 }
 
-// Navigation event listeners
-document.querySelectorAll('.nav-item, .sidebar-item').forEach(el => {
-  el.addEventListener('click', () => {
-    const tab = el.dataset.tab;
-    if (tab) {
-      location.hash = '#' + tab;
-    }
+// Navigation event listeners — direct binding with DOM-ready guard (C2)
+function _bindNavClicks() {
+  var items = document.querySelectorAll('.nav-item, .sidebar-item');
+  console.log('[NAV] _bindNavClicks found', items.length, 'nav items');
+  items.forEach(function(el) {
+    el.addEventListener('click', function(e) {
+      var tab = el.dataset.tab;
+      console.log('[NAV] click', tab, '| hash ->', '#' + tab, '| e.target:', e.target.className);
+      if (tab) {
+        location.hash = '#' + tab;
+        console.log('[NAV] location.hash now:', location.hash);
+      }
+    });
   });
-});
+}
+console.log('[NAV] readyState:', document.readyState);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function() { console.log('[NAV] DOMContentLoaded -> _bindNavClicks'); _bindNavClicks(); });
+} else {
+  _bindNavClicks();
+}
 
   // === EXPORTS ===
   window.pageTitles = pageTitles;

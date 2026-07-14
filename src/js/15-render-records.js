@@ -5,11 +5,11 @@
 'use strict';
 let recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, tags: [] };
 let recordsPage = 0;
-let compactRecordsView = JSON.parse(localStorage.getItem('budgetCompactView') || 'false');
+let compactRecordsView = (function() { try { return JSON.parse(localStorage.getItem('budgetCompactView') || 'false'); } catch(e) { return false; } })();
 let recordsPerPage = window.recordsPerPage = parseInt(localStorage.getItem('budgetRecordsPerPage') || '20');
 let batchMode = false;
 let selectedRecordIds = new Set();
-let recordsSort = JSON.parse(localStorage.getItem('budgetRecordsSort') || '[{"field":"date","dir":"desc"}]');
+let recordsSort = (function() { try { return JSON.parse(localStorage.getItem('budgetRecordsSort') || '[{"field":"date","dir":"desc"}]'); } catch(e) { return [{ field: 'date', dir: 'desc' }]; } })();
 
 function renderRecords() {
   logEvent('renderRecords', 'start');
@@ -141,11 +141,20 @@ function getFilteredRecords() {
     const descIds = DataStore.getDescendantIds(f.categoryId);
     records = records.filter(r => descIds.includes(r.categoryId));
   }
+  // Fixed: use Date objects for timezone-safe date comparison (m8)
   if (f.dateStart) {
-    records = records.filter(r => (r.date || r.createdAt) >= f.dateStart);
+    var startDate = new Date(f.dateStart + 'T00:00:00');
+    records = records.filter(function(r) {
+      var rd = new Date((r.date || r.createdAt).slice(0, 10) + 'T00:00:00');
+      return rd >= startDate;
+    });
   }
   if (f.dateEnd) {
-    records = records.filter(r => (r.date || r.createdAt) <= f.dateEnd + 'T23:59');
+    var endDate = new Date(f.dateEnd + 'T23:59:59');
+    records = records.filter(function(r) {
+      var rd = new Date((r.date || r.createdAt).slice(0, 10) + 'T00:00:00');
+      return rd <= endDate;
+    });
   }
   if (f.amountMin) {
     records = records.filter(r => r.amount >= parseFloat(f.amountMin));

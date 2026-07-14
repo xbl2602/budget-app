@@ -28,6 +28,8 @@ const StatsEngine = {
       : this.getRecordsInMonth(month);
     records.forEach(r => {
       const d = new Date(r.date || r.createdAt);
+      // Fixed: skip records with invalid dates (M4)
+      if (isNaN(d.getTime())) return;
       const day = d.getDate();
       daily[day] = (daily[day] || 0) + r.amount;
     });
@@ -59,7 +61,9 @@ const StatsEngine = {
     const currentMonth = getMonthKey(now.toISOString());
     const daysPassed = month === currentMonth ? today : daysInMonth;
     const total = records.reduce((s, r) => s + r.amount, 0);
-    return daysPassed ? (total / daysPassed) * daysInMonth : 0;
+    // Fixed: guard against daysPassed=0 (first day of month) (M5)
+    if (daysPassed <= 0) return 0;
+    return (total / daysPassed) * daysInMonth;
   },
 
   getSavingsPrediction(month) {

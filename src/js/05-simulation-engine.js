@@ -71,7 +71,9 @@ const SimulationEngine = {
 
     // Get current daily average per category
     const getCurrentDailyAvg = (catId) => {
-      return daysPassed > 0 ? (categoryTotals[catId] || 0) / daysPassed : 0;
+      // Fixed: guard against daysPassed=0 (M6)
+      if (daysPassed <= 0) return 0;
+      return (categoryTotals[catId] || 0) / daysPassed;
     };
 
     // For each leaf category, compute projected spending

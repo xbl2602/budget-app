@@ -21,8 +21,13 @@
     for (var i = 0; i < len; i++) bytes[i] = s.charCodeAt(i);
     return bytes;
   }
+  // Fixed: feature-detect CompressionStream for Safari <16.4 compatibility (M11)
+  if (typeof CompressionStream === 'undefined') {
+    console.log('[LANSync] CompressionStream not supported, using plain text transfer');
+  }
+
   async function compressStr(str) {
-    if (!window.CompressionStream) return str; // fallback
+    if (typeof CompressionStream === 'undefined') return str; // fallback for Safari <16.4
     try {
       var bytes = new TextEncoder().encode(str);
       var blob = await new Response(
@@ -32,7 +37,7 @@
     } catch (e) { return str; }
   }
   async function decompressStr(b64) {
-    if (!window.CompressionStream || b64.indexOf('\n') !== -1) return b64; // fallback: not compressed
+    if (typeof DecompressionStream === 'undefined' || b64.indexOf('\n') !== -1) return b64; // fallback: not compressed or unsupported
     try {
       var blob2 = await new Response(
         new Blob([_bytesFromB64(b64)]).stream().pipeThrough(new DecompressionStream('gzip'))

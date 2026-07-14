@@ -28,8 +28,14 @@ perl -i -0pe '
     foreach my $f (@files) {
       open(my $fh, "<", "$dir/$f") or next;
       local $/;
-      $content .= <$fh>;
+      my $file_content = <$fh>;
       close($fh);
+      # Fixed (C6): wrap each JS file in try-catch so one syntax error does not break all scripts
+      if ($ext eq "js") {
+        $content .= "try{\n// === $f ===\n" . $file_content . "\n}catch(e){console.error(\x27[$f] failed:\x27, e)}\n";
+      } else {
+        $content .= $file_content;
+      }
     }
     return $content;
   }

@@ -21,10 +21,18 @@ function toggleTheme() {
 
 function showToast(message, type = 'success') {
   const container = document.getElementById('toastContainer');
+  // Fixed: use DOM API instead of innerHTML to prevent XSS (C3)
   const toast = document.createElement('div');
   toast.className = 'toast ' + type;
   const icons = { success: '✅', error: '❌', warning: '⚠️' };
-  toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span> ${message}`;
+  const iconSpan = document.createElement('span');
+  iconSpan.textContent = icons[type] || 'ℹ️';
+  toast.appendChild(iconSpan);
+  const space = document.createTextNode(' ');
+  toast.appendChild(space);
+  const msgSpan = document.createElement('span');
+  msgSpan.textContent = message;
+  toast.appendChild(msgSpan);
   container.appendChild(toast);
   setTimeout(() => {
     toast.style.opacity = '0';
@@ -289,7 +297,10 @@ function openBillCategoryManager() {
 }
 
 function formatMoney(amount) {
-  return 'RM ' + Number(amount).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  // Fixed: handle NaN/undefined/null gracefully (M7)
+  const num = Number(amount);
+  if (!isFinite(num)) return '—';
+  return 'RM ' + num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 function getCategoryFullPath(catId) {

@@ -41,12 +41,12 @@ function showBillRolloverReminder(lastMonth, currentMonth) {
   const year = currentMonth.split('-')[0];
   const mon = currentMonth.split('-')[1];
   showModal(`
-    <div class="modal-title">' + __('rollover.title') + '</div>
+    <div class="modal-title">${__('rollover.title')}</div>
     <div style="padding:8px 0 16px">
       <p style="margin-bottom:12px">${__('rollover.message', formatMoney(total))}</p>
       <div class="flex flex-col gap-8">
-        <button class="btn btn-primary" onclick="closeModal();openBillsCenter()">' + __('rollover.adjustBtn') + '</button>
-        <button class="btn btn-ghost" onclick="closeModal();if(currentTab==='overview')renderOverview();else if(currentTab==='stats')renderStats();">' + __('rollover.keepBtn') + '</button>
+        <button class="btn btn-primary" onclick="closeModal();openBillsCenter()">${__('rollover.adjustBtn')}</button>
+        <button class="btn btn-ghost" onclick="closeModal();if(currentTab==='overview')renderOverview();else if(currentTab==='stats')renderStats();">${__('rollover.keepBtn')}</button>
       </div>
     </div>
   `);

@@ -1,4 +1,37 @@
-/* ===== RESPONSIVE: TABLET (480px+) ===== */
+/* ===== RESPONSIVE: MOBILE (375px-480px) ===== */
+@media (max-width: 480px) {
+  .main-content {
+    padding: 0 12px 80px;
+    padding-top: var(--header-height);
+  }
+  .top-header {
+    padding: 12px 0 8px;
+  }
+  .top-header h1 { font-size: 1.1rem; }
+  .grid-4 { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .grid-2 { grid-template-columns: 1fr; gap: 8px; }
+  .card { padding: 12px; margin-bottom: 10px; }
+  .card-title { font-size: 0.82rem; }
+  .text-xl { font-size: 1.1rem; }
+  .btn-lg { padding: 10px 16px; font-size: 0.85rem; }
+  .input-field { font-size: 0.82rem; padding: 8px 12px; }
+  .modal-title { font-size: 1rem; }
+  .report-container { padding: 0; }
+  .report-header-buttons .flex { flex-direction: column; align-items: stretch; }
+  .heatmap-grid { gap: 2px; }
+  .heatmap-day { width: 32px; height: 32px; font-size: 0.65rem; }
+  .heatmap-tooltip { font-size: 0.6rem; padding: 2px 4px; }
+  .chart-expand-inner { padding: 12px !important; width: 96% !important; }
+  .chart-expand-inner .heatmap-day { width: 38px !important; height: 38px !important; }
+  #pieChart { height: 200px !important; }
+  #lineChart { height: 200px !important; }
+  .nav-item { font-size: 0.65rem; padding: 4px 2px; }
+  .nav-item span:first-child { font-size: 1.1rem; }
+  .bills-list-item { flex-wrap: wrap; gap: 4px; }
+  .bills-amount-input { width: 80px; }
+}
+
+/* ===== RESPONSIVE: TABLET (481px+) ===== */
 @media (min-width: 481px) {
   .main-content {
     padding: 0 28px 28px;
@@ -9,6 +42,19 @@
   }
   .grid-4 { gap: 16px; }
   .card { padding: 20px; }
+}
+
+/* ===== RESPONSIVE: TABLET PORTRAIT (768px+) ===== */
+@media (min-width: 768px) {
+  .grid-4 { grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .main-content {
+    padding: 0 32px 32px;
+    padding-top: var(--header-height);
+  }
+  .top-header h1 { font-size: 1.3rem; }
+  .card { padding: 20px; margin-bottom: 14px; }
+  .heatmap-day { width: 40px; height: 40px; font-size: 0.75rem; }
 }
 
 /* ===== RESPONSIVE: DESKTOP (1024px+) ===== */

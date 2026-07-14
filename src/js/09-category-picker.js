@@ -1,3 +1,6 @@
+/* ============================================================
+   CATEGORY PICKER COMPONENT
+   ============================================================ */
 (function() {
 'use strict';
 
@@ -60,15 +63,18 @@ function selectCategory(catId, context) {
   window.selectedCategoryId = catId;
   const displayAdd = document.getElementById('addCategoryDisplay');
   const displayEdit = document.getElementById('editCategoryDisplay');
-  const html = `<span style="width:10px;height:10px;border-radius:50%;background:${cat.color};display:inline-block;vertical-align:middle"></span> ${escHtml(cat.icon)} ${escHtml(cat.name)}`;
-  if (displayAdd) {
-    displayAdd.innerHTML = html;
-    displayAdd.style.color = 'var(--text-primary)';
-  }
-  if (displayEdit) {
-    displayEdit.innerHTML = html;
-    displayEdit.style.color = 'var(--text-primary)';
-  }
+  // Use DOM API to avoid XSS via innerHTML (m5)
+  const setDisplay = function(el) {
+    if (!el) return;
+    el.innerHTML = '';
+    var dot = document.createElement('span');
+    dot.style.cssText = 'width:10px;height:10px;border-radius:50%;background:' + cat.color + ';display:inline-block;vertical-align:middle';
+    el.appendChild(dot);
+    el.appendChild(document.createTextNode(' ' + cat.icon + ' ' + cat.name));
+    el.style.color = 'var(--text-primary)';
+  };
+  setDisplay(displayAdd);
+  setDisplay(displayEdit);
   closeModal();
 }
 

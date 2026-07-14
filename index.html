@@ -1442,7 +1442,40 @@ ul, ol { list-style: none; }
   #page-report canvas { max-width: 100% !important; }
   #page-report .btn { display: none !important; }
 }
-/* ===== RESPONSIVE: TABLET (480px+) ===== */
+/* ===== RESPONSIVE: MOBILE (375px-480px) ===== */
+@media (max-width: 480px) {
+  .main-content {
+    padding: 0 12px 80px;
+    padding-top: var(--header-height);
+  }
+  .top-header {
+    padding: 12px 0 8px;
+  }
+  .top-header h1 { font-size: 1.1rem; }
+  .grid-4 { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .grid-2 { grid-template-columns: 1fr; gap: 8px; }
+  .card { padding: 12px; margin-bottom: 10px; }
+  .card-title { font-size: 0.82rem; }
+  .text-xl { font-size: 1.1rem; }
+  .btn-lg { padding: 10px 16px; font-size: 0.85rem; }
+  .input-field { font-size: 0.82rem; padding: 8px 12px; }
+  .modal-title { font-size: 1rem; }
+  .report-container { padding: 0; }
+  .report-header-buttons .flex { flex-direction: column; align-items: stretch; }
+  .heatmap-grid { gap: 2px; }
+  .heatmap-day { width: 32px; height: 32px; font-size: 0.65rem; }
+  .heatmap-tooltip { font-size: 0.6rem; padding: 2px 4px; }
+  .chart-expand-inner { padding: 12px !important; width: 96% !important; }
+  .chart-expand-inner .heatmap-day { width: 38px !important; height: 38px !important; }
+  #pieChart { height: 200px !important; }
+  #lineChart { height: 200px !important; }
+  .nav-item { font-size: 0.65rem; padding: 4px 2px; }
+  .nav-item span:first-child { font-size: 1.1rem; }
+  .bills-list-item { flex-wrap: wrap; gap: 4px; }
+  .bills-amount-input { width: 80px; }
+}
+
+/* ===== RESPONSIVE: TABLET (481px+) ===== */
 @media (min-width: 481px) {
   .main-content {
     padding: 0 28px 28px;
@@ -1453,6 +1486,19 @@ ul, ol { list-style: none; }
   }
   .grid-4 { gap: 16px; }
   .card { padding: 20px; }
+}
+
+/* ===== RESPONSIVE: TABLET PORTRAIT (768px+) ===== */
+@media (min-width: 768px) {
+  .grid-4 { grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .main-content {
+    padding: 0 32px 32px;
+    padding-top: var(--header-height);
+  }
+  .top-header h1 { font-size: 1.3rem; }
+  .card { padding: 20px; margin-bottom: 14px; }
+  .heatmap-day { width: 40px; height: 40px; font-size: 0.75rem; }
 }
 
 /* ===== RESPONSIVE: DESKTOP (1024px+) ===== */
@@ -1858,6 +1904,8 @@ ul, ol { list-style: none; }
   </nav>
 
   <script>
+try{
+// === 00-i18n.js ===
 /* ============================================================
    GLOBAL TRANSLATION ENGINE — i18n
    ============================================================ */
@@ -2032,8 +2080,12 @@ window.applyI18nToDOM = applyI18nToDOM;
 })();
 
 })();
+
+}catch(e){console.error('[00-i18n.js] failed:', e)}
+try{
+// === 01-constants.js ===
 /* ============================================================
-   DATA LAYER — localStorage CRUD
+   CONSTANTS & UTILITY FUNCTIONS
    ============================================================ */
 (function() {
 'use strict';
@@ -2135,6 +2187,10 @@ function getPeriodDateRange() {
   window.getStatsRange = getStatsRange;
   window.getPeriodDateRange = getPeriodDateRange;
 })();
+
+}catch(e){console.error('[01-constants.js] failed:', e)}
+try{
+// === 02-datastore.js ===
 /* ============================================================
    DataStore
    ============================================================ */
@@ -2255,6 +2311,9 @@ const DataStore = {
       this._data.lastActiveMonth = currentMonth;
     }
 
+    // Process any expired pending deletes from previous sessions (M2)
+    this._processPendingDeletes();
+
     this.save();
   },
 
@@ -2276,6 +2335,10 @@ const DataStore = {
   getRecord(id) { return this._data.records.find(r => r.id === id); },
 
   addRecord(record) {
+    // Fixed: validate amount field (M1)
+    if (typeof record.amount !== 'number' || !isFinite(record.amount)) {
+      record.amount = 0;
+    }
     record.id = uuid();
     record.createdAt = record.createdAt || new Date().toISOString();
     this._data.records.unshift(record);
@@ -2310,6 +2373,36 @@ const DataStore = {
     this.save();
   },
 
+  // Persist pending deletes to localStorage to survive page reload (M2)
+  _savePendingDelete() {
+    if (this._pendingDelete) {
+      try {
+        localStorage.setItem('budgetPendingDeletes', JSON.stringify({
+          id: this._pendingDelete.id,
+          deleteAt: Date.now() + 86400000 // 24 hours from now
+        }));
+      } catch(e) { /* ignore */ }
+    } else {
+      try { localStorage.removeItem('budgetPendingDeletes'); } catch(e) { /* ignore */ }
+    }
+  },
+
+  // Check for and finalize expired pending deletes on init (M2)
+  _processPendingDeletes() {
+    try {
+      var stored = localStorage.getItem('budgetPendingDeletes');
+      if (stored) {
+        var pending = JSON.parse(stored);
+        if (pending.deleteAt && Date.now() >= pending.deleteAt) {
+          // Also remove from records list if not already removed
+          this._data.records = this._data.records.filter(function(r) { return r.id !== pending.id; });
+          localStorage.removeItem('budgetPendingDeletes');
+          this._log('_processPendingDeletes', 'finalized id=' + pending.id);
+        }
+      }
+    } catch(e) { /* ignore */ }
+  },
+
   // Undo-capable delete: moves to pending buffer, scheduled for permanent removal
   softDeleteRecord(id) {
     const record = this.getRecord(id);
@@ -2324,6 +2417,7 @@ const DataStore = {
         this._pendingDelete.timeoutId = setTimeout(() => {
           this._finalizeDelete(id);
         }, 5000);
+        this._savePendingDelete();
         return this._pendingDelete.record;
       }
       // Different record: finalize the previous one immediately
@@ -2332,7 +2426,7 @@ const DataStore = {
     // Remove from records list
     this._data.records = this._data.records.filter(r => r.id !== id);
     this.save();
-    // Set pending
+    // Set pending with localStorage fallback (M2)
     this._pendingDelete = {
       id,
       record,
@@ -2340,6 +2434,7 @@ const DataStore = {
         this._finalizeDelete(id);
       }, 5000)
     };
+    this._savePendingDelete();
     return record;
   },
 
@@ -2557,7 +2652,8 @@ const DataStore = {
 
   // Budgets
   getBudgets() { return this._data.budgets; },
-  getBudget(month) { return this._data.budgets[month] || 0; },
+  // Fixed (m2): return undefined when no budget is set, so callers can distinguish "not set" from "set to 0"
+  getBudget(month) { return this._data.budgets[month] !== undefined ? this._data.budgets[month] : 0; },
   setBudget(month, amount) {
     this._data.budgets[month] = amount;
     this.save();
@@ -2575,7 +2671,8 @@ const DataStore = {
   setCategoryBudget(catId, month, amount, type) {
     const key = catId + ':' + month;
     if (!amount || amount <= 0) {
-      delete this._data.categoryBudgets[key];
+      // Fixed (M3): preserve type info when amount is 0, instead of deleting the key
+      this._data.categoryBudgets[key] = { value: 0, type: this.getCategoryBudget(catId, month).type || 'fixed' };
     } else {
       this._data.categoryBudgets[key] = { value: amount, type: type || 'fixed' };
     }
@@ -2637,8 +2734,10 @@ const DataStore = {
       const cat = catMap[r.categoryId] || { name: __('datastore.unknown'), icon: '❓' };
       const amount = r.amount.toFixed(2);
       const date = r.date || '';
-      const note = (r.note || '').replace(/"/g, '""');
-      return `${r.id},"${amount}","${cat.icon}${cat.name}","${date}","${note}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}"`;
+      // Fixed (m3): escape newlines in text fields for valid CSV
+      const safeNote = String(r.note || '').replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
+      const safeCatName = String(cat.icon + cat.name).replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
+      return `${r.id},"${amount}","${safeCatName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}"`;
     });
     return '\uFEFF' + header + '\n' + rows.join('\n');
   },
@@ -2755,29 +2854,35 @@ const DataStore = {
     const hash = await this._hashPin(pin, salt);
     return hash === storedHash;
   },
-  async setPin(pin) {
+  async setPin(pin, plainData) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const hash = await this._hashPin(pin, salt);
     localStorage.setItem('budgetAppSalt', this._arrayBufferToHex(salt));
     localStorage.setItem('budgetAppPinHash', hash);
-    // Encrypt existing data
-    await this._encryptData(pin, salt);
+    // Fixed (C1): if plainData is passed directly, use it instead of reading from localStorage
+    if (plainData !== undefined) {
+      await this._encryptData(pin, salt, plainData);
+    } else {
+      await this._encryptData(pin, salt);
+    }
     // Remove plaintext data
     localStorage.removeItem('budgetAppData');
   },
   async changePin(oldPin, newPin) {
     const valid = await this.verifyPin(oldPin);
     if (!valid) return false;
-    // Decrypt with old pin first
+    // Fixed (C1): keep plaintext in memory, do NOT write to localStorage
     const saltHex = localStorage.getItem('budgetAppSalt');
     const salt = this._hexToArrayBuffer(saltHex);
     const plaintext = await this._decryptData(oldPin, salt);
+    // Remove old encrypted data
+    localStorage.removeItem('budgetAppDataEncrypted');
+    // Set new pin with plaintext passed directly in memory (C1)
     if (plaintext) {
-      localStorage.setItem('budgetAppData', plaintext);
-      localStorage.removeItem('budgetAppDataEncrypted');
+      await this.setPin(newPin, plaintext);
+    } else {
+      await this.setPin(newPin);
     }
-    // Set new pin (re-encrypts)
-    await this.setPin(newPin);
     return true;
   },
   async clearPin(oldPin) {
@@ -2794,11 +2899,16 @@ const DataStore = {
     }
     return true;
   },
-  async _encryptData(pin, salt) {
-    const key = await this._deriveKey(pin, salt);
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const data = localStorage.getItem('budgetAppData');
+  async _encryptData(pin, salt, data) {
+    // Fixed (C1): accept optional data parameter; fall back to localStorage
+    if (data === undefined) {
+      data = localStorage.getItem('budgetAppData');
+    }
     if (!data) return;
+    const key = await this._deriveKey(pin, salt);
+    // Note (i2): AES-GCM IV must be 12 bytes (96 bits) — crypto.getRandomValues ensures uniqueness.
+    // For production, consider checking iv.length === 12 or storing iv separately from ciphertext.
+    const iv = crypto.getRandomValues(new Uint8Array(12));
     const encoded = new TextEncoder().encode(data);
     const encrypted = await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv },
@@ -2928,6 +3038,10 @@ const DataStore = {
   window.DataStore.resetTagColor = DataStore.resetTagColor.bind(DataStore);
   window.DataStore.getAllTagColors = DataStore.getAllTagColors.bind(DataStore);
 })();
+
+}catch(e){console.error('[02-datastore.js] failed:', e)}
+try{
+// === 03-excel-export.js ===
 /* ============================================================
    EXCEL EXPORT — Generates a real .xlsx-compatible XML Spreadsheet
    with formulas (SUM, AVERAGE, MAX, MIN, IF, etc.) so the user
@@ -3446,6 +3560,10 @@ function exportToExcel() {
     'excel.filename.prefix': { zh: '记账数据', en: 'BudgetData' }
   });
 })();
+
+}catch(e){console.error('[03-excel-export.js] failed:', e)}
+try{
+// === 04-stats-engine.js ===
 /* ============================================================
    STATISTICS ENGINE
    ============================================================ */
@@ -3476,6 +3594,8 @@ const StatsEngine = {
       : this.getRecordsInMonth(month);
     records.forEach(r => {
       const d = new Date(r.date || r.createdAt);
+      // Fixed: skip records with invalid dates (M4)
+      if (isNaN(d.getTime())) return;
       const day = d.getDate();
       daily[day] = (daily[day] || 0) + r.amount;
     });
@@ -3507,7 +3627,9 @@ const StatsEngine = {
     const currentMonth = getMonthKey(now.toISOString());
     const daysPassed = month === currentMonth ? today : daysInMonth;
     const total = records.reduce((s, r) => s + r.amount, 0);
-    return daysPassed ? (total / daysPassed) * daysInMonth : 0;
+    // Fixed: guard against daysPassed=0 (first day of month) (M5)
+    if (daysPassed <= 0) return 0;
+    return (total / daysPassed) * daysInMonth;
   },
 
   getSavingsPrediction(month) {
@@ -3752,6 +3874,10 @@ const StatsEngine = {
   // === EXPORTS ===
   window.StatsEngine = StatsEngine;
 })();
+
+}catch(e){console.error('[04-stats-engine.js] failed:', e)}
+try{
+// === 05-simulation-engine.js ===
 /* ============================================================
    SIMULATION ENGINE — What-If projection calculations
    ============================================================ */
@@ -3825,7 +3951,9 @@ const SimulationEngine = {
 
     // Get current daily average per category
     const getCurrentDailyAvg = (catId) => {
-      return daysPassed > 0 ? (categoryTotals[catId] || 0) / daysPassed : 0;
+      // Fixed: guard against daysPassed=0 (M6)
+      if (daysPassed <= 0) return 0;
+      return (categoryTotals[catId] || 0) / daysPassed;
     };
 
     // For each leaf category, compute projected spending
@@ -4018,6 +4146,10 @@ const SimulationEngine = {
   // === EXPORTS ===
   window.SimulationEngine = SimulationEngine;
 })();
+
+}catch(e){console.error('[05-simulation-engine.js] failed:', e)}
+try{
+// === 06-router.js ===
 /* ============================================================
    ROUTER
    ============================================================ */
@@ -4050,10 +4182,15 @@ const pageTitles = {
 let currentTab = 'overview';
 
 function navigateTo(tab) {
+  console.log('[NAV] navigateTo(' + tab + ') | currentTab:', currentTab, '| prevTab would be:', currentTab);
   if (tab === currentTab && tab !== 'add') {
     // Force re-render if page is empty (e.g., on initial load)
     const pageEl = document.getElementById('page-' + tab);
-    if (pageEl && pageEl.innerHTML.trim()) return;
+    if (pageEl && pageEl.innerHTML.trim()) {
+      console.log('[NAV] navigateTo -> early return (page already has content)');
+      return;
+    }
+    console.log('[NAV] navigateTo -> page empty, proceeding to render');
   }
   const prevTab = currentTab;
   currentTab = tab;
@@ -4072,6 +4209,7 @@ function navigateTo(tab) {
   // Update title
   document.getElementById('pageTitle').textContent = pageTitles[tab] || tab;
 
+  console.log('[NAV] rendering page:', tab);
   // Trigger render
   if (tab === 'overview') renderOverview();
   else if (tab === 'add') renderAddPage();
@@ -4085,21 +4223,37 @@ function navigateTo(tab) {
   applyI18nToDOM();
 }
 
-// Navigation event listeners
-document.querySelectorAll('.nav-item, .sidebar-item').forEach(el => {
-  el.addEventListener('click', () => {
-    const tab = el.dataset.tab;
-    if (tab) {
-      location.hash = '#' + tab;
-    }
+// Navigation event listeners — direct binding with DOM-ready guard (C2)
+function _bindNavClicks() {
+  var items = document.querySelectorAll('.nav-item, .sidebar-item');
+  console.log('[NAV] _bindNavClicks found', items.length, 'nav items');
+  items.forEach(function(el) {
+    el.addEventListener('click', function(e) {
+      var tab = el.dataset.tab;
+      console.log('[NAV] click', tab, '| hash ->', '#' + tab, '| e.target:', e.target.className);
+      if (tab) {
+        location.hash = '#' + tab;
+        console.log('[NAV] location.hash now:', location.hash);
+      }
+    });
   });
-});
+}
+console.log('[NAV] readyState:', document.readyState);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function() { console.log('[NAV] DOMContentLoaded -> _bindNavClicks'); _bindNavClicks(); });
+} else {
+  _bindNavClicks();
+}
 
   // === EXPORTS ===
   window.pageTitles = pageTitles;
   window.currentTab = currentTab;
   window.navigateTo = navigateTo;
 })();
+
+}catch(e){console.error('[06-router.js] failed:', e)}
+try{
+// === 07-ui-core.js ===
 /* ============================================================
    UI HELPERS
    ============================================================ */
@@ -4123,10 +4277,18 @@ function toggleTheme() {
 
 function showToast(message, type = 'success') {
   const container = document.getElementById('toastContainer');
+  // Fixed: use DOM API instead of innerHTML to prevent XSS (C3)
   const toast = document.createElement('div');
   toast.className = 'toast ' + type;
   const icons = { success: '✅', error: '❌', warning: '⚠️' };
-  toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span> ${message}`;
+  const iconSpan = document.createElement('span');
+  iconSpan.textContent = icons[type] || 'ℹ️';
+  toast.appendChild(iconSpan);
+  const space = document.createTextNode(' ');
+  toast.appendChild(space);
+  const msgSpan = document.createElement('span');
+  msgSpan.textContent = message;
+  toast.appendChild(msgSpan);
   container.appendChild(toast);
   setTimeout(() => {
     toast.style.opacity = '0';
@@ -4391,7 +4553,10 @@ function openBillCategoryManager() {
 }
 
 function formatMoney(amount) {
-  return 'RM ' + Number(amount).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  // Fixed: handle NaN/undefined/null gracefully (M7)
+  const num = Number(amount);
+  if (!isFinite(num)) return '—';
+  return 'RM ' + num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 function getCategoryFullPath(catId) {
@@ -4920,6 +5085,13 @@ function bindActivityListeners() {
   window.createAndSelectTag = createAndSelectTag;
   window.confirmTagPick = confirmTagPick;
 })();
+
+}catch(e){console.error('[07-ui-core.js] failed:', e)}
+try{
+// === 09-category-picker.js ===
+/* ============================================================
+   CATEGORY PICKER COMPONENT
+   ============================================================ */
 (function() {
 'use strict';
 
@@ -4982,15 +5154,18 @@ function selectCategory(catId, context) {
   window.selectedCategoryId = catId;
   const displayAdd = document.getElementById('addCategoryDisplay');
   const displayEdit = document.getElementById('editCategoryDisplay');
-  const html = `<span style="width:10px;height:10px;border-radius:50%;background:${cat.color};display:inline-block;vertical-align:middle"></span> ${escHtml(cat.icon)} ${escHtml(cat.name)}`;
-  if (displayAdd) {
-    displayAdd.innerHTML = html;
-    displayAdd.style.color = 'var(--text-primary)';
-  }
-  if (displayEdit) {
-    displayEdit.innerHTML = html;
-    displayEdit.style.color = 'var(--text-primary)';
-  }
+  // Use DOM API to avoid XSS via innerHTML (m5)
+  const setDisplay = function(el) {
+    if (!el) return;
+    el.innerHTML = '';
+    var dot = document.createElement('span');
+    dot.style.cssText = 'width:10px;height:10px;border-radius:50%;background:' + cat.color + ';display:inline-block;vertical-align:middle';
+    el.appendChild(dot);
+    el.appendChild(document.createTextNode(' ' + cat.icon + ' ' + cat.name));
+    el.style.color = 'var(--text-primary)';
+  };
+  setDisplay(displayAdd);
+  setDisplay(displayEdit);
   closeModal();
 }
 
@@ -5010,6 +5185,10 @@ function selectCategory(catId, context) {
   window.selectCategory = selectCategory;
 })();
 
+
+}catch(e){console.error('[09-category-picker.js] failed:', e)}
+try{
+// === 10-render-overview.js ===
 /* ============================================================
    RENDER: Overview
    ============================================================ */
@@ -5447,6 +5626,10 @@ function refreshOverviewBudget() {
     'overview.monthlyBills': { zh: '📋 月账单', en: '📋 Bills' }
   });
 })();
+
+}catch(e){console.error('[10-render-overview.js] failed:', e)}
+try{
+// === 11-theme-colors.js ===
 /* ===== THEME-AWARE COLORS ===== */
 (function() {
 'use strict';
@@ -5466,16 +5649,25 @@ function getThemeColors() {
   // === EXPORTS ===
   window.getThemeColors = getThemeColors;
 })();
+
+}catch(e){console.error('[11-theme-colors.js] failed:', e)}
+try{
+// === 12-budget-progress.js ===
 /* ===== BUDGET PROGRESS CARD ===== */
 (function() {
 'use strict';
 
-let budgetProgressSort = localStorage.getItem('budgetProgressSort') || 'usage';
-let budgetProgressView = localStorage.getItem('budgetProgressView') || 'solid';
+let budgetProgressSort = 'usage';
+let budgetProgressView = 'solid';
 let budgetMonitoredIds = null; // null = show all; array of category IDs
 
 function loadBudgetMonitored() {
-  const stored = localStorage.getItem('budgetMonitoredIds');
+  // Fixed: wrap localStorage access in try-catch (m6)
+  try {
+    budgetProgressSort = localStorage.getItem('budgetProgressSort') || 'usage';
+    budgetProgressView = localStorage.getItem('budgetProgressView') || 'solid';
+  } catch(e) { /* use defaults */ }
+  const stored = (function() { try { return localStorage.getItem('budgetMonitoredIds'); } catch(e) { return null; } })();
   if (stored) {
     try { budgetMonitoredIds = JSON.parse(stored); }
     catch(e) { budgetMonitoredIds = null; }
@@ -5860,6 +6052,10 @@ function renderBudgetProgressCardInner(month) {
   window.renderBudgetProgressCard = renderBudgetProgressCard;
   window.renderBudgetProgressCardInner = renderBudgetProgressCardInner;
 })();
+
+}catch(e){console.error('[12-budget-progress.js] failed:', e)}
+try{
+// === 13-canvas-drawing.js ===
 /* ============================================================
    CANVAS DRAWING HELPERS
    ============================================================ */
@@ -5867,8 +6063,9 @@ function renderBudgetProgressCardInner(month) {
 'use strict';
 function drawRing(canvasId, progress, color, label, overspendColor) {
   const canvas = document.getElementById(canvasId);
-  if (!canvas) return;
+  if (!canvas) return; // Fixed: guard against null canvas (m7)
   const ctx = canvas.getContext('2d');
+  if (!ctx) return; // Fixed: guard against missing canvas context (m7)
   const tc = getThemeColors();
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
@@ -5987,6 +6184,10 @@ function drawSparkline(canvasId, data) {
   window.drawRing = drawRing;
   window.drawSparkline = drawSparkline;
 })();
+
+}catch(e){console.error('[13-canvas-drawing.js] failed:', e)}
+try{
+// === 14-render-add.js ===
 /* ============================================================
    RENDER: Add Record Page
    ============================================================ */
@@ -6077,6 +6278,13 @@ function submitRecord(e) {
     setTimeout(() => form.classList.remove('shake'), 500);
   }
 
+  // Fixed: validate amount is a finite number (M8)
+  if (!isFinite(amount) || amount < 0) {
+    showToast(__('addRecord.invalidAmount'), 'error');
+    amountEl.focus();
+    shakeForm();
+    return;
+  }
   if (!amount || amount <= 0) {
     showToast(__('addRecord.invalidAmount'), 'error');
     amountEl.focus();
@@ -6178,6 +6386,10 @@ function removeAddTag(tag) {
   window.removeAddTag = removeAddTag;
 })();
 
+
+}catch(e){console.error('[14-render-add.js] failed:', e)}
+try{
+// === 15-render-records.js ===
 /* ============================================================
    RENDER: Records Page
    ============================================================ */
@@ -6185,11 +6397,11 @@ function removeAddTag(tag) {
 'use strict';
 let recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, tags: [] };
 let recordsPage = 0;
-let compactRecordsView = JSON.parse(localStorage.getItem('budgetCompactView') || 'false');
+let compactRecordsView = (function() { try { return JSON.parse(localStorage.getItem('budgetCompactView') || 'false'); } catch(e) { return false; } })();
 let recordsPerPage = window.recordsPerPage = parseInt(localStorage.getItem('budgetRecordsPerPage') || '20');
 let batchMode = false;
 let selectedRecordIds = new Set();
-let recordsSort = JSON.parse(localStorage.getItem('budgetRecordsSort') || '[{"field":"date","dir":"desc"}]');
+let recordsSort = (function() { try { return JSON.parse(localStorage.getItem('budgetRecordsSort') || '[{"field":"date","dir":"desc"}]'); } catch(e) { return [{ field: 'date', dir: 'desc' }]; } })();
 
 function renderRecords() {
   logEvent('renderRecords', 'start');
@@ -6321,11 +6533,20 @@ function getFilteredRecords() {
     const descIds = DataStore.getDescendantIds(f.categoryId);
     records = records.filter(r => descIds.includes(r.categoryId));
   }
+  // Fixed: use Date objects for timezone-safe date comparison (m8)
   if (f.dateStart) {
-    records = records.filter(r => (r.date || r.createdAt) >= f.dateStart);
+    var startDate = new Date(f.dateStart + 'T00:00:00');
+    records = records.filter(function(r) {
+      var rd = new Date((r.date || r.createdAt).slice(0, 10) + 'T00:00:00');
+      return rd >= startDate;
+    });
   }
   if (f.dateEnd) {
-    records = records.filter(r => (r.date || r.createdAt) <= f.dateEnd + 'T23:59');
+    var endDate = new Date(f.dateEnd + 'T23:59:59');
+    records = records.filter(function(r) {
+      var rd = new Date((r.date || r.createdAt).slice(0, 10) + 'T00:00:00');
+      return rd <= endDate;
+    });
   }
   if (f.amountMin) {
     records = records.filter(r => r.amount >= parseFloat(f.amountMin));
@@ -7223,6 +7444,10 @@ function setRecordsTagFilter(tag) {
   });
 })();
 
+
+}catch(e){console.error('[15-render-records.js] failed:', e)}
+try{
+// === 16-render-categories.js ===
 /* ============================================================
    RENDER: Categories Page
    ============================================================ */
@@ -7315,20 +7540,23 @@ function saveCategoryBudget(catId, month, value, type) {
   const amount = parseFloat(value) || 0;
   const budgetType = type || 'fixed';
   
-  // Validate: child budget cannot exceed parent's budget
+  // Validate: child budget cannot exceed parent's budget (m9)
   const cat = DataStore.getCategory(catId);
   if (cat && cat.parentId && amount > 0) {
     const parentBudget = DataStore.getCategoryBudget(cat.parentId, month).value || 0;
-    // Sum of all children's budgets (including this new one)
-    const siblings = DataStore.getChildren(cat.parentId);
-    let siblingSum = 0;
-    siblings.forEach(s => {
-      if (s.id === catId) return; // exclude current
-      const sb = DataStore.getCategoryBudget(s.id, month).value || 0;
-      siblingSum += sb;
-    });
-    if (siblingSum + amount > parentBudget) {
-      showToast(__('categories.budgetExceedParent', formatMoney(siblingSum + amount), formatMoney(parentBudget)), 'error');
+    // Recursively sum all descendant budgets (not just direct children) (m9)
+    var descendantBudgetSum = 0;
+    (function sumDescendantBudgets(parentId) {
+      var children = DataStore.getChildren(parentId);
+      children.forEach(function(child) {
+        if (child.id === catId) return; // exclude current
+        var cb = DataStore.getCategoryBudget(child.id, month).value || 0;
+        descendantBudgetSum += cb;
+        sumDescendantBudgets(child.id); // recurse into grandchildren
+      });
+    })(cat.parentId);
+    if (descendantBudgetSum + amount > parentBudget) {
+      showToast(__('categories.budgetExceedParent', formatMoney(descendantBudgetSum + amount), formatMoney(parentBudget)), 'error');
       return;
     }
   }
@@ -7990,6 +8218,10 @@ function saveCategoryEdit(catId) {
     'categories.edit.delete': { zh: '🗑️ 删除', en: '🗑️ Delete' }
   });
 })();
+
+}catch(e){console.error('[16-render-categories.js] failed:', e)}
+try{
+// === 17-stats-charts.js ===
 /* ============================================================
    RENDER: Statistics Page
    ============================================================ */
@@ -8004,9 +8236,9 @@ let waffleDensity = parseInt(localStorage.getItem('budgetWaffleDensity') || '3')
 let waffleIncludeUntagged = localStorage.getItem('budgetWaffleIncludeUntagged') !== 'false';
 let waffleCells = [];
 let waffleTagData = [];
-var waffleSelectedMonth = '';
-var _hoverAnimId = null;
-var _hoverState = { tagIndex: -1, progress: 0, active: false };
+let waffleSelectedMonth = '';
+let _hoverAnimId = null;
+let _hoverState = { tagIndex: -1, progress: 0, active: false };
 
 function getDrillCategory() {
   return statsDrillStack.length > 0 ? statsDrillStack[statsDrillStack.length - 1] : null;
@@ -8575,59 +8807,8 @@ function toggleBillFilter(chartId) {
   }
 }
 
-function refreshOverviewBudget() {
-  const now = new Date();
-  const month = getMonthKey(now.toISOString());
-  const includeBills = isBillToggleChecked('overviewBudget');
-  const monthTotal = includeBills ? StatsEngine.getMonthTotal(month) : StatsEngine.getVariableSpending(month);
-  const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
-  if (!budget) return;
-
-  const totalBills = DataStore.getBillTotal(month);
-  const savingsTarget = DataStore.getSavingsTarget();
-  const percentBase = DataStore.getPercentBase();
-  const netDisposable = Math.max(0, budget - totalBills);
-  const baseAmount = percentBase === 'net' ? netDisposable : budget;
-  const targetAmount = (() => {
-    const t = savingsTarget;
-    if (t.type === 'fixed') return t.fixedAmount || 0;
-    if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    return 0;
-  })();
-  const spendableBudget = Math.max(0, netDisposable - targetAmount);
-  const budgetPct = includeBills
-    ? (budget > 0 ? (monthTotal / budget) * 100 : 0)
-    : (spendableBudget > 0 ? (monthTotal / spendableBudget) * 100 : 0);
-
-  // Redraw ring
-  const budgetOverspend = budgetPct > 100;
-  drawRing('budgetRing', Math.min(budgetPct, 200) / 100, budgetOverspend ? '#EF4444' : '#6366F1',
-    (budgetOverspend ? '+' : '') + budgetPct.toFixed(0) + '%', '#EF4444');
-
-  // Update label below ring
-  const parent = document.getElementById('budgetRing')?.parentElement;
-  if (!parent) return;
-  const labelEl = parent.querySelector('.text-sm.text-secondary');
-  if (labelEl) {
-    labelEl.textContent = budgetPct > 100
-      ? __('stats.overspent') + ' ' + formatMoney(monthTotal - (includeBills ? budget : spendableBudget))
-      : formatMoney(monthTotal) + ' / ' + formatMoney(includeBills ? budget : spendableBudget);
-    labelEl.style.color = budgetPct > 100 ? 'var(--danger)' : '';
-    labelEl.style.fontWeight = budgetPct > 100 ? '600' : '';
-  }
-
-  // Update bottom formula text
-  const formulaEl = parent.querySelector('.text-xs.text-muted');
-  if (formulaEl) {
-    formulaEl.remove();
-  }
-  if (targetAmount > 0 && budget > 0) {
-    const newFormula = document.createElement('div');
-    newFormula.className = 'text-xs text-muted mt-4';
-    newFormula.textContent = `${__('stats.monthlyIncome')} ${formatMoney(budget)}` + (totalBills > 0 ? ` − ${__('stats.bills')} ${formatMoney(totalBills)}` : '') + ` − ${__('stats.savings')} ${formatMoney(targetAmount)} = ${__('stats.dailyAvailable')} ${formatMoney(spendableBudget)}`;
-    parent.appendChild(newFormula);
-  }
-}
+// Note: refreshOverviewBudget is defined in 10-render-overview.js and exported there.
+// This duplicate definition was removed (C4).
 
 function refreshPieChart() {
   const isCustom = useCustomRange();
@@ -10503,7 +10684,6 @@ addI18nEntries({
   window.toggleBillFilter = toggleBillFilter;
   window.isBillToggleChecked = isBillToggleChecked;
   window.refreshPieChart = refreshPieChart;
-  window.refreshOverviewBudget = refreshOverviewBudget;
   window.renderStats = renderStats;
   window.changeStatsMonth = changeStatsMonth;
   window.changeStatsCustom = changeStatsCustom;
@@ -10529,6 +10709,10 @@ addI18nEntries({
   window.exportWafflePNG = exportWafflePNG;
   window.changeWaffleMonth = changeWaffleMonth;
 })();
+
+}catch(e){console.error('[17-stats-charts.js] failed:', e)}
+try{
+// === 18-render-settings.js ===
 /* ============================================================
    RENDER: Settings Page
    ============================================================ */
@@ -11334,6 +11518,10 @@ function deleteTag(tag) {
   window.refreshStatsAudit = refreshStatsAudit;
   window.deleteTag = deleteTag;
 })();
+
+}catch(e){console.error('[18-render-settings.js] failed:', e)}
+try{
+// === 19-render-report.js ===
 /* ============================================================
    RENDER: Report Page
    ============================================================ */
@@ -11411,7 +11599,7 @@ function renderReport() {
         <div class="flex items-center gap-12" style="flex-wrap:wrap">
           <div class="flex items-center gap-8">
           <label class="text-sm text-secondary">${isRolling ? __('report.selectPeriod') : __('report.selectMonth')}</label>
-          <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${isRolling ? month : month}" onchange="changeReportMonth(this.value)">
+          <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${month}" onchange="changeReportMonth(this.value)">
           </div>
           <button class="btn btn-outline" onclick="printReport()">${__('report.printReport')}</button>
         </div>
@@ -11619,6 +11807,10 @@ function printReport() {
     'report.predictionSetupHint': { zh: '💡 在「月账单中心」设定月收入，在「设置」设定储蓄目标后可查看完整预测。', en: '💡 Set income in Bills Center & savings target in Settings for full forecast.' }
   });
 })();
+
+}catch(e){console.error('[19-render-report.js] failed:', e)}
+try{
+// === 20-what-if.js ===
 /* ============================================================
    🔮 假设分析 — What-If Simulation Page
    ============================================================ */
@@ -12470,6 +12662,10 @@ function attachWhatIfListeners(month) {
   });
 
 })();
+
+}catch(e){console.error('[20-what-if.js] failed:', e)}
+try{
+// === 21-month-rollover.js ===
 /* ============================================================
    MONTH ROLLOVER DETECTION
    ============================================================ */
@@ -12513,12 +12709,12 @@ function showBillRolloverReminder(lastMonth, currentMonth) {
   const year = currentMonth.split('-')[0];
   const mon = currentMonth.split('-')[1];
   showModal(`
-    <div class="modal-title">' + __('rollover.title') + '</div>
+    <div class="modal-title">${__('rollover.title')}</div>
     <div style="padding:8px 0 16px">
       <p style="margin-bottom:12px">${__('rollover.message', formatMoney(total))}</p>
       <div class="flex flex-col gap-8">
-        <button class="btn btn-primary" onclick="closeModal();openBillsCenter()">' + __('rollover.adjustBtn') + '</button>
-        <button class="btn btn-ghost" onclick="closeModal();if(currentTab==='overview')renderOverview();else if(currentTab==='stats')renderStats();">' + __('rollover.keepBtn') + '</button>
+        <button class="btn btn-primary" onclick="closeModal();openBillsCenter()">${__('rollover.adjustBtn')}</button>
+        <button class="btn btn-ghost" onclick="closeModal();if(currentTab==='overview')renderOverview();else if(currentTab==='stats')renderStats();">${__('rollover.keepBtn')}</button>
       </div>
     </div>
   `);
@@ -12536,44 +12732,67 @@ function showBillRolloverReminder(lastMonth, currentMonth) {
   window.checkMonthRollover = checkMonthRollover;
   window.showBillRolloverReminder = showBillRolloverReminder;
 })();
+
+}catch(e){console.error('[21-month-rollover.js] failed:', e)}
+try{
+// === 22-init.js ===
 /* ============================================================
    INITIALIZATION
    ============================================================ */
 (function() {
 'use strict';
-DataStore.init();
 
-// Check if PIN is required
-if (window._pinRequired) {
-  showPinModal();
-} else {
-  checkMonthRollover();
+// Fixed: wrap init in function with DOMContentLoaded guard (M10)
+function _bootstrap() {
+  console.log('[INIT] _bootstrap start | DataStore.init()');
+  DataStore.init();
+  console.log('[INIT] _bootstrap DataStore.init done | _pinRequired:', !!window._pinRequired);
 
-  // Apply saved theme
-  applyTheme();
+  // Check if PIN is required
+  if (window._pinRequired) {
+    console.log('[INIT] PIN required -> showPinModal');
+    showPinModal();
+  } else {
+    checkMonthRollover();
+    applyTheme();
+  }
+  console.log('[INIT] _bootstrap complete');
 }
 
-// Function to re-init app after PIN unlock
+// Guard: wait for DOM to be ready before initializing (M10)
+console.log('[INIT] readyState:', document.readyState);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function() { console.log('[INIT] DOMContentLoaded -> _bootstrap'); _bootstrap(); });
+} else {
+  _bootstrap();
+}
+
+// Function to re-init app after PIN unlock (name kept for external callers)
 function initApp() {
+  console.log('[INIT] initApp() called');
   window._pinRequired = false;
   checkMonthRollover();
   applyTheme();
   handleHash();
   applyI18nToDOM();
+  console.log('[INIT] initApp() complete');
 }
 
 // Start auto-lock & activity monitoring
-if (typeof bindActivityListeners === 'function') bindActivityListeners();
-if (typeof startInactivityCheck === 'function') startInactivityCheck();
+if (typeof bindActivityListeners === 'function') { console.log('[INIT] bindActivityListeners() called'); bindActivityListeners(); }
+if (typeof startInactivityCheck === 'function') { console.log('[INIT] startInactivityCheck() called'); startInactivityCheck(); }
 
 // Handle hash-based routing
 function handleHash() {
   const hash = location.hash.slice(1) || 'overview';
+  console.log('[INIT] handleHash | location.hash:', location.hash, '| parsed hash:', hash, '| currentTab:', window.currentTab);
   navigateTo(hash);
 }
 
-window.addEventListener('hashchange', handleHash);
+console.log('[INIT] registering hashchange + load listeners');
+window.addEventListener('hashchange', function() { console.log('[INIT] hashchange fired | hash:', location.hash); handleHash(); });
 window.addEventListener('load', () => {
+  console.log('[INIT] load event fired');
   handleHash();
   applyI18nToDOM();
   // Re-draw charts on resize
@@ -12610,6 +12829,10 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
   window.handleHash = handleHash;
   window.initApp = initApp;
 })();
+
+}catch(e){console.error('[22-init.js] failed:', e)}
+try{
+// === 23-lan-sync.js ===
 /* ============================================================
    LAN SYNC — WebRTC P2P (zero server, manual signaling)
    ============================================================ */
@@ -12633,8 +12856,13 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
     for (var i = 0; i < len; i++) bytes[i] = s.charCodeAt(i);
     return bytes;
   }
+  // Fixed: feature-detect CompressionStream for Safari <16.4 compatibility (M11)
+  if (typeof CompressionStream === 'undefined') {
+    console.log('[LANSync] CompressionStream not supported, using plain text transfer');
+  }
+
   async function compressStr(str) {
-    if (!window.CompressionStream) return str; // fallback
+    if (typeof CompressionStream === 'undefined') return str; // fallback for Safari <16.4
     try {
       var bytes = new TextEncoder().encode(str);
       var blob = await new Response(
@@ -12644,7 +12872,7 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
     } catch (e) { return str; }
   }
   async function decompressStr(b64) {
-    if (!window.CompressionStream || b64.indexOf('\n') !== -1) return b64; // fallback: not compressed
+    if (typeof DecompressionStream === 'undefined' || b64.indexOf('\n') !== -1) return b64; // fallback: not compressed or unsupported
     try {
       var blob2 = await new Response(
         new Blob([_bytesFromB64(b64)]).stream().pipeThrough(new DecompressionStream('gzip'))
@@ -13275,6 +13503,10 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
   });
 
 })();
+
+}catch(e){console.error('[23-lan-sync.js] failed:', e)}
+try{
+// === 24-diagnostics.js ===
 /* ============================================================
    DIAGNOSTICS — Operation Logging & Data Verification
    ============================================================ */
@@ -13333,6 +13565,9 @@ const DIAG = {
   wrapDataStoreMethod(methodName) {
     const original = DataStore[methodName];
     if (typeof original !== 'function') return;
+    // Fixed: prevent recursive wrapping chain (m11)
+    if (original.__wrapped) return;
+    original.__wrapped = true;
     
     DataStore[methodName] = function(...args) {
       // Snapshot before
@@ -13489,10 +13724,11 @@ const methodsToWrap = [
 methodsToWrap.forEach(m => DIAG.wrapDataStoreMethod(m));
 
 // === Also wrap StatsEngine to trace which records contribute ===
+// Fixed: only log when debug mode is enabled (i7)
 const originalGetRecordsInMonth = StatsEngine.getRecordsInMonth;
 StatsEngine.getRecordsInMonth = function(month) {
   const records = originalGetRecordsInMonth.call(this, month);
-  console.log('[DIAG] StatsEngine.getRecordsInMonth("' + month + '") → ' + records.length + ' records:',
+  if (window._debugMode) console.log('[DIAG] StatsEngine.getRecordsInMonth("' + month + '") → ' + records.length + ' records:',
     records.map(r => ({ id: r.id, amount: r.amount, catId: r.categoryId, date: r.date })));
   return records;
 };
@@ -13500,15 +13736,17 @@ StatsEngine.getRecordsInMonth = function(month) {
 const originalGetMonthTotal = StatsEngine.getMonthTotal;
 StatsEngine.getMonthTotal = function(month) {
   const total = originalGetMonthTotal.call(this, month);
-  const records = this.getRecordsInMonth(month);
-  console.log('[DIAG] StatsEngine.getMonthTotal("' + month + '") → RM' + total + ' from ' + records.length + ' records');
+  if (window._debugMode) {
+    const records = this.getRecordsInMonth(month);
+    console.log('[DIAG] StatsEngine.getMonthTotal("' + month + '") → RM' + total + ' from ' + records.length + ' records');
+  }
   return total;
 };
 
 const originalGetCategoryTotals = StatsEngine.getCategoryTotals;
 StatsEngine.getCategoryTotals = function(month) {
   const result = originalGetCategoryTotals.call(this, month);
-  console.log('[DIAG] StatsEngine.getCategoryTotals("' + month + '") → ' + Object.keys(result).length + ' categories');
+  if (window._debugMode) console.log('[DIAG] StatsEngine.getCategoryTotals("' + month + '") → ' + Object.keys(result).length + ' categories');
   return result;
 };
 
@@ -13592,6 +13830,10 @@ window.showRecordRaw = function showRecordRaw(id) {
     'diag.delete': { zh: '🗑️ 删除', en: '🗑️ Delete' }
   });
 })();
+
+}catch(e){console.error('[24-diagnostics.js] failed:', e)}
+try{
+// === 25-page-guides.js ===
 /* ============================================================
    PAGE GUIDES
    ============================================================ */
@@ -14867,6 +15109,8 @@ addI18nEntries({
   'guide.whatif.title': { zh: '🔮 假设分析', en: '🔮 What-If Analysis' },
 });
 })();
+
+}catch(e){console.error('[25-page-guides.js] failed:', e)}
 
 </script>
 </body>

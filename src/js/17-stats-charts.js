@@ -12,9 +12,9 @@ let waffleDensity = parseInt(localStorage.getItem('budgetWaffleDensity') || '3')
 let waffleIncludeUntagged = localStorage.getItem('budgetWaffleIncludeUntagged') !== 'false';
 let waffleCells = [];
 let waffleTagData = [];
-var waffleSelectedMonth = '';
-var _hoverAnimId = null;
-var _hoverState = { tagIndex: -1, progress: 0, active: false };
+let waffleSelectedMonth = '';
+let _hoverAnimId = null;
+let _hoverState = { tagIndex: -1, progress: 0, active: false };
 
 function getDrillCategory() {
   return statsDrillStack.length > 0 ? statsDrillStack[statsDrillStack.length - 1] : null;
@@ -583,59 +583,8 @@ function toggleBillFilter(chartId) {
   }
 }
 
-function refreshOverviewBudget() {
-  const now = new Date();
-  const month = getMonthKey(now.toISOString());
-  const includeBills = isBillToggleChecked('overviewBudget');
-  const monthTotal = includeBills ? StatsEngine.getMonthTotal(month) : StatsEngine.getVariableSpending(month);
-  const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
-  if (!budget) return;
-
-  const totalBills = DataStore.getBillTotal(month);
-  const savingsTarget = DataStore.getSavingsTarget();
-  const percentBase = DataStore.getPercentBase();
-  const netDisposable = Math.max(0, budget - totalBills);
-  const baseAmount = percentBase === 'net' ? netDisposable : budget;
-  const targetAmount = (() => {
-    const t = savingsTarget;
-    if (t.type === 'fixed') return t.fixedAmount || 0;
-    if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    return 0;
-  })();
-  const spendableBudget = Math.max(0, netDisposable - targetAmount);
-  const budgetPct = includeBills
-    ? (budget > 0 ? (monthTotal / budget) * 100 : 0)
-    : (spendableBudget > 0 ? (monthTotal / spendableBudget) * 100 : 0);
-
-  // Redraw ring
-  const budgetOverspend = budgetPct > 100;
-  drawRing('budgetRing', Math.min(budgetPct, 200) / 100, budgetOverspend ? '#EF4444' : '#6366F1',
-    (budgetOverspend ? '+' : '') + budgetPct.toFixed(0) + '%', '#EF4444');
-
-  // Update label below ring
-  const parent = document.getElementById('budgetRing')?.parentElement;
-  if (!parent) return;
-  const labelEl = parent.querySelector('.text-sm.text-secondary');
-  if (labelEl) {
-    labelEl.textContent = budgetPct > 100
-      ? __('stats.overspent') + ' ' + formatMoney(monthTotal - (includeBills ? budget : spendableBudget))
-      : formatMoney(monthTotal) + ' / ' + formatMoney(includeBills ? budget : spendableBudget);
-    labelEl.style.color = budgetPct > 100 ? 'var(--danger)' : '';
-    labelEl.style.fontWeight = budgetPct > 100 ? '600' : '';
-  }
-
-  // Update bottom formula text
-  const formulaEl = parent.querySelector('.text-xs.text-muted');
-  if (formulaEl) {
-    formulaEl.remove();
-  }
-  if (targetAmount > 0 && budget > 0) {
-    const newFormula = document.createElement('div');
-    newFormula.className = 'text-xs text-muted mt-4';
-    newFormula.textContent = `${__('stats.monthlyIncome')} ${formatMoney(budget)}` + (totalBills > 0 ? ` − ${__('stats.bills')} ${formatMoney(totalBills)}` : '') + ` − ${__('stats.savings')} ${formatMoney(targetAmount)} = ${__('stats.dailyAvailable')} ${formatMoney(spendableBudget)}`;
-    parent.appendChild(newFormula);
-  }
-}
+// Note: refreshOverviewBudget is defined in 10-render-overview.js and exported there.
+// This duplicate definition was removed (C4).
 
 function refreshPieChart() {
   const isCustom = useCustomRange();
@@ -2511,7 +2460,6 @@ addI18nEntries({
   window.toggleBillFilter = toggleBillFilter;
   window.isBillToggleChecked = isBillToggleChecked;
   window.refreshPieChart = refreshPieChart;
-  window.refreshOverviewBudget = refreshOverviewBudget;
   window.renderStats = renderStats;
   window.changeStatsMonth = changeStatsMonth;
   window.changeStatsCustom = changeStatsCustom;

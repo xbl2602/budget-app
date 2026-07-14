@@ -90,20 +90,23 @@ function saveCategoryBudget(catId, month, value, type) {
   const amount = parseFloat(value) || 0;
   const budgetType = type || 'fixed';
   
-  // Validate: child budget cannot exceed parent's budget
+  // Validate: child budget cannot exceed parent's budget (m9)
   const cat = DataStore.getCategory(catId);
   if (cat && cat.parentId && amount > 0) {
     const parentBudget = DataStore.getCategoryBudget(cat.parentId, month).value || 0;
-    // Sum of all children's budgets (including this new one)
-    const siblings = DataStore.getChildren(cat.parentId);
-    let siblingSum = 0;
-    siblings.forEach(s => {
-      if (s.id === catId) return; // exclude current
-      const sb = DataStore.getCategoryBudget(s.id, month).value || 0;
-      siblingSum += sb;
-    });
-    if (siblingSum + amount > parentBudget) {
-      showToast(__('categories.budgetExceedParent', formatMoney(siblingSum + amount), formatMoney(parentBudget)), 'error');
+    // Recursively sum all descendant budgets (not just direct children) (m9)
+    var descendantBudgetSum = 0;
+    (function sumDescendantBudgets(parentId) {
+      var children = DataStore.getChildren(parentId);
+      children.forEach(function(child) {
+        if (child.id === catId) return; // exclude current
+        var cb = DataStore.getCategoryBudget(child.id, month).value || 0;
+        descendantBudgetSum += cb;
+        sumDescendantBudgets(child.id); // recurse into grandchildren
+      });
+    })(cat.parentId);
+    if (descendantBudgetSum + amount > parentBudget) {
+      showToast(__('categories.budgetExceedParent', formatMoney(descendantBudgetSum + amount), formatMoney(parentBudget)), 'error');
       return;
     }
   }
