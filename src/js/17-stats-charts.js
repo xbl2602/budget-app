@@ -961,21 +961,6 @@ function getStatsDailyTotals() {
   return isRollingStats ? StatsEngine.getPeriodDailyTotals({ excludeBills: false }) : StatsEngine.getDailyTotals(statsMonth);
 }
 
-function splitPseudoCat() {
-  return { name: __('split.synthName'), icon: SplitEngine.SPLIT_PIE_ICON, color: SplitEngine.SPLIT_COLOR };
-}
-
-function getRangeSplitContrib(month, startDate, endDate) {
-  if (startDate && endDate) return StatsEngine.getCustomSplitContrib(startDate, endDate);
-  if (!month) {
-    if (useCustomRange()) return StatsEngine.getCustomSplitContrib(statsStartDate, statsEndDate);
-    const isRolling = getStatsRange() === 'rolling30' && statsMonth === getMonthKey(new Date().toISOString());
-    return isRolling ? StatsEngine.getPeriodSplitContrib() : StatsEngine.getSplitContrib(statsMonth);
-  }
-  const isRolling = getStatsRange() === 'rolling30' && month === getMonthKey(new Date().toISOString());
-  return isRolling ? StatsEngine.getPeriodSplitContrib() : StatsEngine.getSplitContrib(month);
-}
-
 function getChartData(month, startDate, endDate, options = {}) {
   const excludeBills = options.excludeBills || false;
   let catTotals;
@@ -997,21 +982,16 @@ function getChartData(month, startDate, endDate, options = {}) {
     });
   }
 
-  // Aggregate to root categories
+  // Aggregate to root categories (split records already carry their real category)
   const rootTotals = {};
   Object.entries(catTotals).forEach(([id, total]) => {
-    if (id === SplitEngine.SPLIT_ID) return; // split net injected below
     const rootId = getRootAncestorId(id);
     if (rootId) {
       rootTotals[rootId] = (rootTotals[rootId] || 0) + total;
     }
   });
-  // Split bills: records are marked under SPLIT_ID; repayments (contrib) reduce the net
-  const splitContrib = getRangeSplitContrib(month, startDate, endDate);
-  const splitNet = (catTotals[SplitEngine.SPLIT_ID] || 0) - splitContrib;
-  if (splitNet !== 0) rootTotals[SplitEngine.SPLIT_ID] = splitNet;
   return Object.entries(rootTotals)
-    .map(([id, total]) => ({ id, total, cat: id === SplitEngine.SPLIT_ID ? splitPseudoCat() : DataStore.getCategory(id) }))
+    .map(([id, total]) => ({ id, total, cat: DataStore.getCategory(id) }))
     .filter(x => x.cat && x.total > 0)
     .sort((a,b) => b.total - a.total);
 }
@@ -1038,13 +1018,11 @@ function getRawChartData(month, startDate, endDate, options = {}) {
       if (billCatIds.has(id)) delete catTotals[id];
     });
   }
-  // Split bills: records are marked under SPLIT_ID; repayments (contrib) reduce the net
-  const splitContrib = getRangeSplitContrib(month, startDate, endDate);
-  const splitNet = (catTotals[SplitEngine.SPLIT_ID] || 0) - splitContrib;
-  if (splitNet !== 0) catTotals[SplitEngine.SPLIT_ID] = splitNet;
-  else delete catTotals[SplitEngine.SPLIT_ID];
+  // Split records already carry their real category (storage refactor B); remove any
+  // legacy '__split__' marker records from the chart so no pseudo-category appears
+  delete catTotals[SplitEngine.SPLIT_ID];
   return Object.entries(catTotals)
-    .map(([id, total]) => ({ id, total, cat: id === SplitEngine.SPLIT_ID ? splitPseudoCat() : DataStore.getCategory(id) }))
+    .map(([id, total]) => ({ id, total, cat: DataStore.getCategory(id) }))
     .filter(x => x.cat)
     .sort((a,b) => b.total - a.total);
 }

@@ -60,7 +60,9 @@ const StatsEngine = {
     const today = now.getDate();
     const currentMonth = getMonthKey(now.toISOString());
     const daysPassed = month === currentMonth ? today : daysInMonth;
-    return daysPassed ? (records.reduce((s, r) => s + r.amount, 0) - this.getSplitContrib(month)) / daysPassed : 0;
+    // Only my real share counts toward daily avg — others' shares (paid or not)
+    // are uncollected/collected money, not my spending
+    return daysPassed ? (records.reduce((s, r) => s + r.amount, 0) - this.getSplitOthers(month)) / daysPassed : 0;
   },
 
   getPredictedTotal(month) {
@@ -74,7 +76,8 @@ const StatsEngine = {
     const total = records.reduce((s, r) => s + r.amount, 0);
     // Fixed: guard against daysPassed=0 (first day of month) (M5)
     if (daysPassed <= 0) return 0;
-    return ((total - this.getSplitContrib(month)) / daysPassed) * daysInMonth;
+    // Projection based on my real share only (others' shares excluded)
+    return ((total - this.getSplitOthers(month)) / daysPassed) * daysInMonth;
   },
 
   getSavingsPrediction(month) {
@@ -162,6 +165,41 @@ const StatsEngine = {
     return total;
   },
 
+  // All others' shares (paid AND unpaid) in range — the part of split records that
+  // is NOT my real spending. Daily averages / projections subtract this so they
+  // only reflect my own share (未收回账目 excluded, matching user intent).
+  _splitOthersBetween(start, end) {
+    let total = 0;
+    const bills = (typeof SplitEngine !== 'undefined' && SplitEngine.getSplitBills) ? SplitEngine.getSplitBills() : [];
+    bills.forEach(b => {
+      if (b.payer !== 'self') return;
+      const d = new Date(b.date);
+      if (isNaN(d.getTime()) || d < start || d > end) return;
+      (b.participants || []).forEach(p => {
+        const amt = parseFloat(p.share) || 0;
+        if (amt > 0) total += amt;
+      });
+    });
+    return total;
+  },
+
+  // Unpaid others' shares only (未收回账目) — shown in the overview total caption
+  _splitUnpaidBetween(start, end) {
+    let total = 0;
+    const bills = (typeof SplitEngine !== 'undefined' && SplitEngine.getSplitBills) ? SplitEngine.getSplitBills() : [];
+    bills.forEach(b => {
+      if (b.payer !== 'self') return;
+      const d = new Date(b.date);
+      if (isNaN(d.getTime()) || d < start || d > end) return;
+      (b.participants || []).forEach(p => {
+        if (p.paid === true) return;
+        const amt = parseFloat(p.share) || 0;
+        if (amt > 0) total += amt;
+      });
+    });
+    return total;
+  },
+
   // Split contributions keyed by day (for daily totals), using the caller's key fn
   _splitContribByDay(keyFn) {
     const map = {};
@@ -189,9 +227,35 @@ const StatsEngine = {
     return this._splitContribBetween(start, end);
   },
 
+  getSplitOthers(month) {
+    const start = new Date(month + '-01T00:00:00');
+    const end = new Date(month + '-01T23:59:59');
+    end.setMonth(end.getMonth() + 1);
+    end.setDate(0);
+    return this._splitOthersBetween(start, end);
+  },
+
+  getSplitUnpaid(month) {
+    const start = new Date(month + '-01T00:00:00');
+    const end = new Date(month + '-01T23:59:59');
+    end.setMonth(end.getMonth() + 1);
+    end.setDate(0);
+    return this._splitUnpaidBetween(start, end);
+  },
+
   getPeriodSplitContrib() {
     const { start, end } = getPeriodDateRange();
     return this._splitContribBetween(start, end);
+  },
+
+  getPeriodSplitOthers() {
+    const { start, end } = getPeriodDateRange();
+    return this._splitOthersBetween(start, end);
+  },
+
+  getPeriodSplitUnpaid() {
+    const { start, end } = getPeriodDateRange();
+    return this._splitUnpaidBetween(start, end);
   },
 
   getCustomSplitContrib(startDate, endDate) {
@@ -289,7 +353,8 @@ const StatsEngine = {
     const currentMonth = getMonthKey(now.toISOString());
     const daysPassed = month === currentMonth ? today : daysInMonth;
     const varTotal = records.reduce((s, r) => s + r.amount, 0);
-    return daysPassed ? (varTotal - this.getSplitContrib(month)) / daysPassed : 0;
+    // My real share only (others' shares excluded from daily avg)
+    return daysPassed ? (varTotal - this.getSplitOthers(month)) / daysPassed : 0;
   },
 
   // Get combined disposable info
@@ -333,12 +398,15 @@ const StatsEngine = {
   },
   getPeriodDailyAverage() {
     const { daysPassed } = getPeriodDateRange();
-    return daysPassed > 0 ? this.getPeriodTotal() / daysPassed : 0;
+    // Total minus uncollected shares = my real spending only
+    const realSpent = this.getPeriodTotal() - this.getPeriodSplitUnpaid();
+    return daysPassed > 0 ? realSpent / daysPassed : 0;
   },
   getPeriodPredictedTotal() {
     const { daysPassed, daysInPeriod } = getPeriodDateRange();
     if (daysPassed === 0) return 0;
-    const avg = this.getPeriodTotal() / daysPassed;
+    const realSpent = this.getPeriodTotal() - this.getPeriodSplitUnpaid();
+    const avg = realSpent / daysPassed;
     return Math.round(avg * daysInPeriod * 100) / 100;
   },
   getPeriodCategoryTotals() {

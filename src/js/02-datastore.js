@@ -122,6 +122,9 @@ const DataStore = {
         if (!Array.isArray(this._data.contacts)) {
           this._data.contacts = [];
         }
+        // Split-bill storage refactor (B): split records now carry the bill's REAL
+        // categoryId instead of the '__split__' pseudo-category. Migrate legacy data.
+        this._migrateSplitRecordCategories(this._data);
       } catch(e) {
         this._data = this._defaults();
       }
@@ -144,6 +147,22 @@ const DataStore = {
     this._processPendingDeletes();
 
     this.save();
+  },
+
+  // Split-bill storage refactor (B): records were stored with the '__split__'
+  // pseudo-category; resolve each to the linked bill's real category so stats and
+  // charts aggregate split spending under the true category (餐饮/交通/...).
+  _migrateSplitRecordCategories(data) {
+    if (!data || !Array.isArray(data.records) || !Array.isArray(data.splitBills)) return;
+    const SPLIT_ID = '__split__';
+    const billById = {};
+    data.splitBills.forEach(b => { if (b && b.id) billById[b.id] = b; });
+    data.records.forEach(r => {
+      if (!r || r.categoryId !== SPLIT_ID || !r.splitBillId) return;
+      const bill = billById[r.splitBillId];
+      const real = bill && bill.categoryId && bill.categoryId !== SPLIT_ID ? bill.categoryId : 'uncategorized';
+      r.categoryId = real;
+    });
   },
 
   save() {
@@ -208,7 +227,7 @@ const DataStore = {
   // When a split record is deleted, the whole bill chain (bill + all its linked
   // records) goes with it so no ghost bills / phantom contributions remain
   _splitCascade(record) {
-    if (!record || record.categoryId !== (SplitEngine && SplitEngine.SPLIT_ID)) return null;
+    if (!record || !record.splitBillId) return null;
     if (!record.splitBillId) return null;
     const bill = (SplitEngine && SplitEngine.getSplitBill) ? SplitEngine.getSplitBill(record.splitBillId) : null;
     if (!bill) return null;
@@ -570,6 +589,8 @@ const DataStore = {
     try {
       const data = JSON.parse(jsonStr);
       if (!data.records || !data.categories) return false;
+      // Legacy '__split__' records → resolve to the linked bill's real category
+      this._migrateSplitRecordCategories(data);
       if (mode === 'replace') {
         this._data = data;
       } else {

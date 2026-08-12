@@ -45,15 +45,22 @@ const SimulationEngine = {
           })
       : DataStore.getRecords()
           .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
-    // Split bills: records are stored at full bill amount under SPLIT_ID, but repaid
-    // others' shares reduce net spending. Net them out to match StatsEngine (overview)
-    // so "all-trend" simulation equals the overview prediction (apples-to-apples).
-    const splitContrib = isRolling ? StatsEngine.getPeriodSplitContrib() : StatsEngine.getSplitContrib(month);
-    const actualSpent = allRecords.reduce((s, r) => s + r.amount, 0) - splitContrib;
+    // Split bills: records are stored at the full bill amount, but others' shares
+    // (paid OR unpaid) are not my spending. Subtract them so the simulation only
+    // projects MY real share — consistent with the overview daily avg/prediction.
+    const splitOthers = isRolling ? StatsEngine.getPeriodSplitOthers() : StatsEngine.getSplitOthers(month);
+    const actualSpent = allRecords.reduce((s, r) => s + r.amount, 0) - splitOthers;
     const categoryTotals = {};
     const categoryDays = {};
     allRecords.forEach(r => {
-      categoryTotals[r.categoryId] = (categoryTotals[r.categoryId] || 0) + r.amount;
+      // Split records are stored at the full bill amount; only MY share counts in
+      // the per-category projection (others' shares are uncollected money)
+      let amt = r.amount;
+      if (r.splitBillId && typeof SplitEngine !== 'undefined') {
+        const bill = SplitEngine.getSplitBill(r.splitBillId);
+        if (bill) amt = parseFloat(bill.selfShare) || 0;
+      }
+      categoryTotals[r.categoryId] = (categoryTotals[r.categoryId] || 0) + amt;
       const d = new Date(r.date || r.createdAt);
       const day = d.getDate();
       if (!categoryDays[r.categoryId]) categoryDays[r.categoryId] = new Set();
@@ -157,31 +164,8 @@ const SimulationEngine = {
       };
     });
 
-    // Split bills: records are stored at full bill amount under SPLIT_ID; expose the
-    // pseudo-category with the net amount (records minus repaid contributions) so the
-    // what-if table shows where split spending went, consistent with stats charts.
-    // Fully-repaid splits (net 0) are hidden, matching getRawChartData behavior.
-    const splitRawTotal = categoryTotals[SplitEngine && SplitEngine.SPLIT_ID] || 0;
-    const splitCat = (typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID) ? DataStore.getCategory(SplitEngine.SPLIT_ID) : null;
-    if (splitCat && splitRawTotal > 0.01) {
-      const splitNet = Math.max(0, splitRawTotal - splitContrib);
-      const splitAvg = daysPassed > 0 ? splitNet / daysPassed : 0;
-      const splitRemaining = splitAvg * remainingDays;
-      totalProjectedRemaining += splitRemaining;
-      if (splitNet > 0.01) {
-        categoryProjections[SplitEngine.SPLIT_ID] = {
-          category: splitCat,
-          rootId: SplitEngine.SPLIT_ID,
-          rootName: splitCat.name,
-          currentTotal: splitNet,
-          currentDailyAvg: splitAvg,
-          mode: 'trend',
-          value: null,
-          projectedRemaining: splitRemaining,
-          projectedTotal: splitNet + splitRemaining
-        };
-      }
-    }
+    // Split records carry the bill's REAL category (storage refactor B), so they
+    // already project under their true category — no pseudo-category handling needed.
 
     // Add hypothetical categories
     const hypotheticals = (params.hypotheticalCategories) || [];

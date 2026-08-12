@@ -556,7 +556,8 @@ function repairData() {
     // We reload from localStorage which is the source of truth
     const success = DataStore.reload();
     
-    // Split-feature data repair: sign, excludeFromAvg, orphan linking, share sums
+    // Split-feature data repair: sign, excludeFromAvg, orphan linking, share sums,
+    // and legacy '__split__' marker records → real category (storage refactor B)
     const SPLIT_ID = (typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID) ? SplitEngine.SPLIT_ID : '__split__';
     const splitBills = DataStore._data.splitBills || [];
     DataStore._data.records = (DataStore._data.records || []).map(r => {
@@ -567,6 +568,10 @@ function repairData() {
           const m = splitBills.filter(b => Math.abs((parseFloat(b.amount) || 0) - (parseFloat(r.amount) || 0)) < 0.01 && String(b.date || '').slice(0, 10) === String(r.date || '').slice(0, 10));
           if (m.length === 1) { r.splitBillId = m[0].id; fixed++; }
         }
+        // Resolve pseudo-category to the linked bill's real category
+        const bill = r.splitBillId ? splitBills.find(b => b.id === r.splitBillId) : null;
+        const realCat = bill && bill.categoryId && bill.categoryId !== SPLIT_ID ? bill.categoryId : 'uncategorized';
+        if (realCat && r.categoryId !== realCat) { r.categoryId = realCat; fixed++; }
       }
       return r;
     });
