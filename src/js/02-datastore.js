@@ -603,7 +603,16 @@ const DataStore = {
           }
         });
         Object.assign(this._data.budgets, data.budgets || {});
+        Object.assign(this._data.categoryBudgets || {}, data.categoryBudgets || {});
         if (data.savingsTarget) this._data.savingsTarget = data.savingsTarget;
+        if (data.whatIfParams) this._data.whatIfParams = data.whatIfParams;
+        if (data.allTags && Array.isArray(data.allTags)) {
+          if (!this._data.allTags) this._data.allTags = [];
+          data.allTags.forEach(t => {
+            if (typeof t === 'string' && t && !this._data.allTags.includes(t)) this._data.allTags.push(t);
+          });
+          this._data.allTags.sort();
+        }
         if (data.billCategories) {
           this._data.billCategories = [...this._data.billCategories, ...data.billCategories];
         }
@@ -642,6 +651,9 @@ const DataStore = {
     const cats = this._data.categories;
     const catMap = {};
     cats.forEach(c => catMap[c.id] = c);
+    const splitBills = Array.isArray(this._data.splitBills) ? this._data.splitBills : [];
+    const splitMap = {};
+    splitBills.forEach(b => { if (b && b.id) splitMap[b.id] = b; });
     const header = __('datastore.csvHeader');
     const rows = this._data.records.map(r => {
       const cat = catMap[r.categoryId] || { name: __('datastore.unknown'), icon: '❓' };
@@ -650,7 +662,11 @@ const DataStore = {
       // Fixed (m3): escape newlines in text fields for valid CSV
       const safeNote = String(r.note || '').replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
       const safeCatName = String(cat.icon + cat.name).replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
-      return `${r.id},"${amount}","${safeCatName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}"`;
+      const safeTags = String(Array.isArray(r.tags) ? r.tags.join('、') : '').replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
+      const splitMark = r.splitBillId ? (splitMap[r.splitBillId]
+        ? __('datastore.splitMark', splitMap[r.splitBillId].selfShare || 0)
+        : __('datastore.splitBillOnly')) : '';
+      return `${r.id},"${amount}","${safeCatName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}","${safeTags}","${splitMark}"`;
     });
     return '\uFEFF' + header + '\n' + rows.join('\n');
   },
@@ -700,7 +716,7 @@ const DataStore = {
     // Generate a simple hash from all data to detect sync mismatches
     const data = this._data;
     const fingerprint = JSON.stringify({
-      records: data.records.map(r => ({ id: r.id, amount: r.amount, categoryId: r.categoryId, date: r.date, note: r.note, updatedAt: r.updatedAt })),
+      records: data.records.map(r => ({ id: r.id, amount: r.amount, categoryId: r.categoryId, date: r.date, note: r.note, tags: r.tags, splitBillId: r.splitBillId, excludeFromAvg: r.excludeFromAvg, _deleted: r._deleted, updatedAt: r.updatedAt })),
       categories: data.categories.map(c => ({ id: c.id, name: c.name, parentId: c.parentId })),
       budgets: data.budgets,
       categoryBudgets: data.categoryBudgets,
@@ -710,7 +726,8 @@ const DataStore = {
       monthlyIncome: data.monthlyIncome,
       percentBase: data.percentBase,
       contacts: data.contacts,
-      splitBills: (data.splitBills || []).map(b => ({ id: b.id, amount: b.amount, date: b.date, participants: b.participants }))
+      allTags: data.allTags,
+      splitBills: (data.splitBills || []).map(b => ({ id: b.id, amount: b.amount, date: b.date, categoryId: b.categoryId, selfShare: b.selfShare, mode: b.mode, note: b.note, archived: b.archived, participants: (b.participants || []).map(p => ({ contactId: p.contactId, name: p.name, share: p.share, paid: p.paid, unknown: p.unknown })) }))
     });
     // DJB2 hash
     let hash = 5381;
@@ -922,9 +939,11 @@ const DataStore = {
   // i18n translations
   addI18nEntries({
     'datastore.saveFailed': { zh: '❌ 数据保存失败: {0}', en: '❌ Save failed: {0}' },
-    'datastore.csvHeader': { zh: 'ID,金额,分类,日期,备注,创建时间,不计日均', en: 'ID,Amount,Category,Date,Note,CreatedAt,ExcludeFromAvg' },
+    'datastore.csvHeader': { zh: 'ID,金额,分类,日期,备注,创建时间,不计日均,标签,分摊', en: 'ID,Amount,Category,Date,Note,CreatedAt,ExcludeFromAvg,Tags,Split' },
     'datastore.unknown': { zh: '未知', en: 'Unknown' },
     'datastore.yes': { zh: '是', en: 'Yes' },
+    'datastore.splitBillOnly': { zh: '🧾 分摊账单', en: '🧾 Split bill' },
+    'datastore.splitMark': { zh: '🧾 分摊（自份额 {0}）', en: '🧾 Split bill (my share {0})' },
     'datastore.noData': { zh: '无数据', en: 'No data' }
   });
 
