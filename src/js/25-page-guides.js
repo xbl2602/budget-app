@@ -6,29 +6,29 @@
 
 const PAGE_GUIDES = {
   overview: {
-    title: __('guide.overview.title'),
+    title: 'guide.overview.title',
     simple: {
       content: [
         {
-          heading: __('guide.overview.simple.heading1'),
-          text: __('guide.overview.simple.text1')
+          heading: 'guide.overview.simple.heading1',
+          text: 'guide.overview.simple.text1'
         },
         {
-          heading: __('guide.overview.simple.heading2'),
+          heading: 'guide.overview.simple.heading2',
           isOrdered: true,
           items: [
-            __('guide.overview.simple.item2_1'),
-            __('guide.overview.simple.item2_2'),
-            __('guide.overview.simple.item2_3')
+            'guide.overview.simple.item2_1',
+            'guide.overview.simple.item2_2',
+            'guide.overview.simple.item2_3'
           ]
         },
         {
-          heading: __('guide.overview.simple.heading3'),
+          heading: 'guide.overview.simple.heading3',
           isTips: true,
           items: [
-            __('guide.overview.simple.tip3_1'),
-            __('guide.overview.simple.tip3_2'),
-            __('guide.overview.simple.tip3_3')
+            'guide.overview.simple.tip3_1',
+            'guide.overview.simple.tip3_2',
+            'guide.overview.simple.tip3_3'
           ]
         }
       ]
@@ -36,61 +36,65 @@ const PAGE_GUIDES = {
     detailed: {
       content: [
         {
-          heading: __('guide.overview.detailed.heading1'),
-          text: __('guide.overview.detailed.text1')
+          heading: 'guide.overview.detailed.heading1',
+          text: 'guide.overview.detailed.text1'
         },
         {
-          heading: __('guide.overview.detailed.heading2'),
+          heading: 'guide.overview.detailed.heading2',
           isGrid: true,
           items: [
-            [__('guide.overview.detailed.grid2_0_label'), __('guide.overview.detailed.grid2_0_desc')],
-            [__('guide.overview.detailed.grid2_1_label'), __('guide.overview.detailed.grid2_1_desc')],
-            [__('guide.overview.detailed.grid2_2_label'), __('guide.overview.detailed.grid2_2_desc')],
-            [__('guide.overview.detailed.grid2_3_label'), __('guide.overview.detailed.grid2_3_desc')],
-            [__('guide.overview.detailed.grid2_4_label'), __('guide.overview.detailed.grid2_4_desc')],
-            [__('guide.overview.detailed.grid2_5_label'), __('guide.overview.detailed.grid2_5_desc')],
-            [__('guide.overview.detailed.grid2_6_label'), __('guide.overview.detailed.grid2_6_desc')],
-            [__('guide.overview.detailed.grid2_7_label'), __('guide.overview.detailed.grid2_7_desc')],
-            [__('guide.overview.detailed.grid2_8_label'), __('guide.overview.detailed.grid2_8_desc')],
-            [__('guide.overview.detailed.grid2_9_label'), __('guide.overview.detailed.grid2_9_desc')],
-            [__('guide.overview.detailed.grid2_10_label'), __('guide.overview.detailed.grid2_10_desc')],
-            [__('guide.overview.detailed.grid2_11_label'), __('guide.overview.detailed.grid2_11_desc')],
-            [__('guide.overview.detailed.grid2_12_label'), __('guide.overview.detailed.grid2_12_desc')],
+            ['guide.overview.detailed.grid2_0_label', 'guide.overview.detailed.grid2_0_desc'],
+            ['guide.overview.detailed.grid2_1_label', 'guide.overview.detailed.grid2_1_desc'],
+            ['guide.overview.detailed.grid2_2_label', 'guide.overview.detailed.grid2_2_desc'],
+            ['guide.overview.detailed.grid2_3_label', 'guide.overview.detailed.grid2_3_desc'],
+            ['guide.overview.detailed.grid2_4_label', 'guide.overview.detailed.grid2_4_desc'],
+            ['guide.overview.detailed.grid2_5_label', 'guide.overview.detailed.grid2_5_desc'],
+            ['guide.overview.detailed.grid2_6_label', 'guide.overview.detailed.grid2_6_desc'],
+            ['guide.overview.detailed.grid2_7_label', 'guide.overview.detailed.grid2_7_desc'],
+            ['guide.overview.detailed.grid2_8_label', 'guide.overview.detailed.grid2_8_desc'],
+            ['guide.overview.detailed.grid2_9_label', 'guide.overview.detailed.grid2_9_desc'],
+            ['guide.overview.detailed.grid2_10_label', 'guide.overview.detailed.grid2_10_desc'],
+            ['guide.overview.detailed.grid2_11_label', 'guide.overview.detailed.grid2_11_desc'],
+            ['guide.overview.detailed.grid2_12_label', 'guide.overview.detailed.grid2_12_desc'],
+            ['guide.overview.detailed.grid2_13_label', 'guide.overview.detailed.grid2_13_desc'],
           ]
         },
         {
-          heading: __('guide.overview.detailed.heading3'),
-          text: __('guide.overview.detailed.text3')
+          heading: 'guide.overview.detailed.heading3',
+          text: 'guide.overview.detailed.text3'
         },
         {
-          heading: __('guide.overview.detailed.heading4'),
+          heading: 'guide.overview.detailed.heading4',
           isOrdered: true,
           items: [
-            __('guide.overview.detailed.item4_1'),
-            __('guide.overview.detailed.item4_2'),
-            __('guide.overview.detailed.item4_3'),
+            'guide.overview.detailed.item4_1',
+            'guide.overview.detailed.item4_2',
+            'guide.overview.detailed.item4_3',
           ]
         },
         {
-          heading: __('guide.overview.detailed.heading5'),
+          heading: 'guide.overview.detailed.heading5',
           isTable: true,
           rows: [
-            [__('guide.overview.detailed.row5_0_label'), __('guide.overview.detailed.row5_0_desc')],
-            [__('guide.overview.detailed.row5_1_label'), __('guide.overview.detailed.row5_1_desc')],
-            [__('guide.overview.detailed.row5_2_label'), __('guide.overview.detailed.row5_2_desc')],
-            [__('guide.overview.detailed.row5_3_label'), __('guide.overview.detailed.row5_3_desc')],
-            [__('guide.overview.detailed.row5_4_label'), __('guide.overview.detailed.row5_4_desc')],
-            [__('guide.overview.detailed.row5_5_label'), __('guide.overview.detailed.row5_5_desc')],
+            ['guide.overview.detailed.row5_0_label', 'guide.overview.detailed.row5_0_desc'],
+            ['guide.overview.detailed.row5_1_label', 'guide.overview.detailed.row5_1_desc'],
+            ['guide.overview.detailed.row5_2_label', 'guide.overview.detailed.row5_2_desc'],
+            ['guide.overview.detailed.row5_3_label', 'guide.overview.detailed.row5_3_desc'],
+            ['guide.overview.detailed.row5_4_label', 'guide.overview.detailed.row5_4_desc'],
+            ['guide.overview.detailed.row5_5_label', 'guide.overview.detailed.row5_5_desc'],
           ]
         },
         {
-          heading: __('guide.overview.detailed.heading6'),
+          heading: 'guide.overview.detailed.heading6',
           isTips: true,
           items: [
-            __('guide.overview.detailed.tip6_1'),
-            __('guide.overview.detailed.tip6_2'),
-            __('guide.overview.detailed.tip6_3'),
-            __('guide.overview.detailed.tip6_4'),
+            'guide.overview.detailed.tip6_1',
+            'guide.overview.detailed.tip6_2',
+            'guide.overview.detailed.tip6_3',
+            'guide.overview.detailed.tip6_4',
+            'guide.overview.detailed.tip6_5',
+            'guide.overview.detailed.tip6_6',
+            'guide.overview.detailed.tip6_7',
           ]
         }
       ]
@@ -98,39 +102,39 @@ const PAGE_GUIDES = {
   },
 
   add: {
-    title: __('guide.add.title'),
+    title: 'guide.add.title',
     simple: {
       content: [
         {
-          heading: __('guide.add.simple.heading1'),
-          text: __('guide.add.simple.text1')
+          heading: 'guide.add.simple.heading1',
+          text: 'guide.add.simple.text1'
         },
         {
-          heading: __('guide.add.simple.heading2'),
+          heading: 'guide.add.simple.heading2',
           isOrdered: true,
           items: [
-            __('guide.add.simple.item2_1'),
-            __('guide.add.simple.item2_2'),
-            __('guide.add.simple.item2_3'),
-            __('guide.add.simple.item2_4'),
-            __('guide.add.simple.item2_5')
+            'guide.add.simple.item2_1',
+            'guide.add.simple.item2_2',
+            'guide.add.simple.item2_3',
+            'guide.add.simple.item2_4',
+            'guide.add.simple.item2_5'
           ]
         },
         {
-          heading: __('guide.add.simple.heading3'),
+          heading: 'guide.add.simple.heading3',
           isTips: true,
           items: [
-            __('guide.add.simple.tip3_1'),
-            __('guide.add.simple.tip3_2')
+            'guide.add.simple.tip3_1',
+            'guide.add.simple.tip3_2'
           ]
         },
         {
-          heading: __('guide.add.simple.heading4'),
+          heading: 'guide.add.simple.heading4',
           isTips: true,
           items: [
-            __('guide.add.simple.tip4_1'),
-            __('guide.add.simple.tip4_2'),
-            __('guide.add.simple.tip4_3')
+            'guide.add.simple.tip4_1',
+            'guide.add.simple.tip4_2',
+            'guide.add.simple.tip4_3'
           ]
         }
       ]
@@ -138,56 +142,61 @@ const PAGE_GUIDES = {
     detailed: {
       content: [
         {
-          heading: __('guide.add.detailed.heading1'),
-          text: __('guide.add.detailed.text1')
+          heading: 'guide.add.detailed.heading1',
+          text: 'guide.add.detailed.text1'
         },
         {
-          heading: __('guide.add.detailed.heading2'),
+          heading: 'guide.add.detailed.heading2',
           isGrid: true,
           items: [
-            [__('guide.add.detailed.grid2_0_label'), __('guide.add.detailed.grid2_0_desc')],
-            [__('guide.add.detailed.grid2_1_label'), __('guide.add.detailed.grid2_1_desc')],
-            [__('guide.add.detailed.grid2_2_label'), __('guide.add.detailed.grid2_2_desc')],
-            [__('guide.add.detailed.grid2_3_label'), __('guide.add.detailed.grid2_3_desc')],
-            [__('guide.add.detailed.grid2_4_label'), __('guide.add.detailed.grid2_4_desc')],
-            [__('guide.add.detailed.grid2_5_label'), __('guide.add.detailed.grid2_5_desc')],
+            ['guide.add.detailed.grid2_0_label', 'guide.add.detailed.grid2_0_desc'],
+            ['guide.add.detailed.grid2_1_label', 'guide.add.detailed.grid2_1_desc'],
+            ['guide.add.detailed.grid2_2_label', 'guide.add.detailed.grid2_2_desc'],
+            ['guide.add.detailed.grid2_3_label', 'guide.add.detailed.grid2_3_desc'],
+            ['guide.add.detailed.grid2_4_label', 'guide.add.detailed.grid2_4_desc'],
+            ['guide.add.detailed.grid2_5_label', 'guide.add.detailed.grid2_5_desc'],
+            ['guide.add.detailed.grid2_6_label', 'guide.add.detailed.grid2_6_desc'],
+            ['guide.add.detailed.grid2_7_label', 'guide.add.detailed.grid2_7_desc'],
           ]
         },
         {
-          heading: __('guide.add.detailed.heading3'),
+          heading: 'guide.add.detailed.heading3',
           isOrdered: true,
           items: [
-            __('guide.add.detailed.item3_1'),
-            __('guide.add.detailed.item3_2'),
-            __('guide.add.detailed.item3_3'),
-            __('guide.add.detailed.item3_4'),
-            __('guide.add.detailed.item3_5'),
-            __('guide.add.detailed.item3_6'),
-            __('guide.add.detailed.item3_7'),
+            'guide.add.detailed.item3_1',
+            'guide.add.detailed.item3_2',
+            'guide.add.detailed.item3_3',
+            'guide.add.detailed.item3_4',
+            'guide.add.detailed.item3_5',
+            'guide.add.detailed.item3_6',
+            'guide.add.detailed.item3_7',
           ]
         },
         {
-          heading: __('guide.add.detailed.heading4'),
+          heading: 'guide.add.detailed.heading4',
           isTable: true,
           rows: [
-            [__('guide.add.detailed.row4_0_label'), __('guide.add.detailed.row4_0_desc')],
-            [__('guide.add.detailed.row4_1_label'), __('guide.add.detailed.row4_1_desc')],
-            [__('guide.add.detailed.row4_2_label'), __('guide.add.detailed.row4_2_desc')],
-            [__('guide.add.detailed.row4_3_label'), __('guide.add.detailed.row4_3_desc')],
-            [__('guide.add.detailed.row4_4_label'), __('guide.add.detailed.row4_4_desc')],
-            [__('guide.add.detailed.row4_5_label'), __('guide.add.detailed.row4_5_desc')],
+            ['guide.add.detailed.row4_0_label', 'guide.add.detailed.row4_0_desc'],
+            ['guide.add.detailed.row4_1_label', 'guide.add.detailed.row4_1_desc'],
+            ['guide.add.detailed.row4_2_label', 'guide.add.detailed.row4_2_desc'],
+            ['guide.add.detailed.row4_3_label', 'guide.add.detailed.row4_3_desc'],
+            ['guide.add.detailed.row4_4_label', 'guide.add.detailed.row4_4_desc'],
+            ['guide.add.detailed.row4_5_label', 'guide.add.detailed.row4_5_desc'],
           ]
         },
         {
-          heading: __('guide.add.detailed.heading5'),
+          heading: 'guide.add.detailed.heading5',
           isTips: true,
           items: [
-            __('guide.add.detailed.tip5_1'),
-            __('guide.add.detailed.tip5_2'),
-            __('guide.add.detailed.tip5_3'),
-            __('guide.add.detailed.tip5_4'),
-            __('guide.add.detailed.tip5_5'),
-            __('guide.add.detailed.tip5_6'),
+            'guide.add.detailed.tip5_1',
+            'guide.add.detailed.tip5_2',
+            'guide.add.detailed.tip5_3',
+            'guide.add.detailed.tip5_4',
+            'guide.add.detailed.tip5_5',
+            'guide.add.detailed.tip5_6',
+            'guide.add.detailed.tip5_7',
+            'guide.add.detailed.tip5_8',
+            'guide.add.detailed.tip5_9',
           ]
         }
       ]
@@ -195,31 +204,39 @@ const PAGE_GUIDES = {
   },
 
   records: {
-    title: __('guide.records.title'),
+    title: 'guide.records.title',
     simple: {
       content: [
         {
-          heading: __('guide.records.simple.heading1'),
-          text: __('guide.records.simple.text1')
+          heading: 'guide.records.simple.heading1',
+          text: 'guide.records.simple.text1'
         },
         {
-          heading: __('guide.records.simple.heading2'),
+          heading: 'guide.records.simple.heading2',
           isOrdered: true,
           items: [
-            __('guide.records.simple.item2_1'),
-            __('guide.records.simple.item2_2'),
-            __('guide.records.simple.item2_3'),
-            __('guide.records.simple.item2_4')
+            'guide.records.simple.item2_1',
+            'guide.records.simple.item2_2',
+            'guide.records.simple.item2_3',
+            'guide.records.simple.item2_4'
           ]
         },
         {
-          heading: __('guide.records.simple.heading3'),
+          heading: 'guide.records.simple.heading3',
           isTips: true,
           items: [
-            __('guide.records.simple.tip3_1'),
-            __('guide.records.simple.tip3_2'),
-            __('guide.records.simple.tip3_3'),
-            __('guide.records.simple.tip3_4')
+            'guide.records.simple.tip3_1',
+            'guide.records.simple.tip3_2',
+            'guide.records.simple.tip3_3',
+            'guide.records.simple.tip3_4'
+          ]
+        },
+        {
+          heading: 'guide.records.simple.heading4',
+          isTips: true,
+          items: [
+            'guide.records.simple.tip4_1',
+            'guide.records.simple.tip4_2'
           ]
         }
       ]
@@ -227,68 +244,71 @@ const PAGE_GUIDES = {
     detailed: {
       content: [
         {
-          heading: __('guide.records.detailed.heading1'),
-          text: __('guide.records.detailed.text1')
+          heading: 'guide.records.detailed.heading1',
+          text: 'guide.records.detailed.text1'
         },
         {
-          heading: __('guide.records.detailed.heading2'),
+          heading: 'guide.records.detailed.heading2',
           isGrid: true,
           items: [
-            [__('guide.records.detailed.grid2_0_label'), __('guide.records.detailed.grid2_0_desc')],
-            [__('guide.records.detailed.grid2_1_label'), __('guide.records.detailed.grid2_1_desc')],
-            [__('guide.records.detailed.grid2_2_label'), __('guide.records.detailed.grid2_2_desc')],
-            [__('guide.records.detailed.grid2_3_label'), __('guide.records.detailed.grid2_3_desc')],
-            [__('guide.records.detailed.grid2_4_label'), __('guide.records.detailed.grid2_4_desc')],
-            [__('guide.records.detailed.grid2_5_label'), __('guide.records.detailed.grid2_5_desc')],
-            [__('guide.records.detailed.grid2_6_label'), __('guide.records.detailed.grid2_6_desc')],
-            [__('guide.records.detailed.grid2_7_label'), __('guide.records.detailed.grid2_7_desc')],
-            [__('guide.records.detailed.grid2_8_label'), __('guide.records.detailed.grid2_8_desc')],
-            [__('guide.records.detailed.grid2_9_label'), __('guide.records.detailed.grid2_9_desc')],
+            ['guide.records.detailed.grid2_0_label', 'guide.records.detailed.grid2_0_desc'],
+            ['guide.records.detailed.grid2_1_label', 'guide.records.detailed.grid2_1_desc'],
+            ['guide.records.detailed.grid2_2_label', 'guide.records.detailed.grid2_2_desc'],
+            ['guide.records.detailed.grid2_3_label', 'guide.records.detailed.grid2_3_desc'],
+            ['guide.records.detailed.grid2_4_label', 'guide.records.detailed.grid2_4_desc'],
+            ['guide.records.detailed.grid2_5_label', 'guide.records.detailed.grid2_5_desc'],
+            ['guide.records.detailed.grid2_6_label', 'guide.records.detailed.grid2_6_desc'],
+            ['guide.records.detailed.grid2_7_label', 'guide.records.detailed.grid2_7_desc'],
+            ['guide.records.detailed.grid2_8_label', 'guide.records.detailed.grid2_8_desc'],
+            ['guide.records.detailed.grid2_9_label', 'guide.records.detailed.grid2_9_desc'],
+            ['guide.records.detailed.grid2_10_label', 'guide.records.detailed.grid2_10_desc'],
+            ['guide.records.detailed.grid2_11_label', 'guide.records.detailed.grid2_11_desc'],
           ]
         },
         {
-          heading: __('guide.records.detailed.heading3'),
+          heading: 'guide.records.detailed.heading3',
           isOrdered: true,
           items: [
-            __('guide.records.detailed.item3_1'),
-            __('guide.records.detailed.item3_2'),
-            __('guide.records.detailed.item3_3'),
-            __('guide.records.detailed.item3_4'),
-            __('guide.records.detailed.item3_5'),
+            'guide.records.detailed.item3_1',
+            'guide.records.detailed.item3_2',
+            'guide.records.detailed.item3_3',
+            'guide.records.detailed.item3_4',
+            'guide.records.detailed.item3_5',
           ]
         },
         {
-          heading: __('guide.records.detailed.heading4'),
+          heading: 'guide.records.detailed.heading4',
           isTable: true,
           rows: [
-            [__('guide.records.detailed.row4_0_label'), __('guide.records.detailed.row4_0_desc')],
-            [__('guide.records.detailed.row4_1_label'), __('guide.records.detailed.row4_1_desc')],
-            [__('guide.records.detailed.row4_2_label'), __('guide.records.detailed.row4_2_desc')],
-            [__('guide.records.detailed.row4_3_label'), __('guide.records.detailed.row4_3_desc')],
-            [__('guide.records.detailed.row4_4_label'), __('guide.records.detailed.row4_4_desc')],
-            [__('guide.records.detailed.row4_5_label'), __('guide.records.detailed.row4_5_desc')],
+            ['guide.records.detailed.row4_0_label', 'guide.records.detailed.row4_0_desc'],
+            ['guide.records.detailed.row4_1_label', 'guide.records.detailed.row4_1_desc'],
+            ['guide.records.detailed.row4_2_label', 'guide.records.detailed.row4_2_desc'],
+            ['guide.records.detailed.row4_3_label', 'guide.records.detailed.row4_3_desc'],
+            ['guide.records.detailed.row4_4_label', 'guide.records.detailed.row4_4_desc'],
+            ['guide.records.detailed.row4_5_label', 'guide.records.detailed.row4_5_desc'],
           ]
         },
         {
-          heading: __('guide.records.detailed.heading5'),
+          heading: 'guide.records.detailed.heading5',
           isTable: true,
           rows: [
-            [__('guide.records.detailed.row5_0_label'), __('guide.records.detailed.row5_0_desc')],
-            [__('guide.records.detailed.row5_1_label'), __('guide.records.detailed.row5_1_desc')],
-            [__('guide.records.detailed.row5_2_label'), __('guide.records.detailed.row5_2_desc')],
+            ['guide.records.detailed.row5_0_label', 'guide.records.detailed.row5_0_desc'],
+            ['guide.records.detailed.row5_1_label', 'guide.records.detailed.row5_1_desc'],
+            ['guide.records.detailed.row5_2_label', 'guide.records.detailed.row5_2_desc'],
           ]
         },
         {
-          heading: __('guide.records.detailed.heading6'),
+          heading: 'guide.records.detailed.heading6',
           isTips: true,
           items: [
-            __('guide.records.detailed.tip6_1'),
-            __('guide.records.detailed.tip6_2'),
-            __('guide.records.detailed.tip6_3'),
-            __('guide.records.detailed.tip6_4'),
-            __('guide.records.detailed.tip6_5'),
-            __('guide.records.detailed.tip6_6'),
-            __('guide.records.detailed.tip6_7'),
+            'guide.records.detailed.tip6_1',
+            'guide.records.detailed.tip6_2',
+            'guide.records.detailed.tip6_3',
+            'guide.records.detailed.tip6_4',
+            'guide.records.detailed.tip6_5',
+            'guide.records.detailed.tip6_6',
+            'guide.records.detailed.tip6_7',
+            'guide.records.detailed.tip6_8',
           ]
         }
       ]
@@ -296,21 +316,21 @@ const PAGE_GUIDES = {
   },
 
   categories: {
-    title: __('guide.categories.title'),
+    title: 'guide.categories.title',
     simple: {
       content: [
         {
-          heading: __('guide.categories.simple.heading1'),
-          text: __('guide.categories.simple.text1')
+          heading: 'guide.categories.simple.heading1',
+          text: 'guide.categories.simple.text1'
         },
         {
-          heading: __('guide.categories.simple.heading2'),
+          heading: 'guide.categories.simple.heading2',
           isOrdered: true,
           items: [
-            __('guide.categories.simple.item2_1'),
-            __('guide.categories.simple.item2_2'),
-            __('guide.categories.simple.item2_3'),
-            __('guide.categories.simple.item2_4')
+            'guide.categories.simple.item2_1',
+            'guide.categories.simple.item2_2',
+            'guide.categories.simple.item2_3',
+            'guide.categories.simple.item2_4'
           ]
         }
       ]
@@ -318,57 +338,59 @@ const PAGE_GUIDES = {
     detailed: {
       content: [
         {
-          heading: __('guide.categories.detailed.heading1'),
-          text: __('guide.categories.detailed.text1')
+          heading: 'guide.categories.detailed.heading1',
+          text: 'guide.categories.detailed.text1'
         },
         {
-          heading: __('guide.categories.detailed.heading2'),
+          heading: 'guide.categories.detailed.heading2',
           isGrid: true,
           items: [
-            [__('guide.categories.detailed.grid2_0_label'), __('guide.categories.detailed.grid2_0_desc')],
-            [__('guide.categories.detailed.grid2_1_label'), __('guide.categories.detailed.grid2_1_desc')],
-            [__('guide.categories.detailed.grid2_2_label'), __('guide.categories.detailed.grid2_2_desc')],
-            [__('guide.categories.detailed.grid2_3_label'), __('guide.categories.detailed.grid2_3_desc')],
-            [__('guide.categories.detailed.grid2_4_label'), __('guide.categories.detailed.grid2_4_desc')],
-            [__('guide.categories.detailed.grid2_5_label'), __('guide.categories.detailed.grid2_5_desc')],
-            [__('guide.categories.detailed.grid2_6_label'), __('guide.categories.detailed.grid2_6_desc')],
+            ['guide.categories.detailed.grid2_0_label', 'guide.categories.detailed.grid2_0_desc'],
+            ['guide.categories.detailed.grid2_1_label', 'guide.categories.detailed.grid2_1_desc'],
+            ['guide.categories.detailed.grid2_2_label', 'guide.categories.detailed.grid2_2_desc'],
+            ['guide.categories.detailed.grid2_3_label', 'guide.categories.detailed.grid2_3_desc'],
+            ['guide.categories.detailed.grid2_4_label', 'guide.categories.detailed.grid2_4_desc'],
+            ['guide.categories.detailed.grid2_5_label', 'guide.categories.detailed.grid2_5_desc'],
+            ['guide.categories.detailed.grid2_6_label', 'guide.categories.detailed.grid2_6_desc'],
           ]
         },
         {
-          heading: __('guide.categories.detailed.heading3'),
+          heading: 'guide.categories.detailed.heading3',
           isOrdered: true,
           items: [
-            __('guide.categories.detailed.item3_1'),
-            __('guide.categories.detailed.item3_2'),
-            __('guide.categories.detailed.item3_3'),
-            __('guide.categories.detailed.item3_4'),
-            __('guide.categories.detailed.item3_5'),
-            __('guide.categories.detailed.item3_6'),
+            'guide.categories.detailed.item3_1',
+            'guide.categories.detailed.item3_2',
+            'guide.categories.detailed.item3_3',
+            'guide.categories.detailed.item3_4',
+            'guide.categories.detailed.item3_5',
+            'guide.categories.detailed.item3_6',
           ]
         },
         {
-          heading: __('guide.categories.detailed.heading4'),
+          heading: 'guide.categories.detailed.heading4',
           isTable: true,
           rows: [
-            [__('guide.categories.detailed.row4_0_label'), __('guide.categories.detailed.row4_0_desc')],
-            [__('guide.categories.detailed.row4_1_label'), __('guide.categories.detailed.row4_1_desc')],
-            [__('guide.categories.detailed.row4_2_label'), __('guide.categories.detailed.row4_2_desc')],
-            [__('guide.categories.detailed.row4_3_label'), __('guide.categories.detailed.row4_3_desc')],
-            [__('guide.categories.detailed.row4_4_label'), __('guide.categories.detailed.row4_4_desc')],
+            ['guide.categories.detailed.row4_0_label', 'guide.categories.detailed.row4_0_desc'],
+            ['guide.categories.detailed.row4_1_label', 'guide.categories.detailed.row4_1_desc'],
+            ['guide.categories.detailed.row4_2_label', 'guide.categories.detailed.row4_2_desc'],
+            ['guide.categories.detailed.row4_3_label', 'guide.categories.detailed.row4_3_desc'],
+            ['guide.categories.detailed.row4_4_label', 'guide.categories.detailed.row4_4_desc'],
           ]
         },
         {
-          heading: __('guide.categories.detailed.heading5'),
-          text: __('guide.categories.detailed.text5')
+          heading: 'guide.categories.detailed.heading5',
+          text: 'guide.categories.detailed.text5'
         },
         {
-          heading: __('guide.categories.detailed.heading6'),
+          heading: 'guide.categories.detailed.heading6',
           isTips: true,
           items: [
-            __('guide.categories.detailed.tip6_1'),
-            __('guide.categories.detailed.tip6_2'),
-            __('guide.categories.detailed.tip6_3'),
-            __('guide.categories.detailed.tip6_4'),
+            'guide.categories.detailed.tip6_1',
+            'guide.categories.detailed.tip6_2',
+            'guide.categories.detailed.tip6_3',
+            'guide.categories.detailed.tip6_4',
+            'guide.categories.detailed.tip6_5',
+            'guide.categories.detailed.tip6_6',
           ]
         }
       ]
@@ -376,31 +398,32 @@ const PAGE_GUIDES = {
   },
 
   stats: {
-    title: __('guide.stats.title'),
+    title: 'guide.stats.title',
     simple: {
       content: [
         {
-          heading: __('guide.stats.simple.heading1'),
-          text: __('guide.stats.simple.text1')
+          heading: 'guide.stats.simple.heading1',
+          text: 'guide.stats.simple.text1'
         },
         {
-          heading: __('guide.stats.simple.heading2'),
+          heading: 'guide.stats.simple.heading2',
           isOrdered: true,
           items: [
-            __('guide.stats.simple.item2_1'),
-            __('guide.stats.simple.item2_2'),
-            __('guide.stats.simple.item2_3'),
-            __('guide.stats.simple.item2_4')
+            'guide.stats.simple.item2_1',
+            'guide.stats.simple.item2_2',
+            'guide.stats.simple.item2_3',
+            'guide.stats.simple.item2_4'
           ]
         },
         {
-          heading: __('guide.stats.simple.heading3'),
+          heading: 'guide.stats.simple.heading3',
           isTips: true,
           items: [
-            __('guide.stats.simple.tip3_1'),
-            __('guide.stats.simple.tip3_2'),
-            __('guide.stats.simple.tip3_3'),
-            __('guide.stats.simple.tip3_4')
+            'guide.stats.simple.tip3_1',
+            'guide.stats.simple.tip3_2',
+            'guide.stats.simple.tip3_3',
+            'guide.stats.simple.tip3_4',
+            'guide.stats.simple.tip3_5'
           ]
         }
       ]
@@ -408,62 +431,63 @@ const PAGE_GUIDES = {
     detailed: {
       content: [
         {
-          heading: __('guide.stats.detailed.heading1'),
-          text: __('guide.stats.detailed.text1')
+          heading: 'guide.stats.detailed.heading1',
+          text: 'guide.stats.detailed.text1'
         },
         {
-          heading: __('guide.stats.detailed.heading2'),
+          heading: 'guide.stats.detailed.heading2',
           isGrid: true,
           items: [
-            [__('guide.stats.detailed.grid2_0_label'), __('guide.stats.detailed.grid2_0_desc')],
-            [__('guide.stats.detailed.grid2_1_label'), __('guide.stats.detailed.grid2_1_desc')],
-            [__('guide.stats.detailed.grid2_2_label'), __('guide.stats.detailed.grid2_2_desc')],
-            [__('guide.stats.detailed.grid2_3_label'), __('guide.stats.detailed.grid2_3_desc')],
-            [__('guide.stats.detailed.grid2_4_label'), __('guide.stats.detailed.grid2_4_desc')],
-            [__('guide.stats.detailed.grid2_5_label'), __('guide.stats.detailed.grid2_5_desc')],
-            [__('guide.stats.detailed.grid2_6_label'), __('guide.stats.detailed.grid2_6_desc')],
-            [__('guide.stats.detailed.grid2_7_label'), __('guide.stats.detailed.grid2_7_desc')],
-            [__('guide.stats.detailed.grid2_8_label'), __('guide.stats.detailed.grid2_8_desc')],
-            [__('guide.stats.detailed.grid2_9_label'), __('guide.stats.detailed.grid2_9_desc')],
-            [__('guide.stats.detailed.grid2_10_label'), __('guide.stats.detailed.grid2_10_desc')],
+            ['guide.stats.detailed.grid2_0_label', 'guide.stats.detailed.grid2_0_desc'],
+            ['guide.stats.detailed.grid2_1_label', 'guide.stats.detailed.grid2_1_desc'],
+            ['guide.stats.detailed.grid2_2_label', 'guide.stats.detailed.grid2_2_desc'],
+            ['guide.stats.detailed.grid2_3_label', 'guide.stats.detailed.grid2_3_desc'],
+            ['guide.stats.detailed.grid2_4_label', 'guide.stats.detailed.grid2_4_desc'],
+            ['guide.stats.detailed.grid2_5_label', 'guide.stats.detailed.grid2_5_desc'],
+            ['guide.stats.detailed.grid2_6_label', 'guide.stats.detailed.grid2_6_desc'],
+            ['guide.stats.detailed.grid2_7_label', 'guide.stats.detailed.grid2_7_desc'],
+            ['guide.stats.detailed.grid2_8_label', 'guide.stats.detailed.grid2_8_desc'],
+            ['guide.stats.detailed.grid2_9_label', 'guide.stats.detailed.grid2_9_desc'],
+            ['guide.stats.detailed.grid2_10_label', 'guide.stats.detailed.grid2_10_desc'],
           ]
         },
         {
-          heading: __('guide.stats.detailed.heading3'),
-          text: __('guide.stats.detailed.text3')
+          heading: 'guide.stats.detailed.heading3',
+          text: 'guide.stats.detailed.text3'
         },
         {
-          heading: __('guide.stats.detailed.heading4'),
+          heading: 'guide.stats.detailed.heading4',
           isOrdered: true,
           items: [
-            __('guide.stats.detailed.item4_1'),
-            __('guide.stats.detailed.item4_2'),
-            __('guide.stats.detailed.item4_3'),
-            __('guide.stats.detailed.item4_4'),
-            __('guide.stats.detailed.item4_5'),
+            'guide.stats.detailed.item4_1',
+            'guide.stats.detailed.item4_2',
+            'guide.stats.detailed.item4_3',
+            'guide.stats.detailed.item4_4',
+            'guide.stats.detailed.item4_5',
           ]
         },
         {
-          heading: __('guide.stats.detailed.heading5'),
+          heading: 'guide.stats.detailed.heading5',
           isTable: true,
           rows: [
-            [__('guide.stats.detailed.row5_0_label'), __('guide.stats.detailed.row5_0_desc')],
-            [__('guide.stats.detailed.row5_1_label'), __('guide.stats.detailed.row5_1_desc')],
-            [__('guide.stats.detailed.row5_2_label'), __('guide.stats.detailed.row5_2_desc')],
-            [__('guide.stats.detailed.row5_3_label'), __('guide.stats.detailed.row5_3_desc')],
-            [__('guide.stats.detailed.row5_4_label'), __('guide.stats.detailed.row5_4_desc')],
-            [__('guide.stats.detailed.row5_5_label'), __('guide.stats.detailed.row5_5_desc')],
+            ['guide.stats.detailed.row5_0_label', 'guide.stats.detailed.row5_0_desc'],
+            ['guide.stats.detailed.row5_1_label', 'guide.stats.detailed.row5_1_desc'],
+            ['guide.stats.detailed.row5_2_label', 'guide.stats.detailed.row5_2_desc'],
+            ['guide.stats.detailed.row5_3_label', 'guide.stats.detailed.row5_3_desc'],
+            ['guide.stats.detailed.row5_4_label', 'guide.stats.detailed.row5_4_desc'],
+            ['guide.stats.detailed.row5_5_label', 'guide.stats.detailed.row5_5_desc'],
           ]
         },
         {
-          heading: __('guide.stats.detailed.heading6'),
+          heading: 'guide.stats.detailed.heading6',
           isTips: true,
           items: [
-            __('guide.stats.detailed.tip6_1'),
-            __('guide.stats.detailed.tip6_2'),
-            __('guide.stats.detailed.tip6_3'),
-            __('guide.stats.detailed.tip6_4'),
-            __('guide.stats.detailed.tip6_5'),
+            'guide.stats.detailed.tip6_1',
+            'guide.stats.detailed.tip6_2',
+            'guide.stats.detailed.tip6_3',
+            'guide.stats.detailed.tip6_4',
+            'guide.stats.detailed.tip6_5',
+            'guide.stats.detailed.tip6_6',
           ]
         }
       ]
@@ -471,21 +495,21 @@ const PAGE_GUIDES = {
   },
 
   report: {
-    title: __('guide.report.title'),
+    title: 'guide.report.title',
     simple: {
       content: [
         {
-          heading: __('guide.report.simple.heading1'),
-          text: __('guide.report.simple.text1')
+          heading: 'guide.report.simple.heading1',
+          text: 'guide.report.simple.text1'
         },
         {
-          heading: __('guide.report.simple.heading2'),
+          heading: 'guide.report.simple.heading2',
           isOrdered: true,
           items: [
-            __('guide.report.simple.item2_1'),
-            __('guide.report.simple.item2_2'),
-            __('guide.report.simple.item2_3'),
-            __('guide.report.simple.item2_4')
+            'guide.report.simple.item2_1',
+            'guide.report.simple.item2_2',
+            'guide.report.simple.item2_3',
+            'guide.report.simple.item2_4'
           ]
         }
       ]
@@ -493,56 +517,57 @@ const PAGE_GUIDES = {
     detailed: {
       content: [
         {
-          heading: __('guide.report.detailed.heading1'),
-          text: __('guide.report.detailed.text1')
+          heading: 'guide.report.detailed.heading1',
+          text: 'guide.report.detailed.text1'
         },
         {
-          heading: __('guide.report.detailed.heading2'),
+          heading: 'guide.report.detailed.heading2',
           isGrid: true,
           items: [
-            [__('guide.report.detailed.grid2_0_label'), __('guide.report.detailed.grid2_0_desc')],
-            [__('guide.report.detailed.grid2_1_label'), __('guide.report.detailed.grid2_1_desc')],
-            [__('guide.report.detailed.grid2_2_label'), __('guide.report.detailed.grid2_2_desc')],
-            [__('guide.report.detailed.grid2_3_label'), __('guide.report.detailed.grid2_3_desc')],
-            [__('guide.report.detailed.grid2_4_label'), __('guide.report.detailed.grid2_4_desc')],
-            [__('guide.report.detailed.grid2_5_label'), __('guide.report.detailed.grid2_5_desc')],
-            [__('guide.report.detailed.grid2_6_label'), __('guide.report.detailed.grid2_6_desc')],
-            [__('guide.report.detailed.grid2_7_label'), __('guide.report.detailed.grid2_7_desc')],
-            [__('guide.report.detailed.grid2_8_label'), __('guide.report.detailed.grid2_8_desc')],
-            [__('guide.report.detailed.grid2_9_label'), __('guide.report.detailed.grid2_9_desc')],
+            ['guide.report.detailed.grid2_0_label', 'guide.report.detailed.grid2_0_desc'],
+            ['guide.report.detailed.grid2_1_label', 'guide.report.detailed.grid2_1_desc'],
+            ['guide.report.detailed.grid2_2_label', 'guide.report.detailed.grid2_2_desc'],
+            ['guide.report.detailed.grid2_3_label', 'guide.report.detailed.grid2_3_desc'],
+            ['guide.report.detailed.grid2_4_label', 'guide.report.detailed.grid2_4_desc'],
+            ['guide.report.detailed.grid2_5_label', 'guide.report.detailed.grid2_5_desc'],
+            ['guide.report.detailed.grid2_6_label', 'guide.report.detailed.grid2_6_desc'],
+            ['guide.report.detailed.grid2_7_label', 'guide.report.detailed.grid2_7_desc'],
+            ['guide.report.detailed.grid2_8_label', 'guide.report.detailed.grid2_8_desc'],
+            ['guide.report.detailed.grid2_9_label', 'guide.report.detailed.grid2_9_desc'],
           ]
         },
         {
-          heading: __('guide.report.detailed.heading3'),
+          heading: 'guide.report.detailed.heading3',
           isOrdered: true,
           items: [
-            __('guide.report.detailed.item3_1'),
-            __('guide.report.detailed.item3_2'),
-            __('guide.report.detailed.item3_3'),
-            __('guide.report.detailed.item3_4'),
-            __('guide.report.detailed.item3_5'),
+            'guide.report.detailed.item3_1',
+            'guide.report.detailed.item3_2',
+            'guide.report.detailed.item3_3',
+            'guide.report.detailed.item3_4',
+            'guide.report.detailed.item3_5',
           ]
         },
         {
-          heading: __('guide.report.detailed.heading4'),
+          heading: 'guide.report.detailed.heading4',
           isTable: true,
           rows: [
-            [__('guide.report.detailed.row4_0_label'), __('guide.report.detailed.row4_0_desc')],
-            [__('guide.report.detailed.row4_1_label'), __('guide.report.detailed.row4_1_desc')],
-            [__('guide.report.detailed.row4_2_label'), __('guide.report.detailed.row4_2_desc')],
-            [__('guide.report.detailed.row4_3_label'), __('guide.report.detailed.row4_3_desc')],
-            [__('guide.report.detailed.row4_4_label'), __('guide.report.detailed.row4_4_desc')],
-            [__('guide.report.detailed.row4_5_label'), __('guide.report.detailed.row4_5_desc')],
-            [__('guide.report.detailed.row4_6_label'), __('guide.report.detailed.row4_6_desc')],
+            ['guide.report.detailed.row4_0_label', 'guide.report.detailed.row4_0_desc'],
+            ['guide.report.detailed.row4_1_label', 'guide.report.detailed.row4_1_desc'],
+            ['guide.report.detailed.row4_2_label', 'guide.report.detailed.row4_2_desc'],
+            ['guide.report.detailed.row4_3_label', 'guide.report.detailed.row4_3_desc'],
+            ['guide.report.detailed.row4_4_label', 'guide.report.detailed.row4_4_desc'],
+            ['guide.report.detailed.row4_5_label', 'guide.report.detailed.row4_5_desc'],
+            ['guide.report.detailed.row4_6_label', 'guide.report.detailed.row4_6_desc'],
           ]
         },
         {
-          heading: __('guide.report.detailed.heading5'),
+          heading: 'guide.report.detailed.heading5',
           isTips: true,
           items: [
-            __('guide.report.detailed.tip5_1'),
-            __('guide.report.detailed.tip5_2'),
-            __('guide.report.detailed.tip5_3'),
+            'guide.report.detailed.tip5_1',
+            'guide.report.detailed.tip5_2',
+            'guide.report.detailed.tip5_3',
+            'guide.report.detailed.tip5_4',
           ]
         }
       ]
@@ -550,22 +575,22 @@ const PAGE_GUIDES = {
   },
 
   whatif: {
-    title: __('guide.whatif.title'),
+    title: 'guide.whatif.title',
     simple: {
       content: [
         {
-          heading: __('guide.whatif.simple.heading1'),
-          text: __('guide.whatif.simple.text1')
+          heading: 'guide.whatif.simple.heading1',
+          text: 'guide.whatif.simple.text1'
         },
         {
-          heading: __('guide.whatif.simple.heading2'),
+          heading: 'guide.whatif.simple.heading2',
           isOrdered: true,
           items: [
-            __('guide.whatif.simple.item2_1'),
-            __('guide.whatif.simple.item2_2'),
-            __('guide.whatif.simple.item2_3'),
-            __('guide.whatif.simple.item2_4'),
-            __('guide.whatif.simple.item2_5')
+            'guide.whatif.simple.item2_1',
+            'guide.whatif.simple.item2_2',
+            'guide.whatif.simple.item2_3',
+            'guide.whatif.simple.item2_4',
+            'guide.whatif.simple.item2_5'
           ]
         }
       ]
@@ -573,56 +598,57 @@ const PAGE_GUIDES = {
     detailed: {
       content: [
         {
-          heading: __('guide.whatif.detailed.heading1'),
-          text: __('guide.whatif.detailed.text1')
+          heading: 'guide.whatif.detailed.heading1',
+          text: 'guide.whatif.detailed.text1'
         },
         {
-          heading: __('guide.whatif.detailed.heading2'),
+          heading: 'guide.whatif.detailed.heading2',
           isGrid: true,
           items: [
-            [__('guide.whatif.detailed.grid2_0_label'), __('guide.whatif.detailed.grid2_0_desc')],
-            [__('guide.whatif.detailed.grid2_1_label'), __('guide.whatif.detailed.grid2_1_desc')],
-            [__('guide.whatif.detailed.grid2_2_label'), __('guide.whatif.detailed.grid2_2_desc')],
-            [__('guide.whatif.detailed.grid2_3_label'), __('guide.whatif.detailed.grid2_3_desc')],
-            [__('guide.whatif.detailed.grid2_4_label'), __('guide.whatif.detailed.grid2_4_desc')],
-            [__('guide.whatif.detailed.grid2_5_label'), __('guide.whatif.detailed.grid2_5_desc')],
-            [__('guide.whatif.detailed.grid2_6_label'), __('guide.whatif.detailed.grid2_6_desc')],
-            [__('guide.whatif.detailed.grid2_7_label'), __('guide.whatif.detailed.grid2_7_desc')],
+            ['guide.whatif.detailed.grid2_0_label', 'guide.whatif.detailed.grid2_0_desc'],
+            ['guide.whatif.detailed.grid2_1_label', 'guide.whatif.detailed.grid2_1_desc'],
+            ['guide.whatif.detailed.grid2_2_label', 'guide.whatif.detailed.grid2_2_desc'],
+            ['guide.whatif.detailed.grid2_3_label', 'guide.whatif.detailed.grid2_3_desc'],
+            ['guide.whatif.detailed.grid2_4_label', 'guide.whatif.detailed.grid2_4_desc'],
+            ['guide.whatif.detailed.grid2_5_label', 'guide.whatif.detailed.grid2_5_desc'],
+            ['guide.whatif.detailed.grid2_6_label', 'guide.whatif.detailed.grid2_6_desc'],
+            ['guide.whatif.detailed.grid2_7_label', 'guide.whatif.detailed.grid2_7_desc'],
           ]
         },
         {
-          heading: __('guide.whatif.detailed.heading3'),
+          heading: 'guide.whatif.detailed.heading3',
           isTable: true,
           rows: [
-            [__('guide.whatif.detailed.row3_0_label'), __('guide.whatif.detailed.row3_0_desc')],
-            [__('guide.whatif.detailed.row3_1_label'), __('guide.whatif.detailed.row3_1_desc')],
-            [__('guide.whatif.detailed.row3_2_label'), __('guide.whatif.detailed.row3_2_desc')],
-            [__('guide.whatif.detailed.row3_3_label'), __('guide.whatif.detailed.row3_3_desc')],
-            [__('guide.whatif.detailed.row3_4_label'), __('guide.whatif.detailed.row3_4_desc')],
-            [__('guide.whatif.detailed.row3_5_label'), __('guide.whatif.detailed.row3_5_desc')],
+            ['guide.whatif.detailed.row3_0_label', 'guide.whatif.detailed.row3_0_desc'],
+            ['guide.whatif.detailed.row3_1_label', 'guide.whatif.detailed.row3_1_desc'],
+            ['guide.whatif.detailed.row3_2_label', 'guide.whatif.detailed.row3_2_desc'],
+            ['guide.whatif.detailed.row3_3_label', 'guide.whatif.detailed.row3_3_desc'],
+            ['guide.whatif.detailed.row3_4_label', 'guide.whatif.detailed.row3_4_desc'],
+            ['guide.whatif.detailed.row3_5_label', 'guide.whatif.detailed.row3_5_desc'],
           ]
         },
         {
-          heading: __('guide.whatif.detailed.heading4'),
+          heading: 'guide.whatif.detailed.heading4',
           isOrdered: true,
           items: [
-            __('guide.whatif.detailed.item4_1'),
-            __('guide.whatif.detailed.item4_2'),
-            __('guide.whatif.detailed.item4_3'),
-            __('guide.whatif.detailed.item4_4'),
-            __('guide.whatif.detailed.item4_5'),
-            __('guide.whatif.detailed.item4_6'),
+            'guide.whatif.detailed.item4_1',
+            'guide.whatif.detailed.item4_2',
+            'guide.whatif.detailed.item4_3',
+            'guide.whatif.detailed.item4_4',
+            'guide.whatif.detailed.item4_5',
+            'guide.whatif.detailed.item4_6',
           ]
         },
         {
-          heading: __('guide.whatif.detailed.heading5'),
+          heading: 'guide.whatif.detailed.heading5',
           isTips: true,
           items: [
-            __('guide.whatif.detailed.tip5_1'),
-            __('guide.whatif.detailed.tip5_2'),
-            __('guide.whatif.detailed.tip5_3'),
-            __('guide.whatif.detailed.tip5_4'),
-            __('guide.whatif.detailed.tip5_5'),
+            'guide.whatif.detailed.tip5_1',
+            'guide.whatif.detailed.tip5_2',
+            'guide.whatif.detailed.tip5_3',
+            'guide.whatif.detailed.tip5_4',
+            'guide.whatif.detailed.tip5_5',
+            'guide.whatif.detailed.tip5_6',
           ]
         }
       ]
@@ -630,23 +656,23 @@ const PAGE_GUIDES = {
   },
 
   settings: {
-    title: __('guide.settings.title'),
+    title: 'guide.settings.title',
     simple: {
       content: [
         {
-          heading: __('guide.settings.simple.heading1'),
-          text: __('guide.settings.simple.text1')
+          heading: 'guide.settings.simple.heading1',
+          text: 'guide.settings.simple.text1'
         },
         {
-          heading: __('guide.settings.simple.heading2'),
+          heading: 'guide.settings.simple.heading2',
           isOrdered: true,
           items: [
-            __('guide.settings.simple.item2_1'),
-            __('guide.settings.simple.item2_2'),
-            __('guide.settings.simple.item2_3'),
-            __('guide.settings.simple.item2_4'),
-            __('guide.settings.simple.item2_5'),
-            __('guide.settings.simple.item2_6')
+            'guide.settings.simple.item2_1',
+            'guide.settings.simple.item2_2',
+            'guide.settings.simple.item2_3',
+            'guide.settings.simple.item2_4',
+            'guide.settings.simple.item2_5',
+            'guide.settings.simple.item2_6'
           ]
         }
       ]
@@ -654,58 +680,61 @@ const PAGE_GUIDES = {
     detailed: {
       content: [
         {
-          heading: __('guide.settings.detailed.heading1'),
-          text: __('guide.settings.detailed.text1')
+          heading: 'guide.settings.detailed.heading1',
+          text: 'guide.settings.detailed.text1'
         },
         {
-          heading: __('guide.settings.detailed.heading2'),
+          heading: 'guide.settings.detailed.heading2',
           isGrid: true,
           items: [
-            [__('guide.settings.detailed.grid2_0_label'), __('guide.settings.detailed.grid2_0_desc')],
-            [__('guide.settings.detailed.grid2_1_label'), __('guide.settings.detailed.grid2_1_desc')],
-            [__('guide.settings.detailed.grid2_2_label'), __('guide.settings.detailed.grid2_2_desc')],
-            [__('guide.settings.detailed.grid2_3_label'), __('guide.settings.detailed.grid2_3_desc')],
-            [__('guide.settings.detailed.grid2_4_label'), __('guide.settings.detailed.grid2_4_desc')],
-            [__('guide.settings.detailed.grid2_5_label'), __('guide.settings.detailed.grid2_5_desc')],
-            [__('guide.settings.detailed.grid2_6_label'), __('guide.settings.detailed.grid2_6_desc')],
-            [__('guide.settings.detailed.grid2_7_label'), __('guide.settings.detailed.grid2_7_desc')],
-            [__('guide.settings.detailed.grid2_8_label'), __('guide.settings.detailed.grid2_8_desc')],
-            [__('guide.settings.detailed.grid2_9_label'), __('guide.settings.detailed.grid2_9_desc')],
-            [__('guide.settings.detailed.grid2_10_label'), __('guide.settings.detailed.grid2_10_desc')],
+            ['guide.settings.detailed.grid2_0_label', 'guide.settings.detailed.grid2_0_desc'],
+            ['guide.settings.detailed.grid2_1_label', 'guide.settings.detailed.grid2_1_desc'],
+            ['guide.settings.detailed.grid2_2_label', 'guide.settings.detailed.grid2_2_desc'],
+            ['guide.settings.detailed.grid2_3_label', 'guide.settings.detailed.grid2_3_desc'],
+            ['guide.settings.detailed.grid2_4_label', 'guide.settings.detailed.grid2_4_desc'],
+            ['guide.settings.detailed.grid2_5_label', 'guide.settings.detailed.grid2_5_desc'],
+            ['guide.settings.detailed.grid2_6_label', 'guide.settings.detailed.grid2_6_desc'],
+            ['guide.settings.detailed.grid2_7_label', 'guide.settings.detailed.grid2_7_desc'],
+            ['guide.settings.detailed.grid2_8_label', 'guide.settings.detailed.grid2_8_desc'],
+            ['guide.settings.detailed.grid2_9_label', 'guide.settings.detailed.grid2_9_desc'],
+            ['guide.settings.detailed.grid2_10_label', 'guide.settings.detailed.grid2_10_desc'],
           ]
         },
         {
-          heading: __('guide.settings.detailed.heading3'),
+          heading: 'guide.settings.detailed.heading3',
           isTable: true,
           rows: [
-            [__('guide.settings.detailed.row3_0_label'), __('guide.settings.detailed.row3_0_desc')],
-            [__('guide.settings.detailed.row3_1_label'), __('guide.settings.detailed.row3_1_desc')],
-            [__('guide.settings.detailed.row3_2_label'), __('guide.settings.detailed.row3_2_desc')],
-            [__('guide.settings.detailed.row3_3_label'), __('guide.settings.detailed.row3_3_desc')],
+            ['guide.settings.detailed.row3_0_label', 'guide.settings.detailed.row3_0_desc'],
+            ['guide.settings.detailed.row3_1_label', 'guide.settings.detailed.row3_1_desc'],
+            ['guide.settings.detailed.row3_2_label', 'guide.settings.detailed.row3_2_desc'],
+            ['guide.settings.detailed.row3_3_label', 'guide.settings.detailed.row3_3_desc'],
           ]
         },
         {
-          heading: __('guide.settings.detailed.heading4'),
+          heading: 'guide.settings.detailed.heading4',
           isTable: true,
           rows: [
-            [__('guide.settings.detailed.row4_0_label'), __('guide.settings.detailed.row4_0_desc')],
-            [__('guide.settings.detailed.row4_1_label'), __('guide.settings.detailed.row4_1_desc')],
-            [__('guide.settings.detailed.row4_2_label'), __('guide.settings.detailed.row4_2_desc')],
-            [__('guide.settings.detailed.row4_3_label'), __('guide.settings.detailed.row4_3_desc')],
-            [__('guide.settings.detailed.row4_4_label'), __('guide.settings.detailed.row4_4_desc')],
-            [__('guide.settings.detailed.row4_5_label'), __('guide.settings.detailed.row4_5_desc')],
+            ['guide.settings.detailed.row4_0_label', 'guide.settings.detailed.row4_0_desc'],
+            ['guide.settings.detailed.row4_1_label', 'guide.settings.detailed.row4_1_desc'],
+            ['guide.settings.detailed.row4_2_label', 'guide.settings.detailed.row4_2_desc'],
+            ['guide.settings.detailed.row4_3_label', 'guide.settings.detailed.row4_3_desc'],
+            ['guide.settings.detailed.row4_4_label', 'guide.settings.detailed.row4_4_desc'],
+            ['guide.settings.detailed.row4_5_label', 'guide.settings.detailed.row4_5_desc'],
           ]
         },
         {
-          heading: __('guide.settings.detailed.heading5'),
+          heading: 'guide.settings.detailed.heading5',
           isTips: true,
           items: [
-            __('guide.settings.detailed.tip5_1'),
-            __('guide.settings.detailed.tip5_2'),
-            __('guide.settings.detailed.tip5_3'),
-            __('guide.settings.detailed.tip5_4'),
-            __('guide.settings.detailed.tip5_5'),
-            __('guide.settings.detailed.tip5_6'),
+            'guide.settings.detailed.tip5_1',
+            'guide.settings.detailed.tip5_2',
+            'guide.settings.detailed.tip5_3',
+            'guide.settings.detailed.tip5_4',
+            'guide.settings.detailed.tip5_5',
+            'guide.settings.detailed.tip5_6',
+            'guide.settings.detailed.tip5_7',
+            'guide.settings.detailed.tip5_8',
+            'guide.settings.detailed.tip5_9',
           ]
         }
       ]
@@ -722,8 +751,22 @@ function showPageGuide(pageKey) {
   renderGuideModal();
 }
 
+// PAGE_GUIDES stores i18n KEYS (plain strings) because the translations are
+// registered at the bottom of this file — resolving at render time guarantees
+// the dictionary is populated and also survives runtime locale switches.
+function _resolveGuideI18n(node) {
+  if (typeof node === 'string') return __(node);
+  if (Array.isArray(node)) return node.map(_resolveGuideI18n);
+  if (node && typeof node === 'object') {
+    const out = {};
+    for (const k in node) out[k] = _resolveGuideI18n(node[k]);
+    return out;
+  }
+  return node;
+}
+
 function renderGuideModal() {
-  const guide = PAGE_GUIDES[_guidePageKey];
+  const guide = _resolveGuideI18n(PAGE_GUIDES[_guidePageKey]);
   if (!guide) return;
 
   const mode = _guideShowDetailed ? 'detailed' : 'simple';
@@ -906,6 +949,36 @@ addI18nEntries({
   'guide.categories.simple.item2_4': { zh: '【合并分类】编辑弹窗中选「🔀 合并到…」，把两个分类合并', en: '【Merge Categories】Select “🔀 Merge into…” in the edit popup to combine two categories' },
   'guide.categories.simple.text1': { zh: '添加、编辑、移动、合并分类，为每个分类设置月度预算。好的分类体系让记账和统计更清晰。', en: 'Add, edit, move, and merge categories. Set a monthly budget for each one. A well-organized category system makes tracking and statistics much clearer.' },
   'guide.categories.title': { zh: '🏷️ 分类', en: '🏷️ Categories' },
+  'guide.add.detailed.grid2_6_desc': { zh: '勾选「这是分摊收款单」后切换到分摊模式：选择参与人、填写各自份额，账单金额自动拆分', en: 'Check “This is a split bill” to switch to split mode: pick participants, assign each share, and the total is split automatically' },
+  'guide.add.detailed.grid2_6_label': { zh: '分摊收款单开关', en: 'Split Bill Toggle' },
+  'guide.add.detailed.grid2_7_desc': { zh: '份额可指定（如 A 付 20、B 付 30），未填写的参与人自动均分剩余金额；所有份额之和不能超过总额', en: 'Shares can be specified (e.g. A pays 20, B pays 30); participants without an amount auto-share the remainder. Total shares cannot exceed the bill total' },
+  'guide.add.detailed.grid2_7_label': { zh: '参与人份额', en: 'Participant Shares' },
+  'guide.add.detailed.tip5_7': { zh: '分摊账单保存后生成一条绿色负向记录并计入「待收回款项」，对方还款后勾选「已还」即冲减当月支出', en: 'Saving a split bill creates a green negative record tracked under “Pending Collections”; when repaid, tick “paid” to reduce the month’s spending' },
+  'guide.records.detailed.grid2_10_desc': { zh: '分摊账单生成的记录显示为绿色负向金额并带专属「分摊」分类，点击它打开的是分摊账单编辑器', en: 'Records from split bills show as green negative amounts with a dedicated “split” category; tapping one opens the split bill editor instead of the normal form' },
+  'guide.records.detailed.grid2_10_label': { zh: '分摊记录', en: 'Split Records' },
+  'guide.records.detailed.grid2_11_desc': { zh: '在分摊编辑器中可改总额、改各人份额、标记已还；删除记录会连同分摊账单一起删除，反之亦然', en: 'In the split editor you can change the total, adjust shares, and mark repayments; deleting the record also deletes the bill and vice versa' },
+  'guide.records.detailed.grid2_11_label': { zh: '修改/删除分摊', en: 'Edit / Delete Splits' },
+  'guide.records.detailed.tip6_8': { zh: '分摊账单在流水中只显示一条按「账单总金额」计价的记录，各人份额与还款状态需点进记录查看', en: 'A split bill appears as a single record in the list (valued at the bill total); per-person shares and repayment status are inside the record' },
+  'guide.records.simple.heading4': { zh: '🧾 分摊记录', en: '🧾 Split Records' },
+  'guide.records.simple.tip4_1': { zh: '分摊账单在流水中显示为绿色负向记录，点击它进入分摊编辑器，可改金额/份额或标记已还', en: 'Split bills show as green negative records; tap one to open the split editor to change amounts, shares, or mark repayments' },
+  'guide.records.simple.tip4_2': { zh: '删除分摊记录会连同其账单一起删除（撤销可恢复），删除账单则同时解除关联记录', en: 'Deleting a split record also deletes its bill (undoable); deleting the bill detaches the linked record in the same action' },
+  'guide.overview.detailed.grid2_13_desc': { zh: '汇总所有待收款项，支持按人员/按账单两种视角，逐笔标记已还；全部结清的账单自动归档', en: 'Aggregates all pending collections in two views (by person / by bill), marks repayments per entry; fully settled bills archive automatically' },
+  'guide.overview.detailed.grid2_13_label': { zh: '分摊收款中心', en: 'Collection Center' },
+  'guide.overview.detailed.tip6_5': { zh: '「待收回款项」横幅只在存在未结清分摊账单时显示；对方还钱后金额自动减少', en: 'The “Pending Collections” banner only appears while unsettled split bills exist; amounts drop as repayments are marked' },
+  'guide.overview.simple.tip3_4': { zh: '有人欠你钱时首页会出现「待收回款项」横幅，点击进入分摊收款中心逐笔标记已还', en: 'When someone owes you money, a “Pending Collections” banner appears on the home page — tap it to enter Collection Center and mark repayments' },
+  'guide.stats.detailed.tip6_6': { zh: '分摊已还金额以绿色显示并已从支出合计、日均和预测中扣除；日合计与月合计口径保持一致', en: 'Repaid split amounts show in green and are already deducted from totals, daily averages, and projections; daily and monthly totals stay consistent' },
+  'guide.stats.simple.tip3_5': { zh: '分摊账单的已还金额在图表中显示为绿色，已自动从支出统计中扣除', en: 'Repaid split amounts appear green in the charts and are already deducted from spending statistics' },
+  'guide.add.detailed.tip5_8': { zh: '分摊模式下，修改金额、勾选参与人或切换方式时，下方预览会实时显示每个人的份额', en: 'In split mode, the preview below updates live as you change the total, toggle participants, or switch modes' },
+  'guide.add.detailed.tip5_9': { zh: '参与人不足？用「＋ 新增人员」添加联系人，用「管理名单」重命名或删除人员（历史账单保留名字快照）', en: 'Need more people? Use “+ Add Person” to create contacts; “Manage List” renames or removes them (old bills keep name snapshots)' },
+  'guide.categories.detailed.tip6_5': { zh: '顶部的「展开全部 / 折叠全部」按钮可以一键展开或收起整棵分类树', en: '“Expand All / Collapse All” buttons at the top expand or collapse the entire category tree at once' },
+  'guide.categories.detailed.tip6_6': { zh: '嵌套超过 3 层时会出现面包屑导航，点击任意祖先分类可直接跳回那一级', en: 'Breadcrumb navigation appears beyond 3 levels; tap any ancestor to jump straight back to that level' },
+  'guide.overview.detailed.tip6_6': { zh: '还没有任何记录时，总览会显示欢迎卡片和「✏️ 记第一笔账」按钮', en: 'With no records yet, the overview shows a welcome card with a “✏️ Add First Record” button' },
+  'guide.overview.detailed.tip6_7': { zh: '储蓄预测卡里的「剩余总额/天」和「日常可用/天」是按剩余天数拆分后的每日额度', en: 'In the savings forecast card, “Remaining Total/Day” and “Daily Available/Day” are the daily allowance split across remaining days' },
+  'guide.report.detailed.tip5_4': { zh: '分类明细表会把「分摊已还」金额以单独拆分行列出，方便核对追账情况', en: 'The category table lists repaid split amounts as separate rows for easy reconciliation' },
+  'guide.settings.detailed.tip5_7': { zh: '设置页的「📋 月账单中心」卡片同样可以打开月账单中心，与总览页入口等价', en: 'The “📋 Bill Center” card on Settings opens the same Bill Center as the overview entry' },
+  'guide.settings.detailed.tip5_8': { zh: '数据诊断区支持「📥 导出报告」，一键下载含一致性检查与操作日志的 txt 诊断报告', en: 'The diagnostics section can “📥 Export Report” — a txt file with consistency checks and operation logs' },
+  'guide.settings.detailed.tip5_9': { zh: '跨月后首次打开应用会弹「新月份已开始」，自动把上月账单与收入设置复制到新月份，可查看调整或保持不变', en: 'On the first open after a month change, a “New month started” dialog auto-copies last month\'s bills and income; review or keep as is' },
+  'guide.whatif.detailed.tip5_6': { zh: '结果不满意可点「🔄 重新预测」按当前参数重算；「🗑️ 清除场景」会清空所有调整参数', en: 'Not happy? “🔄 Re-predict” recomputes with current parameters; “🗑️ Clear Scenario” resets all adjustments' },
   'guide.gotIt': { zh: '我知道了', en: 'Got it' },
   'guide.mode.detailed': { zh: '📖 详尽', en: '📖 Detailed' },
   'guide.mode.simple': { zh: '📖 简洁', en: '📖 Simple' },
@@ -915,8 +988,8 @@ addI18nEntries({
   'guide.overview.detailed.grid2_1_label': { zh: '月收入', en: 'Monthly Income' },
   'guide.overview.detailed.grid2_10_desc': { zh: '"记一笔"、"查看统计"、"月账单"三个常用入口按钮', en: 'Three shortcut buttons: “Add Record,” “View Stats,” and “Bill Center”' },
   'guide.overview.detailed.grid2_10_label': { zh: '快捷操作', en: 'Quick Actions' },
-  'guide.overview.detailed.grid2_11_desc': { zh: '方格矩阵展示各标签花费占比，5档密度可调，悬停高亮，点击跳转流水页筛标签', en: 'A grid matrix showing tag spending proportions, with 5 density levels, hover highlights, and click-through to filter records' },
-  'guide.overview.detailed.grid2_11_label': { zh: '标签分布 Waffle 图', en: 'Tag Distribution Waffle Chart' },
+  'guide.overview.detailed.grid2_11_desc': { zh: '本月已收回的分摊款总额与最近明细（账单备注·联系人·金额），按月累计显示', en: 'This month\'s total repaid split amount with recent details (bill note, contact, amount), accumulated monthly' },
+  'guide.overview.detailed.grid2_11_label': { zh: '分摊回款卡片', en: 'Repaid Collections Card' },
   'guide.overview.detailed.grid2_12_desc': { zh: '全局统计基于「本月」或「近30天」，在设置页切换，所有数据自动适配', en: 'Globally switch statistics between “This Month” and “Last 30 Days” in Settings; all data adapts automatically' },
   'guide.overview.detailed.grid2_12_label': { zh: '统计范围切换', en: 'Statistics Range Switcher' },
   'guide.overview.detailed.grid2_2_desc': { zh: '平均每天花多少钱（不计入一次性大额标注的记录）', en: 'Average daily spending (excluding one-time large-amount flagged records)' },
