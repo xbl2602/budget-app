@@ -119,6 +119,16 @@ function selectCategory(catId, context) {
       disp.appendChild(document.createTextNode(' ' + cat.icon + ' ' + cat.name + ' · ' + (typeof __ === 'function' ? __('split.billLabel') : '分摊账单')));
       disp.style.color = 'var(--text-primary)';
     }
+    // Split-bill editor modal category button (26-split-bills.js)
+    const splitCatBtn = document.getElementById('editSplitCatBtn');
+    if (splitCatBtn) {
+      splitCatBtn.innerHTML = '';
+      var dot2 = document.createElement('span');
+      dot2.style.cssText = 'width:10px;height:10px;border-radius:50%;background:' + cat.color + ';display:inline-block;flex-shrink:0';
+      splitCatBtn.appendChild(dot2);
+      splitCatBtn.appendChild(document.createTextNode(' ' + cat.icon + ' ' + cat.name));
+      splitCatBtn.style.color = 'var(--text-primary)';
+    }
     _pickerDisp = { cat, suffix: ' · ' + (typeof __ === 'function' ? __('split.billLabel') : '分摊账单') };
     pickerRestore();
     return;
