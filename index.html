@@ -12874,10 +12874,12 @@ function renderWhatIfResults(result) {
   const savingsPct = targetAmount > 0 ? projectedSavings / targetAmount : 0;
 
   // Adjusted values: base on trend methodology + what-if variable adjustment
-  // This ensures zero adjustments => adjusted = trend (apples-to-apples)
+  // This ensures zero adjustments => adjusted = trend (apples-to-apples).
+  // Baseline uses actualSpent (my real share only — same scope as totalProjected),
+  // NOT getVariableSpending which still includes uncollected split amounts; otherwise
+  // all-trend would shift the adjusted total by the unpaid portion.
   const unpaidBillsAdj = Math.max(0, DataStore.getBillTotal(getMonthKey(new Date().toISOString())) - StatsEngine.getBillSpendingActual(getMonthKey(new Date().toISOString())));
-  const varSpentTotal = StatsEngine.getVariableSpending(getMonthKey(new Date().toISOString()));
-  const varTrendTotal = daysPassed > 0 ? varSpentTotal / daysPassed * daysInMonth : 0;
+  const varTrendTotal = daysPassed > 0 ? actualSpent / daysPassed * daysInMonth : 0;
   const varAdjustment = totalProjected - varTrendTotal;
   const adjustedTotal = trendTotal + varAdjustment;
   const adjustedDailyAvg = adjustedTotal / daysInMonth;
