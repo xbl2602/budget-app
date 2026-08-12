@@ -25,6 +25,7 @@ function renderReport() {
   const savingsTarget = DataStore.getSavingsTarget();
   const dailyTotals = isRolling ? StatsEngine.getPeriodDailyTotals({ excludeBills: false }) : StatsEngine.getDailyTotals(month);
   const catTotals = isRolling ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month);
+  const splitContrib = isRolling ? StatsEngine.getPeriodSplitContrib() : StatsEngine.getSplitContrib(month);
 
   // Savings target amount
   const percentBase = DataStore.getPercentBase();
@@ -157,6 +158,15 @@ function renderReport() {
                   <td style="text-align:center;padding:8px 4px;font-size:0.78rem">${r.status}</td>
                 </tr>`;
               }).join('')}
+              ${splitContrib > 0 ? `
+              <tr style="border-bottom:1px solid var(--border);background:rgba(16,185,129,0.08)">
+                <td style="padding:8px 4px">${SplitEngine.SPLIT_PIE_ICON} ${__('split.synthName')}</td>
+                <td style="text-align:right;padding:8px 4px">—</td>
+                <td style="text-align:right;padding:8px 4px;font-weight:600;color:var(--success)">-${formatMoney(splitContrib)}</td>
+                <td style="text-align:right;padding:8px 4px">${monthTotal > 0 ? (splitContrib/monthTotal*100).toFixed(1) + '%' : '—'}</td>
+                <td style="text-align:right;padding:8px 4px;color:var(--success)">${__('report.reimbursed')}</td>
+                <td style="text-align:center;padding:8px 4px;font-size:0.78rem">✅</td>
+              </tr>` : ''}
             </tbody>
             <tfoot>
               <tr style="border-top:2px solid var(--border);font-weight:700">
@@ -280,6 +290,7 @@ function printReport() {
     'report.predictionSpentSoFar': { zh: '📊 本月至今已消费 <strong>{0}</strong>，日均 {1}。', en: '📊 Spent so far <strong>{0}</strong>, daily avg {1}.' },
     'report.predictionPositive': { zh: '📈 如果维持当前消费习惯，预计月末可存 <strong style="color:var(--success)">{0}</strong>。', en: '📈 At this rate, est. to save <strong style="color:var(--success)">{0}</strong> by month end.' },
     'report.predictionNegative': { zh: '⚠️ 按当前趋势预计超支 <strong style="color:var(--danger)">{0}</strong>，建议控制支出。', en: '⚠️ On track to overspend <strong style="color:var(--danger)">{0}</strong>, consider cutting back.' },
-    'report.predictionSetupHint': { zh: '💡 在「月账单中心」设定月收入，在「设置」设定储蓄目标后可查看完整预测。', en: '💡 Set income in Bills Center & savings target in Settings for full forecast.' }
+    'report.predictionSetupHint': { zh: '💡 在「月账单中心」设定月收入，在「设置」设定储蓄目标后可查看完整预测。', en: '💡 Set income in Bills Center & savings target in Settings for full forecast.' },
+    'report.reimbursed': { zh: '✅ 已还', en: '✅ Paid back' }
   });
 })();

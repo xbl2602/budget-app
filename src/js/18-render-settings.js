@@ -541,6 +541,7 @@ function exportDiagnosticReport() {
 
 function repairData() {
   // Check if DataStore._data and localStorage are in sync
+  let fixed = 0;
   try {
     const raw = localStorage.getItem('budgetAppData');
     if (!raw) {
@@ -554,13 +555,42 @@ function repairData() {
     // Check 1: if localStorage has records that memory doesn't (stale in-memory)
     // We reload from localStorage which is the source of truth
     const success = DataStore.reload();
+    
+    // Split-feature data repair: sign, excludeFromAvg, orphan linking, share sums
+    const SPLIT_ID = (typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID) ? SplitEngine.SPLIT_ID : '__split__';
+    const splitBills = DataStore._data.splitBills || [];
+    DataStore._data.records = (DataStore._data.records || []).map(r => {
+      if (typeof r.amount === 'number' && r.amount < 0) { r.amount = Math.abs(r.amount); fixed++; }
+      if (r.categoryId === SPLIT_ID) {
+        if (r.excludeFromAvg !== false) { r.excludeFromAvg = false; fixed++; }
+        if (!r.splitBillId) {
+          const m = splitBills.filter(b => Math.abs((parseFloat(b.amount) || 0) - (parseFloat(r.amount) || 0)) < 0.01 && String(b.date || '').slice(0, 10) === String(r.date || '').slice(0, 10));
+          if (m.length === 1) { r.splitBillId = m[0].id; fixed++; }
+        }
+      }
+      return r;
+    });
+    splitBills.forEach(b => {
+      const amt = parseFloat(b.amount) || 0;
+      const selfShare = parseFloat(b.selfShare) || 0;
+      const partsSum = (b.participants || []).reduce((s, p) => s + (parseFloat(p.share) || 0), 0);
+      if (amt > 0 && partsSum + selfShare > 0 && Math.abs((partsSum + selfShare) - amt) > 0.01) {
+        if (partsSum > 0 && (amt - selfShare) > 0) {
+          const scale = (amt - selfShare) / partsSum;
+          b.participants = (b.participants || []).map(p => Object.assign({}, p, { share: Math.round((parseFloat(p.share) || 0) * scale * 100) / 100 }));
+          fixed++;
+        }
+      }
+    });
+    if (fixed > 0) DataStore.save();
+    
     if (success) {
       // Also clear any pending delete state which might be stale
       const pending = DataStore.getPendingDelete();
       if (pending) {
         DataStore._finalizeDelete(pending.id);
       }
-      showToast(__('settings.toast.repairSuccess', lsRecords), 'success');
+      showToast(__('settings.toast.repairSuccess', lsRecords, fixed), 'success');
     }
     
     // Check 2: verify pending delete is not stuck
@@ -724,7 +754,7 @@ function deleteTag(tag) {
     'settings.toast.diagNotLoaded': { zh: '⚠️ 诊断系统未加载', en: '⚠️ Diagnostic system not loaded' },
     'settings.toast.reportExported': { zh: '✅ 诊断报告已导出', en: '✅ Diagnostic report exported' },
     'settings.toast.noRepairNeeded': { zh: '✅ 没有需要修复的数据', en: '✅ No data needs repair' },
-    'settings.toast.repairSuccess': { zh: '✅ 数据已从 localStorage 重新加载 ({0} 条记录)', en: '✅ Data reloaded from localStorage ({0} records)' },
+    'settings.toast.repairSuccess': { zh: '✅ 数据已从 localStorage 重新加载 ({0} 条记录)，修复 {1} 项问题', en: '✅ Data reloaded from localStorage ({0} records), {1} issues fixed' },
     'settings.toast.repairFailed': { zh: '❌ 修复失败: {0}', en: '❌ Repair failed: {0}' },
     'settings.toast.tagDeleted': { zh: '已删除标签: {0}', en: 'Deleted tag: {0}' },
 

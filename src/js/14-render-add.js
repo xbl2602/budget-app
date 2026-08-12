@@ -51,6 +51,14 @@ function renderAddPage() {
           </label>
         </div>
 
+        <div class="input-group">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
+            <input type="checkbox" id="addSplitToggle" style="width:18px;height:18px;cursor:pointer" onchange="toggleAddSplitForm(this.checked)">
+            <span class="text-sm text-secondary">${__('split.addToggle')}</span>
+          </label>
+        </div>
+        <div id="addSplitSection" style="display:none"></div>
+
         <button type="submit" class="btn btn-primary btn-lg btn-block" id="submitBtn" style="font-size:1.05rem">
           ${__('addRecord.saveBtn')}
         </button>
@@ -72,6 +80,7 @@ function renderAddPage() {
     if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
     if (parts[1] && parts[1].length > 2) val = parts[0] + '.' + parts[1].slice(0, 2);
     this.value = val;
+    if (typeof previewSplitShares === 'function') previewSplitShares();
   });
 }
 function submitRecord(e) {
@@ -101,13 +110,76 @@ function submitRecord(e) {
     shakeForm();
     return;
   }
-  if (!categoryId) {
+  const splitToggle = document.getElementById('addSplitToggle');
+  const splitMode = !!(splitToggle && splitToggle.checked);
+  if (!categoryId && !splitMode) {
     showToast(__('addRecord.noCategory'), 'error');
     shakeForm();
     return;
   }
 
   const tags = window._addRecordTags || [];
+
+  if (splitMode) {
+    const splitDate = date || new Date().toISOString().slice(0, 16);
+    const splitRes = SplitEngine.collectSplitBill({ amount, date: splitDate, note, tags, categoryId });
+    if (!splitRes.ok) {
+      showToast(splitRes.error, 'error');
+      shakeForm();
+      return;
+    }
+    const active = splitRes.participants.filter(p => p.share > 0);
+    if (!splitRes.bill.selfShare && active.length === 0) {
+      showToast(__('split.needShare'), 'error');
+      shakeForm();
+      return;
+    }
+    const splitBillId = uuid();
+    DataStore.addRecord({
+      amount: amount,
+      categoryId: SplitEngine.SPLIT_ID,
+      date: splitDate,
+      note,
+      tags,
+      splitBillId,
+      excludeFromAvg: false,
+      createdAt: new Date().toISOString()
+    });
+    DataStore._data.splitBills = DataStore._data.splitBills || [];
+    DataStore._data.splitBills.push({
+      id: splitBillId,
+      amount,
+      date: splitDate,
+      note,
+      tag: splitRes.bill.tag || '',
+      categoryId: splitRes.bill.categoryId || '',
+      payer: 'self',
+      selfShare: splitRes.bill.selfShare,
+      participants: active,
+      createdAt: new Date().toISOString()
+    });
+    DataStore.save();
+    logEvent('splitBillAdd', 'amount=' + amount + ', participants=' + active.length);
+    showToast(__('addRecord.saved'));
+
+    // Reset form
+    amountEl.value = '';
+    selectedCategoryId = null;
+    document.getElementById('addCategoryDisplay').textContent = __('addRecord.selectCategory');
+    document.getElementById('addCategoryDisplay').style.color = 'var(--text-muted)';
+    document.getElementById('addNote').value = '';
+    window._addRecordTags = [];
+    renderAddTagsDisplay();
+    splitToggle.checked = false;
+    toggleAddSplitForm(false);
+    if (typeof SplitEngine !== 'undefined' && SplitEngine.resetAddSplitState) SplitEngine.resetAddSplitState();
+    const now2 = new Date();
+    const offset2 = now2.getTimezoneOffset();
+    const local2 = new Date(now2.getTime() - offset2 * 60000);
+    document.getElementById('addDateTime').value = local2.toISOString().slice(0, 16);
+    return;
+  }
+
   const record = {
     amount,
     categoryId,

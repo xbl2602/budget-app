@@ -107,9 +107,10 @@
   justify-content: center;
   padding: 16px;
   animation: fadeIn 0.25s ease;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  transition: background 0.25s ease;
+}
+
+body.modal-open {
+  overflow: hidden;
 }
 
 .modal-overlay.open { display: flex; }
@@ -118,11 +119,12 @@
   background: var(--card-bg);
   border-radius: var(--radius-lg);
   padding: 28px;
-  max-width: 480px;
-  width: 100%;
-  max-height: 85vh;
+  width: min(92vw, 780px);
+  max-width: min(92vw, 780px);
+  max-height: 88vh;
   overflow-y: auto;
-  animation: modalScale 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  overscroll-behavior: contain;
+  animation: modalScale 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   box-shadow: var(--shadow-lg);
 }
 
