@@ -109,7 +109,13 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
         .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
   const catActual = {};
   records.forEach(r => {
-    catActual[r.categoryId] = (catActual[r.categoryId] || 0) + r.amount;
+    // Split records store the full bill amount; only my share is my real spending
+    let amt = r.amount;
+    if (r.splitBillId && typeof SplitEngine !== 'undefined') {
+      const bill = SplitEngine.getSplitBill(r.splitBillId);
+      if (bill) amt = parseFloat(bill.selfShare) || 0;
+    }
+    catActual[r.categoryId] = (catActual[r.categoryId] || 0) + amt;
   });
 
   // Compute daily avg per category
@@ -448,19 +454,6 @@ function renderWhatIfResults(result) {
       treeNodes[c.parentId].children.push(treeNodes[c.id]);
     }
   });
-  // Split-bills pseudo-category row (net of repaid contributions), always trend mode
-  const splitProj = (typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID) ? projMap[SplitEngine.SPLIT_ID] : null;
-  if (splitProj) {
-    rootNodes.push({
-      category: splitProj.category,
-      currentTotal: splitProj.currentTotal,
-      projectedRemaining: splitProj.projectedRemaining,
-      projectedTotal: splitProj.projectedTotal,
-      trendTotal: daysPassed > 0 ? (splitProj.currentDailyAvg || 0) * daysInMonth : 0,
-      mode: 'trend',
-      children: []
-    });
-  }
   // Aggregate non-leaf nodes upward
   function aggregateUp(node) {
     if (node.children.length > 0) {

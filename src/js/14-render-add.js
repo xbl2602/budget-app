@@ -135,9 +135,11 @@ function submitRecord(e) {
       return;
     }
     const splitBillId = uuid();
+    // Storage refactor B: split records carry the bill's REAL category (not the
+    // '__split__' marker) so stats/charts/what-if see the true spending category
     DataStore.addRecord({
       amount: amount,
-      categoryId: SplitEngine.SPLIT_ID,
+      categoryId: splitRes.bill.categoryId || 'uncategorized',
       date: splitDate,
       note,
       tags,

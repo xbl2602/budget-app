@@ -330,7 +330,7 @@ function renderRecordsList() {
 
   let html = '';
   pageRecords.forEach(r => {
-    const isSplit = typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID && r.categoryId === SplitEngine.SPLIT_ID;
+    const isSplit = !!r.splitBillId;
     let dispIcon = '❓';
     let dispName = __('records.unknown');
     let dispColor = '#eee';
@@ -338,10 +338,10 @@ function renderRecordsList() {
     let unpaidHtml = '';
     if (isSplit) {
       const bill = SplitEngine.getSplitBillForRecord(r);
-      const realCat = bill && bill.categoryId ? DataStore.getCategory(bill.categoryId) : null;
-      dispIcon = realCat ? realCat.icon : '🧾';
-      dispName = realCat ? (realCat.name + ' · ' + __('split.billLabel')) : __('split.billLabel');
-      dispColor = realCat ? realCat.color : '#F59E0B';
+      const cat = DataStore.getCategory(r.categoryId);
+      dispIcon = cat ? cat.icon : '🧾';
+      dispName = cat ? (cat.name + ' · ' + __('split.billLabel')) : __('split.billLabel');
+      dispColor = cat ? cat.color : '#F59E0B';
       const selfShare = bill ? (parseFloat(bill.selfShare) || 0) : 0;
       if (selfShare > 0) dispAmount = selfShare;
       const unpaid = bill ? SplitEngine.getSplitBillUnpaid(bill) : 0;
@@ -608,9 +608,9 @@ function confirmBatchChangeCategory(catId) {
   ids.forEach(id => {
     const rec = DataStore.getRecord(id);
     if (!rec) return;
-    if (typeof SplitEngine !== 'undefined' && rec.categoryId === SplitEngine.SPLIT_ID) {
-      // Split records keep their marker category; the linked bill's category is what
-      // drives charts/stats — sync that instead (orphan splits turn into normal records)
+    if (rec.splitBillId) {
+      // Split records carry the bill's real category — sync the bill instead
+      // (setBillCategory keeps the linked records in sync too)
       const bill = SplitEngine.getSplitBillForRecord(rec);
       if (bill) { SplitEngine.setBillCategory(bill.id, catId); return; }
     }
@@ -710,7 +710,7 @@ function undoDelete(btn) {
 
  function openRecordOrSplitEditor(id) {
   const rec = DataStore.getRecord(id);
-  if (rec && typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID && rec.categoryId === SplitEngine.SPLIT_ID) {
+  if (rec && rec.splitBillId) {
     const bill = SplitEngine.getSplitBillForRecord(rec);
     if (bill) {
       if (typeof openSplitBillEditor === 'function') {
@@ -729,7 +729,7 @@ function undoDelete(btn) {
 function openEditRecord(id) {
   const record = DataStore.getRecord(id);
   if (!record) return;
-  const isSplit = typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID && record.categoryId === SplitEngine.SPLIT_ID;
+  const isSplit = !!record.splitBillId;
   const bill = isSplit ? SplitEngine.getSplitBillForRecord(record) : null;
   window._editingSplitBillId = bill ? bill.id : null;
   const cat = DataStore.getCategory(record.categoryId);
@@ -808,7 +808,7 @@ function openEditRecord(id) {
 function submitEditRecord(e, id) {
   e.preventDefault();
   const record = DataStore.getRecord(id);
-  const isSplit = record && typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID && record.categoryId === SplitEngine.SPLIT_ID;
+  const isSplit = !!(record && record.splitBillId);
   const amount = parseFloat(document.getElementById('editAmount').value);
   if (!amount || amount <= 0) { showToast(__('records.edit.invalidAmount'), 'error'); return; }
   if (!isSplit && !selectedCategoryId) { showToast(__('records.edit.selectCategory'), 'error'); return; }

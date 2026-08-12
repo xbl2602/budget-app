@@ -258,7 +258,13 @@ function getSplitBillUnpaid(bill) {
 function setBillCategory(billId, categoryId) {
   const bill = getSplitBill(billId);
   if (!bill) return;
-  updateSplitBill(billId, { categoryId: String(categoryId || '') });
+  const real = String(categoryId || '') && String(categoryId || '') !== SPLIT_ID ? String(categoryId || '') : 'uncategorized';
+  updateSplitBill(billId, { categoryId: real });
+  // Split records carry the bill's real category — keep them in sync
+  (DataStore._data.records || []).forEach(r => {
+    if (r.splitBillId === billId) r.categoryId = real;
+  });
+  DataStore.save();
 }
 
 // Sync the linked split bill when its record is edited on the records page
@@ -1162,7 +1168,8 @@ function convertSplitBillToRecord(billId) {
   if (!bill) return;
   (DataStore._data.records || []).forEach(r => {
     if (r.splitBillId === billId) {
-      r.categoryId = bill.categoryId && bill.categoryId !== SPLIT_ID ? bill.categoryId : 'uncategorized';
+      // Records already carry the real category (storage refactor B); keep it and
+      // just detach the split marker so the record becomes a normal expense
       delete r.splitBillId;
     }
   });

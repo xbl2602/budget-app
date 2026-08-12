@@ -29,14 +29,7 @@ function renderOverview() {
   const overspent = StatsEngine.getOverspentCategories(month);
   const catTotals = isRolling ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month);
   const splitPending = SplitEngine.getPendingSummary();
-  const splitContribTotal = isRolling ? StatsEngine.getPeriodSplitContrib() : StatsEngine.getSplitContrib(month);
-  const splitContribRows = (() => {
-    const range = isRolling ? getPeriodDateRange() : (() => {
-      const parts = month.split('-');
-      return { start: new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, 1), end: new Date(parseInt(parts[0]), parseInt(parts[1]), 0) };
-    })();
-    return SplitEngine.getContribBreakdown(range.start, range.end);
-  })();
+  const splitUnpaidTotal = isRolling ? StatsEngine.getPeriodSplitUnpaid() : StatsEngine.getSplitUnpaid(month);
 
   // Today's and yesterday's spending
   const todayKey = now.toISOString().substr(0, 10);
@@ -133,6 +126,7 @@ function renderOverview() {
           }
           return '';
         })()}
+        ${splitUnpaidTotal > 0.01 ? `<div class="text-xs text-muted mt-4">${__('overview.realSpendingNote', formatMoney(monthTotal - splitUnpaidTotal), formatMoney(splitUnpaidTotal))}</div>` : ''}
       </div>
       <div class="card">
         <div class="card-title">${__('overview.monthlyIncome')}</div>
@@ -176,19 +170,8 @@ function renderOverview() {
     </div>
     ` : ''}
 
-    <!-- Split bills: paid-back contributions (reduce spending) -->
-    ${splitContribTotal > 0 ? `
-    <div class="card mb-16" style="border-left:4px solid var(--success)">
-      <div class="card-title">${__('split.contribTitle')}</div>
-      <div class="text-xl font-bold" style="color:var(--success)">${formatMoney(splitContribTotal)}</div>
-      ${splitContribRows.length ? splitContribRows.slice(0, 8).map(r => `
-        <div class="flex items-center justify-between" style="padding:5px 0;border-bottom:1px dashed var(--border);font-size:0.82rem">
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(r.billNote || r.billTag || '🧾')} <span class="text-muted">· ${escHtml(r.contactName)}</span></span>
-          <span style="font-weight:600;color:var(--success)">${formatMoney(r.amount)}</span>
-        </div>`).join('') : ''}
-      ${splitContribRows.length > 8 ? `<div class="text-xs text-muted" style="padding-top:4px">… ${__('split.moreRows', splitContribRows.length - 8)}</div>` : ''}
-    </div>
-    ` : ''}
+    <!-- Split bills: paid-back contributions (reduce spending) — card removed (B):
+         repayments are already netted into 本月总支出; the split center tracks detail -->
 
     <!-- Bills center — prominent entry -->
     <div class="card mb-16" style="border-left:4px solid var(--primary);background:linear-gradient(135deg,var(--card-bg),rgba(99,102,241,0.04));cursor:pointer" onclick="openBillsCenter()">
@@ -430,6 +413,7 @@ function refreshOverviewBudget() {
     'overview.title.rolling': { zh: '近30天支出', en: 'Last 30 Days' },
     'overview.title.monthly': { zh: '本月总支出', en: 'Monthly Spending' },
     'overview.dailyBillsBreakdown': { zh: '日常 {0} · 账单 {1}', en: 'Daily {0} · Bills {1}' },
+    'overview.realSpendingNote': { zh: '真实支出 {0} + 未收回账目 {1}', en: 'Real spending {0} + Uncollected {1}' },
     'overview.monthlyIncome': { zh: '月收入', en: 'Monthly Income' },
     'overview.notSet': { zh: '未设置', en: 'Not Set' },
     'overview.netIncome': { zh: '净收入', en: 'Net Income' },
