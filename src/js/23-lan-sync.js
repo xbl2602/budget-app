@@ -217,6 +217,19 @@
       if (data.whatIfParams) DataStore._data.whatIfParams = data.whatIfParams;
       if (data.billCategories && Array.isArray(data.billCategories))
         DataStore._data.billCategories = data.billCategories.map(function (b) { b.name = sanitizeHtml(b.name); return b; });
+      if (data.contacts && Array.isArray(data.contacts))
+        DataStore._data.contacts = data.contacts.map(function (c) {
+          if (c && typeof c.name === 'string') c.name = sanitizeHtml(c.name);
+          return c;
+        });
+      if (data.splitBills && Array.isArray(data.splitBills))
+        DataStore._data.splitBills = data.splitBills.map(function (b) {
+          if (b && typeof b.note === 'string') b.note = sanitizeHtml(b.note);
+          if (b && Array.isArray(b.participants)) b.participants.forEach(function (p) {
+            if (p && typeof p.name === 'string') p.name = sanitizeHtml(p.name);
+          });
+          return b;
+        });
     } else {
       mergeIntoDataStore(data);
     }
@@ -270,6 +283,31 @@
       var bIds = {}; cur.billCategories.forEach(function (b) { bIds[b.id] = true; });
       incoming.billCategories.forEach(function (b) {
         if (!bIds[b.id]) { b.name = sanitizeHtml(b.name); cur.billCategories.push(b); bIds[b.id] = true; }
+      });
+    }
+    if (incoming.contacts && Array.isArray(incoming.contacts)) {
+      if (!Array.isArray(cur.contacts)) cur.contacts = [];
+      var cIds = {}; cur.contacts.forEach(function (c) { if (c && c.id) cIds[c.id] = true; });
+      incoming.contacts.forEach(function (c) {
+        if (c && c.id && !cIds[c.id]) {
+          if (typeof c.name === 'string') c.name = sanitizeHtml(c.name);
+          cur.contacts.push(c);
+          cIds[c.id] = true;
+        }
+      });
+    }
+    if (incoming.splitBills && Array.isArray(incoming.splitBills)) {
+      if (!Array.isArray(cur.splitBills)) cur.splitBills = [];
+      var sIds = {}; cur.splitBills.forEach(function (b) { if (b && b.id) sIds[b.id] = true; });
+      incoming.splitBills.forEach(function (b) {
+        if (b && b.id && !sIds[b.id]) {
+          if (typeof b.note === 'string') b.note = sanitizeHtml(b.note);
+          if (Array.isArray(b.participants)) b.participants.forEach(function (p) {
+            if (p && typeof p.name === 'string') p.name = sanitizeHtml(p.name);
+          });
+          cur.splitBills.push(b);
+          sIds[b.id] = true;
+        }
       });
     }
   }

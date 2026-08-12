@@ -88,12 +88,17 @@ function exportToExcel() {
   xml += ' </Styles>\n';
 
   // ===== SHEET 1: 消费记录 (Records) =====
-  // Columns: A=序号, B=日期, C=金额, D=分类, E=子分类, F=备注, G=月份, H=不计日均
-  const nCols = 8;
+  // Columns: A=序号, B=日期, C=金额, D=分类, E=子分类, F=备注, G=月份, H=不计日均, I=标签, J=分摊
+  const nCols = 10;
   // Prepare records sorted newest first
   const sortedRecords = [...records].sort((a, b) => (b.date || b.createdAt) > (a.date || a.createdAt) ? 1 : -1);
   const dataStartRow = 2; // row 1 = header, data starts row 2
   const dataEndRow = dataStartRow + sortedRecords.length - 1;
+
+  // Split bill lookup for split-marker column (records store full amount; my share lives on the bill)
+  const splitBills = (DataStore._data && Array.isArray(DataStore._data.splitBills)) ? DataStore._data.splitBills : [];
+  const splitBillMap = {};
+  splitBills.forEach(b => { if (b && b.id) splitBillMap[b.id] = b; });
 
   xml += ' <Worksheet ss:Name="' + __('excel.sheet.records') + '">\n';
   xml += '  <Table>\n';
@@ -105,9 +110,11 @@ function exportToExcel() {
   xml += '   <Column ss:Width="200"/>\n';  // F: 备注
   xml += '   <Column ss:Width="80"/>\n';   // G: 月份
   xml += '   <Column ss:Width="60"/>\n';   // H: 不计日均
+  xml += '   <Column ss:Width="140"/>\n';  // I: 标签
+  xml += '   <Column ss:Width="120"/>\n';  // J: 分摊
   // Header row
   xml += '   <Row>\n';
-  [__('excel.header.seq'),__('excel.header.date'),__('excel.header.amount'),__('excel.header.category'),__('excel.header.subcategory'),__('excel.header.note'),__('excel.header.month'),__('excel.header.excludeFromAvg')].forEach(h => {
+  [__('excel.header.seq'),__('excel.header.date'),__('excel.header.amount'),__('excel.header.category'),__('excel.header.subcategory'),__('excel.header.note'),__('excel.header.month'),__('excel.header.excludeFromAvg'),__('excel.header.tags'),__('excel.header.split')].forEach(h => {
     xml += `    <Cell ss:StyleID="header"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
   });
   xml += '   </Row>\n';
@@ -116,10 +123,13 @@ function exportToExcel() {
   sortedRecords.forEach((r, idx) => {
     const rowNum = dataStartRow + idx;
     const cat = catMap[r.categoryId] || { name: __('excel.label.unknown'), icon: '❓' };
-    const parentCat = cat.parentId ? (catMap[cat.parentId] || null) : null;
     const rootCat = cat.parentId ? (catMap[getRootCatId(r.categoryId)] || null) : cat;
     const dateVal = r.date || r.createdAt.slice(0,10);
     const monthKey = getMonthKey(dateVal);
+    const splitMark = r.splitBillId ? (splitBillMap[r.splitBillId]
+      ? '🧾 ' + __('excel.label.splitBill') + ' · ' + __('excel.label.myShare') + ' ' + fmtNum(splitBillMap[r.splitBillId].selfShare || 0)
+      : '🧾 ' + __('excel.label.splitBill')) : '';
+    const tagsVal = Array.isArray(r.tags) ? r.tags.join('、') : '';
     xml += '   <Row>\n';
     xml += `    <Cell><Data ss:Type="Number">${idx+1}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="String">${esc(dateVal)}</Data></Cell>\n`;
@@ -132,6 +142,8 @@ function exportToExcel() {
     xml += `    <Cell><Data ss:Type="String">${esc(r.note || '')}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="String">${esc(monthKey)}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="String">${r.excludeFromAvg ? __('excel.label.yes') : ''}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(tagsVal)}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(splitMark)}</Data></Cell>\n`;
     xml += '   </Row>\n';
   });
 
@@ -450,6 +462,71 @@ function exportToExcel() {
   xml += '  </Table>\n';
   xml += ' </Worksheet>\n';
 
+  // ===== SHEET 6: 分摊账单 (Split Bills) =====
+  // Summary row per bill + one indented row per participant
+  // Bill row: A=日期, B=备注, C=分类, D=总额, E=自份额, F=他人待收, G=他人已还, H=状态
+  // Participant row: A=↳ 参与人, B=备注(❓), D=份额, H=已还/待收
+  xml += ' <Worksheet ss:Name="' + __('excel.sheet.splitBills') + '">\n';
+  xml += '  <Table>\n';
+  xml += '   <Column ss:Width="90"/>\n';   // A
+  xml += '   <Column ss:Width="160"/>\n';  // B
+  xml += '   <Column ss:Width="100"/>\n';  // C
+  xml += '   <Column ss:Width="90"/>\n';   // D
+  xml += '   <Column ss:Width="90"/>\n';   // E
+  xml += '   <Column ss:Width="90"/>\n';   // F
+  xml += '   <Column ss:Width="90"/>\n';   // G
+  xml += '   <Column ss:Width="90"/>\n';   // H
+  xml += '   <Row>\n';
+  [__('excel.header.date'),__('excel.header.note'),__('excel.header.category'),__('excel.split.label.total'),__('excel.split.label.myShare'),__('excel.split.label.unpaid'),__('excel.split.label.paid'),__('excel.header.status')].forEach(h => {
+    xml += `    <Cell ss:StyleID="header"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
+  });
+  xml += '   </Row>\n';
+
+  const sbStartRow = 2;
+  splitBills.forEach((b, bi) => {
+    const billRowNum = sbStartRow + bi;
+    const selfShare = Math.max(0, parseFloat(b.selfShare) || 0);
+    const parts = Array.isArray(b.participants) ? b.participants : [];
+    let unpaid = 0, paidTotal = 0, unknownCount = 0;
+    parts.forEach(p => {
+      const amt = parseFloat(p.share) || 0;
+      if (p.paid) paidTotal += amt; else unpaid += amt;
+      if (p.unknown) unknownCount++;
+    });
+    const scat = catMap[b.categoryId] || { name: __('excel.label.unknown'), icon: '❓' };
+    const total = Math.max(0, parseFloat(b.amount) || 0);
+    const status = b.archived ? __('excel.split.status.archived') : __('excel.split.status.active');
+
+    xml += '   <Row>\n';
+    xml += `    <Cell><Data ss:Type="String">${esc(String(b.date || '').slice(0, 10))}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(b.note || '')}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(scat.icon + ' ' + scat.name)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(total)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(selfShare)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(unpaid)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(paidTotal)}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
+    xml += '   </Row>\n';
+
+    if (parts.length > 0) {
+      parts.forEach((p, pi) => {
+        const pAmt = parseFloat(p.share) || 0;
+        const pStatus = p.paid
+          ? __('excel.split.status.paid')
+          : (p.unknown ? __('excel.split.status.unknown') : __('excel.split.status.unpaid'));
+        xml += '   <Row>\n';
+        xml += `    <Cell><Data ss:Type="String">${esc('  ↳ ' + (p.name || __('excel.label.unknown')))}</Data></Cell>\n`;
+        xml += `    <Cell><Data ss:Type="String">${p.unknown ? esc(__('excel.split.label.unknownMark')) : ''}</Data></Cell>\n`;
+        xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(pAmt)}</Data></Cell>\n`;
+        xml += `    <Cell><Data ss:Type="String">${esc(pStatus)}</Data></Cell>\n`;
+        xml += '   </Row>\n';
+      });
+    }
+  });
+
+  xml += '  </Table>\n';
+  xml += ' </Worksheet>\n';
+
   xml += '</Workbook>';
 
   // Trigger download as .xlsx (the XML Spreadsheet format — Excel opens it fine)
@@ -478,6 +555,7 @@ function exportToExcel() {
     'excel.sheet.monthlySummary': { zh: '月度统计', en: 'Monthly Summary' },
     'excel.sheet.budgetTracking': { zh: '预算跟踪', en: 'Budget Tracking' },
     'excel.sheet.savingsStats': { zh: '储蓄统计', en: 'Savings Stats' },
+    'excel.sheet.splitBills': { zh: '分摊账单', en: 'Split Bills' },
     'excel.header.seq': { zh: '序号', en: '#' },
     'excel.header.date': { zh: '日期', en: 'Date' },
     'excel.header.amount': { zh: '金额 (RM)', en: 'Amount (RM)' },
@@ -501,6 +579,20 @@ function exportToExcel() {
     'excel.header.status': { zh: '状态', en: 'Status' },
     'excel.header.actualSavings': { zh: '实际储蓄 (RM)', en: 'Actual Savings (RM)' },
     'excel.header.targetAchievementRate': { zh: '目标达成率', en: 'Target Rate' },
+    'excel.header.tags': { zh: '标签', en: 'Tags' },
+    'excel.header.split': { zh: '分摊', en: 'Split' },
+    'excel.label.splitBill': { zh: '分摊账单', en: 'Split bill' },
+    'excel.label.myShare': { zh: '自份额', en: 'my share' },
+    'excel.split.label.total': { zh: '总额 (RM)', en: 'Total (RM)' },
+    'excel.split.label.myShare': { zh: '自份额 (RM)', en: 'My Share (RM)' },
+    'excel.split.label.unpaid': { zh: '他人待收 (RM)', en: 'Unpaid (RM)' },
+    'excel.split.label.paid': { zh: '他人已还 (RM)', en: 'Paid (RM)' },
+    'excel.split.label.unknownMark': { zh: '❓ 金额不明', en: '❓ Unknown amount' },
+    'excel.split.status.archived': { zh: '已归档', en: 'Archived' },
+    'excel.split.status.active': { zh: '进行中', en: 'Active' },
+    'excel.split.status.paid': { zh: '✅ 已还', en: '✅ Paid' },
+    'excel.split.status.unpaid': { zh: '⏳ 待收', en: '⏳ Unpaid' },
+    'excel.split.status.unknown': { zh: '❓ 金额不明（待收）', en: '❓ Unknown (unpaid)' },
     'excel.summary.total': { zh: '合计', en: 'Total' },
     'excel.summary.totalAvg': { zh: '合计/平均', en: 'Total / Avg' },
     'excel.summary.grandTotal': { zh: '总计', en: 'Grand Total' },

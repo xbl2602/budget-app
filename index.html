@@ -3006,7 +3006,16 @@ const DataStore = {
           }
         });
         Object.assign(this._data.budgets, data.budgets || {});
+        Object.assign(this._data.categoryBudgets || {}, data.categoryBudgets || {});
         if (data.savingsTarget) this._data.savingsTarget = data.savingsTarget;
+        if (data.whatIfParams) this._data.whatIfParams = data.whatIfParams;
+        if (data.allTags && Array.isArray(data.allTags)) {
+          if (!this._data.allTags) this._data.allTags = [];
+          data.allTags.forEach(t => {
+            if (typeof t === 'string' && t && !this._data.allTags.includes(t)) this._data.allTags.push(t);
+          });
+          this._data.allTags.sort();
+        }
         if (data.billCategories) {
           this._data.billCategories = [...this._data.billCategories, ...data.billCategories];
         }
@@ -3045,6 +3054,9 @@ const DataStore = {
     const cats = this._data.categories;
     const catMap = {};
     cats.forEach(c => catMap[c.id] = c);
+    const splitBills = Array.isArray(this._data.splitBills) ? this._data.splitBills : [];
+    const splitMap = {};
+    splitBills.forEach(b => { if (b && b.id) splitMap[b.id] = b; });
     const header = __('datastore.csvHeader');
     const rows = this._data.records.map(r => {
       const cat = catMap[r.categoryId] || { name: __('datastore.unknown'), icon: '❓' };
@@ -3053,7 +3065,11 @@ const DataStore = {
       // Fixed (m3): escape newlines in text fields for valid CSV
       const safeNote = String(r.note || '').replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
       const safeCatName = String(cat.icon + cat.name).replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
-      return `${r.id},"${amount}","${safeCatName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}"`;
+      const safeTags = String(Array.isArray(r.tags) ? r.tags.join('、') : '').replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
+      const splitMark = r.splitBillId ? (splitMap[r.splitBillId]
+        ? __('datastore.splitMark', splitMap[r.splitBillId].selfShare || 0)
+        : __('datastore.splitBillOnly')) : '';
+      return `${r.id},"${amount}","${safeCatName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}","${safeTags}","${splitMark}"`;
     });
     return '\uFEFF' + header + '\n' + rows.join('\n');
   },
@@ -3103,7 +3119,7 @@ const DataStore = {
     // Generate a simple hash from all data to detect sync mismatches
     const data = this._data;
     const fingerprint = JSON.stringify({
-      records: data.records.map(r => ({ id: r.id, amount: r.amount, categoryId: r.categoryId, date: r.date, note: r.note, updatedAt: r.updatedAt })),
+      records: data.records.map(r => ({ id: r.id, amount: r.amount, categoryId: r.categoryId, date: r.date, note: r.note, tags: r.tags, splitBillId: r.splitBillId, excludeFromAvg: r.excludeFromAvg, _deleted: r._deleted, updatedAt: r.updatedAt })),
       categories: data.categories.map(c => ({ id: c.id, name: c.name, parentId: c.parentId })),
       budgets: data.budgets,
       categoryBudgets: data.categoryBudgets,
@@ -3113,7 +3129,8 @@ const DataStore = {
       monthlyIncome: data.monthlyIncome,
       percentBase: data.percentBase,
       contacts: data.contacts,
-      splitBills: (data.splitBills || []).map(b => ({ id: b.id, amount: b.amount, date: b.date, participants: b.participants }))
+      allTags: data.allTags,
+      splitBills: (data.splitBills || []).map(b => ({ id: b.id, amount: b.amount, date: b.date, categoryId: b.categoryId, selfShare: b.selfShare, mode: b.mode, note: b.note, archived: b.archived, participants: (b.participants || []).map(p => ({ contactId: p.contactId, name: p.name, share: p.share, paid: p.paid, unknown: p.unknown })) }))
     });
     // DJB2 hash
     let hash = 5381;
@@ -3325,9 +3342,11 @@ const DataStore = {
   // i18n translations
   addI18nEntries({
     'datastore.saveFailed': { zh: '❌ 数据保存失败: {0}', en: '❌ Save failed: {0}' },
-    'datastore.csvHeader': { zh: 'ID,金额,分类,日期,备注,创建时间,不计日均', en: 'ID,Amount,Category,Date,Note,CreatedAt,ExcludeFromAvg' },
+    'datastore.csvHeader': { zh: 'ID,金额,分类,日期,备注,创建时间,不计日均,标签,分摊', en: 'ID,Amount,Category,Date,Note,CreatedAt,ExcludeFromAvg,Tags,Split' },
     'datastore.unknown': { zh: '未知', en: 'Unknown' },
     'datastore.yes': { zh: '是', en: 'Yes' },
+    'datastore.splitBillOnly': { zh: '🧾 分摊账单', en: '🧾 Split bill' },
+    'datastore.splitMark': { zh: '🧾 分摊（自份额 {0}）', en: '🧾 Split bill (my share {0})' },
     'datastore.noData': { zh: '无数据', en: 'No data' }
   });
 
@@ -3450,12 +3469,17 @@ function exportToExcel() {
   xml += ' </Styles>\n';
 
   // ===== SHEET 1: 消费记录 (Records) =====
-  // Columns: A=序号, B=日期, C=金额, D=分类, E=子分类, F=备注, G=月份, H=不计日均
-  const nCols = 8;
+  // Columns: A=序号, B=日期, C=金额, D=分类, E=子分类, F=备注, G=月份, H=不计日均, I=标签, J=分摊
+  const nCols = 10;
   // Prepare records sorted newest first
   const sortedRecords = [...records].sort((a, b) => (b.date || b.createdAt) > (a.date || a.createdAt) ? 1 : -1);
   const dataStartRow = 2; // row 1 = header, data starts row 2
   const dataEndRow = dataStartRow + sortedRecords.length - 1;
+
+  // Split bill lookup for split-marker column (records store full amount; my share lives on the bill)
+  const splitBills = (DataStore._data && Array.isArray(DataStore._data.splitBills)) ? DataStore._data.splitBills : [];
+  const splitBillMap = {};
+  splitBills.forEach(b => { if (b && b.id) splitBillMap[b.id] = b; });
 
   xml += ' <Worksheet ss:Name="' + __('excel.sheet.records') + '">\n';
   xml += '  <Table>\n';
@@ -3467,9 +3491,11 @@ function exportToExcel() {
   xml += '   <Column ss:Width="200"/>\n';  // F: 备注
   xml += '   <Column ss:Width="80"/>\n';   // G: 月份
   xml += '   <Column ss:Width="60"/>\n';   // H: 不计日均
+  xml += '   <Column ss:Width="140"/>\n';  // I: 标签
+  xml += '   <Column ss:Width="120"/>\n';  // J: 分摊
   // Header row
   xml += '   <Row>\n';
-  [__('excel.header.seq'),__('excel.header.date'),__('excel.header.amount'),__('excel.header.category'),__('excel.header.subcategory'),__('excel.header.note'),__('excel.header.month'),__('excel.header.excludeFromAvg')].forEach(h => {
+  [__('excel.header.seq'),__('excel.header.date'),__('excel.header.amount'),__('excel.header.category'),__('excel.header.subcategory'),__('excel.header.note'),__('excel.header.month'),__('excel.header.excludeFromAvg'),__('excel.header.tags'),__('excel.header.split')].forEach(h => {
     xml += `    <Cell ss:StyleID="header"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
   });
   xml += '   </Row>\n';
@@ -3478,10 +3504,13 @@ function exportToExcel() {
   sortedRecords.forEach((r, idx) => {
     const rowNum = dataStartRow + idx;
     const cat = catMap[r.categoryId] || { name: __('excel.label.unknown'), icon: '❓' };
-    const parentCat = cat.parentId ? (catMap[cat.parentId] || null) : null;
     const rootCat = cat.parentId ? (catMap[getRootCatId(r.categoryId)] || null) : cat;
     const dateVal = r.date || r.createdAt.slice(0,10);
     const monthKey = getMonthKey(dateVal);
+    const splitMark = r.splitBillId ? (splitBillMap[r.splitBillId]
+      ? '🧾 ' + __('excel.label.splitBill') + ' · ' + __('excel.label.myShare') + ' ' + fmtNum(splitBillMap[r.splitBillId].selfShare || 0)
+      : '🧾 ' + __('excel.label.splitBill')) : '';
+    const tagsVal = Array.isArray(r.tags) ? r.tags.join('、') : '';
     xml += '   <Row>\n';
     xml += `    <Cell><Data ss:Type="Number">${idx+1}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="String">${esc(dateVal)}</Data></Cell>\n`;
@@ -3494,6 +3523,8 @@ function exportToExcel() {
     xml += `    <Cell><Data ss:Type="String">${esc(r.note || '')}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="String">${esc(monthKey)}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="String">${r.excludeFromAvg ? __('excel.label.yes') : ''}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(tagsVal)}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(splitMark)}</Data></Cell>\n`;
     xml += '   </Row>\n';
   });
 
@@ -3812,6 +3843,71 @@ function exportToExcel() {
   xml += '  </Table>\n';
   xml += ' </Worksheet>\n';
 
+  // ===== SHEET 6: 分摊账单 (Split Bills) =====
+  // Summary row per bill + one indented row per participant
+  // Bill row: A=日期, B=备注, C=分类, D=总额, E=自份额, F=他人待收, G=他人已还, H=状态
+  // Participant row: A=↳ 参与人, B=备注(❓), D=份额, H=已还/待收
+  xml += ' <Worksheet ss:Name="' + __('excel.sheet.splitBills') + '">\n';
+  xml += '  <Table>\n';
+  xml += '   <Column ss:Width="90"/>\n';   // A
+  xml += '   <Column ss:Width="160"/>\n';  // B
+  xml += '   <Column ss:Width="100"/>\n';  // C
+  xml += '   <Column ss:Width="90"/>\n';   // D
+  xml += '   <Column ss:Width="90"/>\n';   // E
+  xml += '   <Column ss:Width="90"/>\n';   // F
+  xml += '   <Column ss:Width="90"/>\n';   // G
+  xml += '   <Column ss:Width="90"/>\n';   // H
+  xml += '   <Row>\n';
+  [__('excel.header.date'),__('excel.header.note'),__('excel.header.category'),__('excel.split.label.total'),__('excel.split.label.myShare'),__('excel.split.label.unpaid'),__('excel.split.label.paid'),__('excel.header.status')].forEach(h => {
+    xml += `    <Cell ss:StyleID="header"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
+  });
+  xml += '   </Row>\n';
+
+  const sbStartRow = 2;
+  splitBills.forEach((b, bi) => {
+    const billRowNum = sbStartRow + bi;
+    const selfShare = Math.max(0, parseFloat(b.selfShare) || 0);
+    const parts = Array.isArray(b.participants) ? b.participants : [];
+    let unpaid = 0, paidTotal = 0, unknownCount = 0;
+    parts.forEach(p => {
+      const amt = parseFloat(p.share) || 0;
+      if (p.paid) paidTotal += amt; else unpaid += amt;
+      if (p.unknown) unknownCount++;
+    });
+    const scat = catMap[b.categoryId] || { name: __('excel.label.unknown'), icon: '❓' };
+    const total = Math.max(0, parseFloat(b.amount) || 0);
+    const status = b.archived ? __('excel.split.status.archived') : __('excel.split.status.active');
+
+    xml += '   <Row>\n';
+    xml += `    <Cell><Data ss:Type="String">${esc(String(b.date || '').slice(0, 10))}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(b.note || '')}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(scat.icon + ' ' + scat.name)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(total)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(selfShare)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(unpaid)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(paidTotal)}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
+    xml += '   </Row>\n';
+
+    if (parts.length > 0) {
+      parts.forEach((p, pi) => {
+        const pAmt = parseFloat(p.share) || 0;
+        const pStatus = p.paid
+          ? __('excel.split.status.paid')
+          : (p.unknown ? __('excel.split.status.unknown') : __('excel.split.status.unpaid'));
+        xml += '   <Row>\n';
+        xml += `    <Cell><Data ss:Type="String">${esc('  ↳ ' + (p.name || __('excel.label.unknown')))}</Data></Cell>\n`;
+        xml += `    <Cell><Data ss:Type="String">${p.unknown ? esc(__('excel.split.label.unknownMark')) : ''}</Data></Cell>\n`;
+        xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(pAmt)}</Data></Cell>\n`;
+        xml += `    <Cell><Data ss:Type="String">${esc(pStatus)}</Data></Cell>\n`;
+        xml += '   </Row>\n';
+      });
+    }
+  });
+
+  xml += '  </Table>\n';
+  xml += ' </Worksheet>\n';
+
   xml += '</Workbook>';
 
   // Trigger download as .xlsx (the XML Spreadsheet format — Excel opens it fine)
@@ -3840,6 +3936,7 @@ function exportToExcel() {
     'excel.sheet.monthlySummary': { zh: '月度统计', en: 'Monthly Summary' },
     'excel.sheet.budgetTracking': { zh: '预算跟踪', en: 'Budget Tracking' },
     'excel.sheet.savingsStats': { zh: '储蓄统计', en: 'Savings Stats' },
+    'excel.sheet.splitBills': { zh: '分摊账单', en: 'Split Bills' },
     'excel.header.seq': { zh: '序号', en: '#' },
     'excel.header.date': { zh: '日期', en: 'Date' },
     'excel.header.amount': { zh: '金额 (RM)', en: 'Amount (RM)' },
@@ -3863,6 +3960,20 @@ function exportToExcel() {
     'excel.header.status': { zh: '状态', en: 'Status' },
     'excel.header.actualSavings': { zh: '实际储蓄 (RM)', en: 'Actual Savings (RM)' },
     'excel.header.targetAchievementRate': { zh: '目标达成率', en: 'Target Rate' },
+    'excel.header.tags': { zh: '标签', en: 'Tags' },
+    'excel.header.split': { zh: '分摊', en: 'Split' },
+    'excel.label.splitBill': { zh: '分摊账单', en: 'Split bill' },
+    'excel.label.myShare': { zh: '自份额', en: 'my share' },
+    'excel.split.label.total': { zh: '总额 (RM)', en: 'Total (RM)' },
+    'excel.split.label.myShare': { zh: '自份额 (RM)', en: 'My Share (RM)' },
+    'excel.split.label.unpaid': { zh: '他人待收 (RM)', en: 'Unpaid (RM)' },
+    'excel.split.label.paid': { zh: '他人已还 (RM)', en: 'Paid (RM)' },
+    'excel.split.label.unknownMark': { zh: '❓ 金额不明', en: '❓ Unknown amount' },
+    'excel.split.status.archived': { zh: '已归档', en: 'Archived' },
+    'excel.split.status.active': { zh: '进行中', en: 'Active' },
+    'excel.split.status.paid': { zh: '✅ 已还', en: '✅ Paid' },
+    'excel.split.status.unpaid': { zh: '⏳ 待收', en: '⏳ Unpaid' },
+    'excel.split.status.unknown': { zh: '❓ 金额不明（待收）', en: '❓ Unknown (unpaid)' },
     'excel.summary.total': { zh: '合计', en: 'Total' },
     'excel.summary.totalAvg': { zh: '合计/平均', en: 'Total / Avg' },
     'excel.summary.grandTotal': { zh: '总计', en: 'Grand Total' },
@@ -11667,7 +11778,7 @@ function renderSettings() {
     <div style="text-align:center;padding:12px 0 4px">
       <button class="btn btn-ghost btn-sm" onclick="refreshPageData()" style="font-size:0.8rem">🔄 ${__('settings.refreshPage')}</button>
     </div>
-    <div style="text-align:center;padding:8px 0 8px;font-size:0.65rem;color:var(--text-muted);opacity:0.5">v3.0.0</div>
+    <div style="text-align:center;padding:8px 0 8px;font-size:0.65rem;color:var(--text-muted);opacity:0.5">v3.1.0</div>
   `;
   // Set current locale in language switcher
   var sel = document.getElementById('localeSelect');
@@ -11807,7 +11918,7 @@ function exportDiagnosticLog() {
   }
   let text = '=== Budget App Diagnostic Log ===\n';
   text += 'Exported: ' + new Date().toISOString() + '\n';
-  text += 'Version: v3.0.0\n';
+  text += 'Version: v3.1.0\n';
   text += 'Records: ' + DataStore.getRecords().length + '\n';
   text += 'Pending Delete: ' + (DataStore.getPendingDelete() ? DataStore.getPendingDelete().id : 'none') + '\n';
   text += 'LocalStorage: ' + (localStorage.getItem('budgetAppData') || '').length + ' bytes\n';
@@ -13837,6 +13948,19 @@ try{
       if (data.whatIfParams) DataStore._data.whatIfParams = data.whatIfParams;
       if (data.billCategories && Array.isArray(data.billCategories))
         DataStore._data.billCategories = data.billCategories.map(function (b) { b.name = sanitizeHtml(b.name); return b; });
+      if (data.contacts && Array.isArray(data.contacts))
+        DataStore._data.contacts = data.contacts.map(function (c) {
+          if (c && typeof c.name === 'string') c.name = sanitizeHtml(c.name);
+          return c;
+        });
+      if (data.splitBills && Array.isArray(data.splitBills))
+        DataStore._data.splitBills = data.splitBills.map(function (b) {
+          if (b && typeof b.note === 'string') b.note = sanitizeHtml(b.note);
+          if (b && Array.isArray(b.participants)) b.participants.forEach(function (p) {
+            if (p && typeof p.name === 'string') p.name = sanitizeHtml(p.name);
+          });
+          return b;
+        });
     } else {
       mergeIntoDataStore(data);
     }
@@ -13890,6 +14014,31 @@ try{
       var bIds = {}; cur.billCategories.forEach(function (b) { bIds[b.id] = true; });
       incoming.billCategories.forEach(function (b) {
         if (!bIds[b.id]) { b.name = sanitizeHtml(b.name); cur.billCategories.push(b); bIds[b.id] = true; }
+      });
+    }
+    if (incoming.contacts && Array.isArray(incoming.contacts)) {
+      if (!Array.isArray(cur.contacts)) cur.contacts = [];
+      var cIds = {}; cur.contacts.forEach(function (c) { if (c && c.id) cIds[c.id] = true; });
+      incoming.contacts.forEach(function (c) {
+        if (c && c.id && !cIds[c.id]) {
+          if (typeof c.name === 'string') c.name = sanitizeHtml(c.name);
+          cur.contacts.push(c);
+          cIds[c.id] = true;
+        }
+      });
+    }
+    if (incoming.splitBills && Array.isArray(incoming.splitBills)) {
+      if (!Array.isArray(cur.splitBills)) cur.splitBills = [];
+      var sIds = {}; cur.splitBills.forEach(function (b) { if (b && b.id) sIds[b.id] = true; });
+      incoming.splitBills.forEach(function (b) {
+        if (b && b.id && !sIds[b.id]) {
+          if (typeof b.note === 'string') b.note = sanitizeHtml(b.note);
+          if (Array.isArray(b.participants)) b.participants.forEach(function (p) {
+            if (p && typeof p.name === 'string') p.name = sanitizeHtml(p.name);
+          });
+          cur.splitBills.push(b);
+          sIds[b.id] = true;
+        }
       });
     }
   }
@@ -14456,7 +14605,7 @@ const DIAG = {
     
     let text = '=== Budget App Diagnostic Report ===\n';
     text += 'Generated: ' + new Date().toISOString() + '\n';
-    text += 'Version: v3.0.0\n';
+    text += 'Version: v3.1.0\n';
     text += '\n--- Memory vs LocalStorage ---\n';
     text += 'Memory records: ' + compare.memRecords + '\n';
     text += 'LocalStorage records: ' + compare.lsRecords + '\n';
