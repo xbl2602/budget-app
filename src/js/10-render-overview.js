@@ -28,6 +28,15 @@ function renderOverview() {
   const last7 = StatsEngine.getLast7Days();
   const overspent = StatsEngine.getOverspentCategories(month);
   const catTotals = isRolling ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month);
+  const splitPending = SplitEngine.getPendingSummary();
+  const splitContribTotal = isRolling ? StatsEngine.getPeriodSplitContrib() : StatsEngine.getSplitContrib(month);
+  const splitContribRows = (() => {
+    const range = isRolling ? getPeriodDateRange() : (() => {
+      const parts = month.split('-');
+      return { start: new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, 1), end: new Date(parseInt(parts[0]), parseInt(parts[1]), 0) };
+    })();
+    return SplitEngine.getContribBreakdown(range.start, range.end);
+  })();
 
   // Today's and yesterday's spending
   const todayKey = now.toISOString().substr(0, 10);
@@ -150,6 +159,36 @@ function renderOverview() {
         <div class="text-xl font-bold" style="color:${todayTotal > 0 ? 'var(--warning)' : 'var(--text-muted)'}">${todayTotal > 0 ? formatMoney(todayTotal) : __('overview.none')}</div>
       </div>
     </div>
+
+    <!-- Split bills: pending collection banner -->
+    ${splitPending.total > 0 ? `
+    <div class="card mb-16" style="border-left:4px solid var(--warning);cursor:pointer" onclick="openSplitCenter()">
+      <div class="flex items-center justify-between" style="padding:2px 0">
+        <div class="flex items-center gap-8">
+          <span style="font-size:1.5rem">🧾</span>
+          <div>
+            <div style="font-weight:600;font-size:0.9rem">${__('split.bannerTitle')}</div>
+            <div class="text-xs text-muted" style="margin-top:2px">${__('split.overviewBanner', splitPending.count, formatMoney(splitPending.total))}</div>
+          </div>
+        </div>
+        <span class="text-xs" style="color:var(--primary)">${__('split.bannerHint')} →</span>
+      </div>
+    </div>
+    ` : ''}
+
+    <!-- Split bills: paid-back contributions (reduce spending) -->
+    ${splitContribTotal > 0 ? `
+    <div class="card mb-16" style="border-left:4px solid var(--success)">
+      <div class="card-title">${__('split.contribTitle')}</div>
+      <div class="text-xl font-bold" style="color:var(--success)">${formatMoney(splitContribTotal)}</div>
+      ${splitContribRows.length ? splitContribRows.slice(0, 8).map(r => `
+        <div class="flex items-center justify-between" style="padding:5px 0;border-bottom:1px dashed var(--border);font-size:0.82rem">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(r.billNote || r.billTag || '🧾')} <span class="text-muted">· ${escHtml(r.contactName)}</span></span>
+          <span style="font-weight:600;color:var(--success)">${formatMoney(r.amount)}</span>
+        </div>`).join('') : ''}
+      ${splitContribRows.length > 8 ? `<div class="text-xs text-muted" style="padding-top:4px">… ${__('split.moreRows', splitContribRows.length - 8)}</div>` : ''}
+    </div>
+    ` : ''}
 
     <!-- Bills center — prominent entry -->
     <div class="card mb-16" style="border-left:4px solid var(--primary);background:linear-gradient(135deg,var(--card-bg),rgba(99,102,241,0.04));cursor:pointer" onclick="openBillsCenter()">

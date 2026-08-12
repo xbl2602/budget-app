@@ -692,6 +692,18 @@ IIFE 自执行，暴露 `window.SyncUI` 和 `window.LANSync`。
 
 ---
 
+### 26. `26-split-bills.js` — 分摊收款系统
+
+| 符号 | 说明 |
+|------|------|
+| `SplitEngine` | 分摊引擎：账单增删改查、`getSplitBillForRecord`/`getSplitBillUnpaid` 关联查询、`getPendingSummary` 待收汇总、`applyRecordEditToBill`/`setBillCategory` 记录-账单同步、`deleteSplitBillWithRecords` 联动删除 |
+| `openSplitBillEditor(billId, fromRecords)` | 分摊设置编辑器（模式推断、总金额/自己金额/参与人/已还、保存同步记录） |
+| `archiveSplitBill` / `unarchiveSplitBill` / `convertSplitBillToRecord` | 已结清账单的归档 / 恢复 / 转为普通记账记录 |
+| `openSplitCenter` / `closeSplitCenter` | 追账中心（按人员/按账单双视图、归档区、增量更新已还状态） |
+| 配套样式 | `src/css/14-split.css`（分摊表单/追账中心/编辑器） |
+
+---
+
 ## 数据流
 
 ```

@@ -123,6 +123,15 @@ const PAGE_GUIDES = {
             __('guide.add.simple.tip3_1'),
             __('guide.add.simple.tip3_2')
           ]
+        },
+        {
+          heading: __('guide.add.simple.heading4'),
+          isTips: true,
+          items: [
+            __('guide.add.simple.tip4_1'),
+            __('guide.add.simple.tip4_2'),
+            __('guide.add.simple.tip4_3')
+          ]
         }
       ]
     },
@@ -842,6 +851,10 @@ addI18nEntries({
   'guide.add.simple.text1': { zh: '花完钱来这里记一笔，所有后续统计都基于你记的数据。填金额 → 选分类 → 保存，三步搞定。', en: 'Come here after spending money to log it. All subsequent statistics are based on the data you enter. Fill in the amount → pick a category → save. Three steps and you’re done.' },
   'guide.add.simple.tip3_1': { zh: '保存后表单自动清空，方便连续记账', en: 'The form clears automatically after saving for consecutive entries' },
   'guide.add.simple.tip3_2': { zh: '填错了去「流水」页点击那条记录就能修改或删除', en: 'Made a mistake? Go to “Records” and tap that entry to edit or delete it' },
+  'guide.add.simple.heading4': { zh: '🧾 分摊收款单（代付后追账）', en: '🧾 Split bills (paid for others, collect later)' },
+  'guide.add.simple.tip4_1': { zh: '勾选「这是分摊收款单」，选择参与人并分配份额后保存，即自动生成一条负向记录并计入追账中心。', en: 'Check "This is a split bill", pick participants, assign shares and save — a negative record is created and tracked in Collection Center.' },
+  'guide.add.simple.tip4_2': { zh: '对方还款后，在首页横幅或「追账中心」勾选已还，该金额自动冲减当月支出。', en: 'When repaid, tick "paid" in the home banner or Collection Center — the amount reduces this month\'s spending.' },
+  'guide.add.simple.tip4_3': { zh: '统计页与报表以绿色显示「分摊已还」；支出合计、日均、预测均自动扣除已还金额。', en: 'Stats & report show "Paid back" in green; totals, daily avg and predictions already deduct repayments.' },
   'guide.add.title': { zh: '✏️ 记账', en: '✏️ Add Record' },
   'guide.categories.detailed.grid2_0_desc': { zh: '以树形结构展示所有分类，支持展开/折叠子分类', en: 'All categories shown in a tree structure, supports expand/collapse for subcategories' },
   'guide.categories.detailed.grid2_0_label': { zh: '分类树', en: 'Category Tree' },

@@ -5,10 +5,56 @@
 'use strict';
 
 let selectedCategoryId = null;
+let _pickerPrev = null; // snapshot of the modal the picker was opened from
+let _pickerDisp = null; // category info re-applied to the restored modal's display
+
+function _applyDisplay(el, cat, suffix) {
+  if (!el || !cat) return;
+  el.innerHTML = '';
+  var dot = document.createElement('span');
+  dot.style.cssText = 'width:10px;height:10px;border-radius:50%;background:' + cat.color + ';display:inline-block;vertical-align:middle';
+  el.appendChild(dot);
+  el.appendChild(document.createTextNode(' ' + cat.icon + ' ' + cat.name + (suffix || '')));
+  el.style.color = 'var(--text-primary)';
+}
+
+function _pickerCapture() {
+  const overlay = document.getElementById('modalOverlay');
+  const wasOpen = overlay && overlay.classList.contains('open');
+  if (wasOpen) {
+    const content = document.getElementById('modalContent');
+    _pickerPrev = { html: content.innerHTML };
+  } else {
+    _pickerPrev = null;
+  }
+}
+
+// Restore the modal the picker replaced (e.g. record edit form) instead of
+// destroying it; falls back to a plain close when no modal was open before
+function pickerRestore() {
+  if (_pickerPrev && _pickerPrev.html !== null) {
+    const content = document.getElementById('modalContent');
+    const overlay = document.getElementById('modalOverlay');
+    if (content) content.innerHTML = _pickerPrev.html;
+    if (_pickerDisp) {
+      _applyDisplay(document.getElementById('editCategoryDisplay'), _pickerDisp.cat, _pickerDisp.suffix || '');
+      _applyDisplay(document.getElementById('addCategoryDisplay'), _pickerDisp.cat, '');
+      _pickerDisp = null;
+    }
+    if (overlay) {
+      overlay.classList.add('open');
+      document.body.classList.add('modal-open');
+    }
+    _pickerPrev = null;
+    return;
+  }
+  closeModal();
+}
 
 function openCategoryPicker(context) {
   const cats = DataStore.getRootCategories();
   const billCats = DataStore.getBillCategories();
+  _pickerCapture();
   let html = '<div class="modal-title">' + __('categoryPicker.title') + '</div><div style="max-height:50vh;overflow-y:auto">';
 
   // Regular categories section
@@ -31,7 +77,7 @@ function openCategoryPicker(context) {
     });
   }
 
-  html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('categoryPicker.cancel') + '</button></div>';
+  html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="pickerRestore()">' + __('categoryPicker.cancel') + '</button></div>';
   showModal(html);
 }
 
@@ -59,6 +105,24 @@ function buildCategoryTreePicker(cats, depth, context) {
 function selectCategory(catId, context) {
   const cat = DataStore.getCategory(catId);
   if (!cat) return;
+  if (context === 'split-edit') {
+    const billId = window._editingSplitBillId;
+    if (billId && typeof SplitEngine !== 'undefined' && SplitEngine.setBillCategory) {
+      SplitEngine.setBillCategory(billId, catId);
+    }
+    const disp = document.getElementById('editCategoryDisplay');
+    if (disp) {
+      disp.innerHTML = '';
+      var dot = document.createElement('span');
+      dot.style.cssText = 'width:10px;height:10px;border-radius:50%;background:' + cat.color + ';display:inline-block;vertical-align:middle';
+      disp.appendChild(dot);
+      disp.appendChild(document.createTextNode(' ' + cat.icon + ' ' + cat.name + ' · ' + (typeof __ === 'function' ? __('split.billLabel') : '分摊账单')));
+      disp.style.color = 'var(--text-primary)';
+    }
+    _pickerDisp = { cat, suffix: ' · ' + (typeof __ === 'function' ? __('split.billLabel') : '分摊账单') };
+    pickerRestore();
+    return;
+  }
   selectedCategoryId = catId;
   window.selectedCategoryId = catId;
   const displayAdd = document.getElementById('addCategoryDisplay');
@@ -73,9 +137,10 @@ function selectCategory(catId, context) {
     el.appendChild(document.createTextNode(' ' + cat.icon + ' ' + cat.name));
     el.style.color = 'var(--text-primary)';
   };
-  setDisplay(displayAdd);
+setDisplay(displayAdd);
   setDisplay(displayEdit);
-  closeModal();
+  _pickerDisp = { cat };
+  pickerRestore();
 }
 
   // i18n translations
@@ -92,5 +157,6 @@ function selectCategory(catId, context) {
   window.openCategoryPicker = openCategoryPicker;
   window.buildCategoryTreePicker = buildCategoryTreePicker;
   window.selectCategory = selectCategory;
+  window.pickerRestore = pickerRestore;
 })();
 

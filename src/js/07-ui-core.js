@@ -49,6 +49,7 @@ function showModal(html, dismissable = true) {
   // Use insertAdjacentHTML for faster parsing than innerHTML
   content.insertAdjacentHTML('beforeend', html);
   overlay.classList.add('open');
+  document.body.classList.add('modal-open');
   if (dismissable) {
     overlay.onclick = (e) => {
       if (e.target === overlay) closeModal();
@@ -62,6 +63,7 @@ function showModal(html, dismissable = true) {
 
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
+  document.body.classList.remove('modal-open');
 }
 
 /* ============================================================

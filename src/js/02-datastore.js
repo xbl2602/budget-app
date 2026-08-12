@@ -44,7 +44,9 @@ const DataStore = {
       monthlyIncome: {},
       percentBase: 'gross',
       lastActiveMonth: '',
-      whatIfParams: null
+      whatIfParams: null,
+      contacts: [],
+      splitBills: []
     };
   },
 
@@ -99,6 +101,26 @@ const DataStore = {
         }
         if (!this._data.whatIfParams) {
           this._data.whatIfParams = null;
+        }
+        if (!this._data.contacts) {
+          this._data.contacts = [];
+        }
+        if (!this._data.splitBills) {
+          this._data.splitBills = [];
+        }
+        // Sanitize splitBills entries (forward-compat with mobile/older exports)
+        if (Array.isArray(this._data.splitBills)) {
+          const seen = new Set();
+          this._data.splitBills = this._data.splitBills.filter(b => {
+            if (!b || !b.id || seen.has(b.id)) return false;
+            if (typeof b.amount !== 'number' || !isFinite(b.amount)) return false;
+            if (!Array.isArray(b.participants)) return false;
+            seen.add(b.id);
+            return true;
+          });
+        }
+        if (!Array.isArray(this._data.contacts)) {
+          this._data.contacts = [];
         }
       } catch(e) {
         this._data = this._defaults();
@@ -175,9 +197,25 @@ const DataStore = {
       clearTimeout(this._pendingDelete.timeoutId);
       this._pendingDelete = null;
     }
+    // Deleting a split record cascades to its whole bill chain
+    const scope = (typeof SplitEngine !== 'undefined') ? this._splitCascade(this.getRecord(id)) : null;
     // Remove from active list
-    this._data.records = this._data.records.filter(r => r.id !== id);
+    this._data.records = this._data.records.filter(r => r.id !== id && (!scope || r.splitBillId !== scope.bill.id));
+    if (scope) this._data.splitBills = (this._data.splitBills || []).filter(b => b.id !== scope.bill.id);
     this.save();
+  },
+
+  // When a split record is deleted, the whole bill chain (bill + all its linked
+  // records) goes with it so no ghost bills / phantom contributions remain
+  _splitCascade(record) {
+    if (!record || record.categoryId !== (SplitEngine && SplitEngine.SPLIT_ID)) return null;
+    if (!record.splitBillId) return null;
+    const bill = (SplitEngine && SplitEngine.getSplitBill) ? SplitEngine.getSplitBill(record.splitBillId) : null;
+    if (!bill) return null;
+    return {
+      bill,
+      records: (this._data.records || []).filter(r => r.splitBillId === bill.id && r.id !== record.id)
+    };
   },
 
   // Persist pending deletes to localStorage to survive page reload (M2)
@@ -231,12 +269,16 @@ const DataStore = {
       this._finalizeDelete(this._pendingDelete.id);
     }
     // Remove from records list
-    this._data.records = this._data.records.filter(r => r.id !== id);
+    const scope = (typeof SplitEngine !== 'undefined') ? this._splitCascade(record) : null;
+    this._data.records = this._data.records.filter(r => r.id !== id && (!scope || r.splitBillId !== scope.bill.id));
+    if (scope) this._data.splitBills = (this._data.splitBills || []).filter(b => b.id !== scope.bill.id);
     this.save();
-    // Set pending with localStorage fallback (M2)
+    // Set pending with localStorage fallback (M2) — the whole split chain is
+    // kept so "undo" can restore bill + linked records together
     this._pendingDelete = {
       id,
       record,
+      scope: scope ? { bill: scope.bill, records: scope.records } : null,
       timeoutId: setTimeout(() => {
         this._finalizeDelete(id);
       }, 5000)
@@ -250,6 +292,16 @@ const DataStore = {
     if (!this._pendingDelete) { this._log('undoDelete', 'NOTHING_PENDING'); return false; }
     this._log('undoDelete', 'id=' + this._pendingDelete.id);
     clearTimeout(this._pendingDelete.timeoutId);
+    // Restore the split chain (bill + its linked records) first, then the record
+    if (this._pendingDelete.scope && this._pendingDelete.scope.bill) {
+      if (!(this._data.splitBills || []).some(b => b.id === this._pendingDelete.scope.bill.id)) {
+        this._data.splitBills = this._data.splitBills || [];
+        this._data.splitBills.unshift(this._pendingDelete.scope.bill);
+      }
+      (this._pendingDelete.scope.records || []).forEach(r => {
+        if (!this._data.records.some(x => x.id === r.id)) this._data.records.unshift(r);
+      });
+    }
     // Restore the record at the beginning of the list
     this._data.records.unshift(this._pendingDelete.record);
     this.save();
@@ -293,8 +345,16 @@ const DataStore = {
       clearTimeout(this._pendingDelete.timeoutId);
       this._pendingDelete = null;
     }
+    const record = this.getRecord(id);
+    if (!record) {
+      this._log('forceDeleteRecord', 'id=' + id + ' NOT_FOUND');
+      return false;
+    }
     const len = this._data.records.length;
-    this._data.records = this._data.records.filter(r => r.id !== id);
+    // Deleting a split record cascades to its whole bill chain
+    const scope = (typeof SplitEngine !== 'undefined') ? this._splitCascade(record) : null;
+    this._data.records = this._data.records.filter(r => r.id !== id && (!scope || r.splitBillId !== scope.bill.id));
+    if (scope) this._data.splitBills = (this._data.splitBills || []).filter(b => b.id !== scope.bill.id);
     if (this._data.records.length < len) {
       this.save();
       return true;
@@ -305,7 +365,12 @@ const DataStore = {
 
   // Categories
   getCategories() { return this._data.categories; },
-  getCategory(id) { return this._data.categories.find(c => c.id === id); },
+  getCategory(id) {
+    if (typeof SplitEngine !== 'undefined' && id === SplitEngine.SPLIT_ID) {
+      return { id, name: __('split.synthName'), icon: SplitEngine.SPLIT_PIE_ICON, color: SplitEngine.SPLIT_COLOR, children: [] };
+    }
+    return this._data.categories.find(c => c.id === id) || null;
+  },
 
   getRootCategories() {
     return this._data.categories.filter(c => !c.parentId)
@@ -524,6 +589,26 @@ const DataStore = {
         Object.assign(this._data.monthlyIncome || {}, data.monthlyIncome || {});
         Object.assign(this._data.billAmounts || {}, data.billAmounts || {});
         if (data.percentBase) this._data.percentBase = data.percentBase;
+        if (Array.isArray(data.contacts)) {
+          if (!this._data.contacts) this._data.contacts = [];
+          const contactIds = new Set(this._data.contacts.map(c => c.id));
+          data.contacts.forEach(c => {
+            if (c && c.id && !contactIds.has(c.id)) {
+              this._data.contacts.push(c);
+              contactIds.add(c.id);
+            }
+          });
+        }
+        if (Array.isArray(data.splitBills)) {
+          if (!this._data.splitBills) this._data.splitBills = [];
+          const billIds = new Set(this._data.splitBills.map(b => b.id));
+          data.splitBills.forEach(b => {
+            if (b && b.id && !billIds.has(b.id)) {
+              this._data.splitBills.push(b);
+              billIds.add(b.id);
+            }
+          });
+        }
       }
       this.save();
       return true;
@@ -602,7 +687,9 @@ const DataStore = {
       billCategories: data.billCategories,
       billAmounts: data.billAmounts,
       monthlyIncome: data.monthlyIncome,
-      percentBase: data.percentBase
+      percentBase: data.percentBase,
+      contacts: data.contacts,
+      splitBills: (data.splitBills || []).map(b => ({ id: b.id, amount: b.amount, date: b.date, participants: b.participants }))
     });
     // DJB2 hash
     let hash = 5381;

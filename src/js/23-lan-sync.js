@@ -283,7 +283,8 @@
     if (overlay && content) {
       content.innerHTML = html;
       overlay.classList.add('open');
-      overlay.onclick = function (e) { if (e.target === overlay) overlay.classList.remove('open'); };
+      document.body.classList.add('modal-open');
+      overlay.onclick = function (e) { if (e.target === overlay) { overlay.classList.remove('open'); document.body.classList.remove('modal-open'); } };
     }
   };
 

@@ -10,7 +10,7 @@ const StatsEngine = {
   },
 
   getMonthTotal(month) {
-    return this.getRecordsInMonth(month).reduce((sum, r) => sum + (r.amount || 0), 0);
+    return this.getRecordsInMonth(month).reduce((sum, r) => sum + (r.amount || 0), 0) - this.getSplitContrib(month);
   },
 
   getCategoryTotals(month) {
@@ -38,6 +38,17 @@ const StatsEngine = {
     for (let i = 1; i <= daysInMonth; i++) {
       result.push({ day: i, total: daily[i] || 0 });
     }
+    // Net out split repayments per day (M14) — always subtract so sum(daily) === monthTotal
+    const contrib = this._splitContribByDay(d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+    Object.entries(contrib).forEach(([k, v]) => {
+      if (k.indexOf(month) === 0) {
+        const day = parseInt(k.slice(8), 10);
+        daily[day] = (daily[day] || 0) - v;
+      }
+    });
+    for (let i = 1; i <= daysInMonth; i++) {
+      result[i - 1] = { day: i, total: daily[i] || 0 };
+    }
     return result;
   },
 
@@ -49,7 +60,7 @@ const StatsEngine = {
     const today = now.getDate();
     const currentMonth = getMonthKey(now.toISOString());
     const daysPassed = month === currentMonth ? today : daysInMonth;
-    return daysPassed ? records.reduce((s, r) => s + r.amount, 0) / daysPassed : 0;
+    return daysPassed ? (records.reduce((s, r) => s + r.amount, 0) - this.getSplitContrib(month)) / daysPassed : 0;
   },
 
   getPredictedTotal(month) {
@@ -63,7 +74,7 @@ const StatsEngine = {
     const total = records.reduce((s, r) => s + r.amount, 0);
     // Fixed: guard against daysPassed=0 (first day of month) (M5)
     if (daysPassed <= 0) return 0;
-    return (total / daysPassed) * daysInMonth;
+    return ((total - this.getSplitContrib(month)) / daysPassed) * daysInMonth;
   },
 
   getSavingsPrediction(month) {
@@ -120,8 +131,9 @@ const StatsEngine = {
       daily[key] = (daily[key] || 0) + r.amount;
     });
     return {
-      total: records.reduce((s, r) => s + r.amount, 0),
+      total: records.reduce((s, r) => s + r.amount, 0) - this._splitContribBetween(start, end),
       count: records.length,
+      splitContrib: this._splitContribBetween(start, end),
       daily: Object.entries(daily).sort((a,b) => a[0].localeCompare(b[0])).map(([day, total]) => ({ day, total })),
       categoryTotals: (() => {
         const ct = {};
@@ -131,6 +143,59 @@ const StatsEngine = {
         return ct;
       })()
     };
+  },
+
+  // ===== Split Contributions (reimbursements reduce spending) =====
+  _splitContribBetween(start, end) {
+    let total = 0;
+    const bills = (typeof SplitEngine !== 'undefined' && SplitEngine.getSplitBills) ? SplitEngine.getSplitBills() : [];
+    bills.forEach(b => {
+      if (b.payer !== 'self') return;
+      const d = new Date(b.date);
+      if (isNaN(d.getTime()) || d < start || d > end) return;
+      (b.participants || []).forEach(p => {
+        if (p.paid !== true) return;
+        const amt = parseFloat(p.share) || 0;
+        if (amt > 0) total += amt;
+      });
+    });
+    return total;
+  },
+
+  // Split contributions keyed by day (for daily totals), using the caller's key fn
+  _splitContribByDay(keyFn) {
+    const map = {};
+    const bills = (typeof SplitEngine !== 'undefined' && SplitEngine.getSplitBills) ? SplitEngine.getSplitBills() : [];
+    bills.forEach(b => {
+      if (b.payer !== 'self') return;
+      const d = new Date(b.date);
+      if (isNaN(d.getTime())) return;
+      let paidSum = 0;
+      (b.participants || []).forEach(p => {
+        if (p.paid === true) paidSum += parseFloat(p.share) || 0;
+      });
+      if (paidSum <= 0) return;
+      const key = keyFn(d);
+      map[key] = (map[key] || 0) + paidSum;
+    });
+    return map;
+  },
+
+  getSplitContrib(month) {
+    const start = new Date(month + '-01T00:00:00');
+    const end = new Date(month + '-01T23:59:59');
+    end.setMonth(end.getMonth() + 1);
+    end.setDate(0);
+    return this._splitContribBetween(start, end);
+  },
+
+  getPeriodSplitContrib() {
+    const { start, end } = getPeriodDateRange();
+    return this._splitContribBetween(start, end);
+  },
+
+  getCustomSplitContrib(startDate, endDate) {
+    return this._splitContribBetween(new Date(startDate), new Date(endDate));
   },
 
   getOverspentCategories(month) {
@@ -182,7 +247,7 @@ const StatsEngine = {
   getVariableSpending(month) {
     return this.getRecordsInMonth(month)
       .filter(r => !this.isBillCategory(r.categoryId))
-      .reduce((sum, r) => sum + r.amount, 0);
+      .reduce((sum, r) => sum + r.amount, 0) - this.getSplitContrib(month);
   },
 
   // Get daily totals excluding bills
@@ -200,6 +265,17 @@ const StatsEngine = {
     for (let i = 1; i <= daysInMonth; i++) {
       result.push({ day: i, total: daily[i] || 0 });
     }
+    // Net out split repayments per day
+    const contribV = this._splitContribByDay(d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+    Object.entries(contribV).forEach(([k, v]) => {
+      if (k.indexOf(month) === 0) {
+        const day = parseInt(k.slice(8), 10);
+        if (day in daily) daily[day] -= v;
+      }
+    });
+    for (let i = 1; i <= daysInMonth; i++) {
+      result[i - 1] = { day: i, total: daily[i] || 0 };
+    }
     return result;
   },
 
@@ -213,7 +289,7 @@ const StatsEngine = {
     const currentMonth = getMonthKey(now.toISOString());
     const daysPassed = month === currentMonth ? today : daysInMonth;
     const varTotal = records.reduce((s, r) => s + r.amount, 0);
-    return daysPassed ? varTotal / daysPassed : 0;
+    return daysPassed ? (varTotal - this.getSplitContrib(month)) / daysPassed : 0;
   },
 
   // Get combined disposable info
@@ -253,7 +329,7 @@ const StatsEngine = {
     });
   },
   getPeriodTotal() {
-    return this.getPeriodRecords().reduce((s, r) => s + r.amount, 0);
+    return this.getPeriodRecords().reduce((s, r) => s + r.amount, 0) - this.getPeriodSplitContrib();
   },
   getPeriodDailyAverage() {
     const { daysPassed } = getPeriodDateRange();
@@ -300,6 +376,11 @@ const StatsEngine = {
       const d = new Date(r.date || r.createdAt);
       const dayKey = d.toISOString().substr(0, 10);
       daily[dayKey] = (daily[dayKey] || 0) + r.amount;
+    });
+    // Net out split repayments per day
+    const contribP = this._splitContribByDay(d => d.toISOString().substr(0, 10));
+    Object.entries(contribP).forEach(([k, v]) => {
+      if (k in daily) daily[k] -= v;
     });
     return Object.entries(daily).sort((a,b) => a[0].localeCompare(b[0])).map(([day, total]) => ({ day, total }));
   }

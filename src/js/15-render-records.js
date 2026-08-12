@@ -79,6 +79,7 @@ function renderRecords() {
           ${batchMode ? __('records.batch.done') : __('records.batch.select')}
         </button>
         <button class="btn btn-primary btn-sm" onclick="exportToExcel()">${__('records.exportExcel')}</button>
+        <button class="btn btn-sm" style="border:1px solid var(--warning);color:var(--warning)" onclick="openSplitCenter()">🧾 ${__('split.centerEntry')}</button>
         <button class="btn btn-ghost btn-sm" onclick="refreshPageData()" title="${__('records.refreshDataTitle')}">${__('records.refreshData')}</button>
         <button class="view-toggle-btn ${compactRecordsView ? 'active' : ''}" onclick="toggleRecordsView()" title="${compactRecordsView ? __('records.view.cardTitle') : __('records.view.compactTitle')}">
           ${compactRecordsView ? __('records.view.card') : __('records.view.compact')}
@@ -329,22 +330,43 @@ function renderRecordsList() {
 
   let html = '';
   pageRecords.forEach(r => {
-    const cat = DataStore.getCategory(r.categoryId);
+    const isSplit = typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID && r.categoryId === SplitEngine.SPLIT_ID;
+    let dispIcon = '❓';
+    let dispName = __('records.unknown');
+    let dispColor = '#eee';
+    let dispAmount = r.amount;
+    let unpaidHtml = '';
+    if (isSplit) {
+      const bill = SplitEngine.getSplitBillForRecord(r);
+      const realCat = bill && bill.categoryId ? DataStore.getCategory(bill.categoryId) : null;
+      dispIcon = realCat ? realCat.icon : '🧾';
+      dispName = realCat ? (realCat.name + ' · ' + __('split.billLabel')) : __('split.billLabel');
+      dispColor = realCat ? realCat.color : '#F59E0B';
+      const selfShare = bill ? (parseFloat(bill.selfShare) || 0) : 0;
+      if (selfShare > 0) dispAmount = selfShare;
+      const unpaid = bill ? SplitEngine.getSplitBillUnpaid(bill) : 0;
+      if (unpaid > 0) unpaidHtml = ' <span style="color:var(--danger);font-weight:600">(+' + formatMoney(unpaid) + ')</span>';
+    } else {
+      const cat = DataStore.getCategory(r.categoryId);
+      dispIcon = cat ? cat.icon : '❓';
+      dispName = cat ? cat.name : (compactRecordsView ? __('records.unknown') : __('records.unknownCategory'));
+      dispColor = cat ? cat.color : '#eee';
+    }
     const dateStr = (r.date || r.createdAt).replace('T', ' ');
     const isSelected = selectedRecordIds.has(r.id);
     const selStyle = isSelected ? 'border-color:var(--primary);background:rgba(99,102,241,0.05)' : '';
     if (compactRecordsView) {
       // ===== COMPACT VIEW =====
       html += `
-        <div class="card record-card compact" data-id="${r.id}" style="${selStyle}" onclick="${batchMode ? '' : "openEditRecord('" + r.id + "')"}">
+        <div class="card record-card compact" data-id="${r.id}" style="${selStyle}" onclick="${batchMode ? '' : "openRecordOrSplitEditor('" + r.id + "')"}">
           <div class="compact-row">
             ${batchMode ? `<input type="checkbox" class="batch-checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation();toggleRecordSelection('${r.id}')" style="flex-shrink:0;width:16px;height:16px;cursor:pointer">` : ''}
             <span class="compact-date">${dateStr.slice(0, 10)}</span>
-            <span class="compact-cat">${cat ? escHtml(cat.icon) + escHtml(cat.name) : __('records.unknown')}</span>
+            <span class="compact-cat">${escHtml(dispIcon)} ${escHtml(dispName)}</span>
             <span class="compact-note">${r.note ? '📝 ' + escHtml(r.note) : ''}</span>
             ${r.tags && r.tags.length > 0 ? `<span style="display:inline-flex;flex-wrap:wrap;gap:2px;margin-left:4px">${r.tags.map(t => `<span style="padding:0 4px;background:var(--bg);border-radius:4px;font-size:0.6rem;color:var(--text-muted)">${escHtml(t)}</span>`).join('')}</span>` : ''}
             ${r.excludeFromAvg ? '<span class="text-xs text-muted" style="font-size:0.6rem;margin-left:2px" title="' + __('records.excludeFromAvg') + '">📌</span>' : ''}
-            <span class="compact-amount" style="color:var(--primary)">${formatMoney(r.amount)}</span>
+            <span class="compact-amount" style="color:var(--primary)">${formatMoney(dispAmount)}${unpaidHtml}</span>
             ${!batchMode ? `<button class="btn btn-ghost btn-sm record-del-btn" style="padding:0 4px;font-size:0.7rem;opacity:0.5;flex-shrink:0;background:none;border:none;cursor:pointer"
               onclick="event.stopPropagation();deleteRecordConfirm('${r.id}')" title="${__('records.delete')}">🗑️</button>` : ''}
           </div>
@@ -353,15 +375,15 @@ function renderRecordsList() {
     } else {
       // ===== NORMAL (CARD) VIEW =====
       html += `
-      <div class="card record-card" style="cursor:${batchMode ? 'default' : 'pointer'};position:relative;overflow:hidden;${selStyle}" data-id="${r.id}" onclick="${batchMode ? "toggleRecordSelection('" + r.id + "')" : "openEditRecord('" + r.id + "')"}">
+      <div class="card record-card" style="cursor:${batchMode ? 'default' : 'pointer'};position:relative;overflow:hidden;${selStyle}" data-id="${r.id}" onclick="${batchMode ? "toggleRecordSelection('" + r.id + "')" : "openRecordOrSplitEditor('" + r.id + "')"}">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-12">
             ${batchMode ? `<input type="checkbox" class="batch-checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation();toggleRecordSelection('${r.id}')" style="width:18px;height:18px;cursor:pointer;flex-shrink:0">` : ''}
-            <div style="width:40px;height:40px;border-radius:50%;background:${cat ? cat.color + '20' : '#eee'};display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0">
-              ${cat ? escHtml(cat.icon) : '❓'}
+            <div style="width:40px;height:40px;border-radius:50%;background:${dispColor + '20'};display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0">
+              ${escHtml(dispIcon)}
             </div>
             <div>
-              <div class="font-semibold">${cat ? escHtml(cat.name) : __('records.unknownCategory')}</div>
+              <div class="font-semibold">${escHtml(dispName)}</div>
               <div class="text-sm text-muted">${dateStr.slice(0, 16)}</div>
               ${r.note ? '<div class="text-sm text-secondary">' + escHtml(r.note) + '</div>' : ''}
               ${r.tags && r.tags.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:2px">${r.tags.map(t => `<span style="padding:0 4px;background:var(--bg);border-radius:4px;font-size:0.65rem;color:var(--text-muted)">${escHtml(t)}</span>`).join('')}</div>` : ''}
@@ -369,7 +391,7 @@ function renderRecordsList() {
             </div>
           </div>
           <div class="text-right">
-            <div class="font-bold text-lg" style="color:var(--primary)">${formatMoney(r.amount)}</div>
+            <div class="font-bold text-lg" style="color:var(--primary)">${formatMoney(dispAmount)}${unpaidHtml}</div>
           </div>
         </div>
         ${!batchMode ? `
@@ -435,7 +457,7 @@ function renderRecordsList() {
       });
       card.addEventListener('click', (e) => {
         if (e.target.closest('.record-delete-btn') || e.target.closest('.record-del-btn')) return;
-        openEditRecord(card.dataset.id);
+        openRecordOrSplitEditor(card.dataset.id);
       });
 
       // Swipe to delete (normal view only)
@@ -584,6 +606,14 @@ function confirmBatchChangeCategory(catId) {
   if (!cat) return;
   const ids = [...selectedRecordIds];
   ids.forEach(id => {
+    const rec = DataStore.getRecord(id);
+    if (!rec) return;
+    if (typeof SplitEngine !== 'undefined' && rec.categoryId === SplitEngine.SPLIT_ID) {
+      // Split records keep their marker category; the linked bill's category is what
+      // drives charts/stats — sync that instead (orphan splits turn into normal records)
+      const bill = SplitEngine.getSplitBillForRecord(rec);
+      if (bill) { SplitEngine.setBillCategory(bill.id, catId); return; }
+    }
     DataStore.updateRecord(id, { categoryId: catId });
   });
   selectedRecordIds.clear();
@@ -678,10 +708,38 @@ function undoDelete(btn) {
   }
 }
 
+ function openRecordOrSplitEditor(id) {
+  const rec = DataStore.getRecord(id);
+  if (rec && typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID && rec.categoryId === SplitEngine.SPLIT_ID) {
+    const bill = SplitEngine.getSplitBillForRecord(rec);
+    if (bill) {
+      if (typeof openSplitBillEditor === 'function') {
+        openSplitBillEditor(bill.id, true);
+        return;
+      }
+      if (window.openSplitBillEditor) {
+        window.openSplitBillEditor(bill.id, true);
+        return;
+      }
+    }
+  }
+  openEditRecord(id);
+}
+
 function openEditRecord(id) {
   const record = DataStore.getRecord(id);
   if (!record) return;
+  const isSplit = typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID && record.categoryId === SplitEngine.SPLIT_ID;
+  const bill = isSplit ? SplitEngine.getSplitBillForRecord(record) : null;
+  window._editingSplitBillId = bill ? bill.id : null;
   const cat = DataStore.getCategory(record.categoryId);
+  const editCat = isSplit && bill ? DataStore.getCategory(bill.categoryId) : cat;
+  const catLabel = isSplit
+    ? (editCat ? editCat.icon + ' ' + editCat.name + ' · ' + __('split.billLabel') : __('split.billLabel'))
+    : (cat ? cat.icon + ' ' + cat.name : __('records.edit.select'));
+  const catPicker = isSplit
+    ? (bill ? "openCategoryPicker('split-edit')" : '')
+    : "openCategoryPicker('edit')";
   selectedCategoryId = record.categoryId;
 
   showModal(`
@@ -696,8 +754,8 @@ function openEditRecord(id) {
       </div>
       <div class="input-group">
         <label class="input-label">${__('records.edit.category')}</label>
-        <button type="button" class="input-field" style="text-align:left;cursor:pointer" onclick="openCategoryPicker('edit')">
-          <span id="editCategoryDisplay">${cat ? escHtml(cat.icon) + ' ' + escHtml(cat.name) : __('records.edit.select')}</span>
+        <button type="button" class="input-field" style="text-align:left;cursor:${catPicker ? 'pointer' : 'default'}" onclick="${catPicker}">
+          <span id="editCategoryDisplay">${escHtml(catLabel)}</span>
         </button>
       </div>
       <div class="input-group">
@@ -719,12 +777,13 @@ function openEditRecord(id) {
         <button type="button" class="btn btn-sm btn-outline" onclick="openEditTagPicker()">${__('records.edit.addTag')}</button>
         <input type="hidden" id="editTagsInput" value='${JSON.stringify(record.tags || [])}'>
       </div>
+      ${isSplit ? '' : `
       <div class="input-group">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
           <input type="checkbox" id="editExcludeAvg" ${record.excludeFromAvg ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
           <span class="text-sm text-secondary">${__('records.edit.excludeAvg')}</span>
         </label>
-      </div>
+      </div>`}
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" onclick="closeModal()">${__('records.cancel')}</button>
         <button type="button" class="btn btn-danger" onclick="closeModal();deleteRecordConfirm('${id}')">${__('records.edit.delete')}</button>
@@ -748,16 +807,28 @@ function openEditRecord(id) {
 
 function submitEditRecord(e, id) {
   e.preventDefault();
+  const record = DataStore.getRecord(id);
+  const isSplit = record && typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID && record.categoryId === SplitEngine.SPLIT_ID;
   const amount = parseFloat(document.getElementById('editAmount').value);
   if (!amount || amount <= 0) { showToast(__('records.edit.invalidAmount'), 'error'); return; }
-  if (!selectedCategoryId) { showToast(__('records.edit.selectCategory'), 'error'); return; }
-
+  if (!isSplit && !selectedCategoryId) { showToast(__('records.edit.selectCategory'), 'error'); return; }
+  if (isSplit && window._editingSplitBillId) {
+    SplitEngine.applyRecordEditToBill(window._editingSplitBillId, {
+      amount,
+      date: document.getElementById('editDateTime').value,
+      note: document.getElementById('editNote').value.trim(),
+      tags: (() => {
+        try { return JSON.parse(document.getElementById('editTagsInput').value); }
+        catch(e) { return []; }
+      })()
+    });
+  }
   DataStore.updateRecord(id, {
     amount,
-    categoryId: selectedCategoryId,
+    categoryId: isSplit ? record.categoryId : selectedCategoryId,
     date: document.getElementById('editDateTime').value,
     note: document.getElementById('editNote').value.trim(),
-    excludeFromAvg: document.getElementById('editExcludeAvg').checked,
+    excludeFromAvg: isSplit ? false : document.getElementById('editExcludeAvg').checked,
     tags: (() => {
       try { return JSON.parse(document.getElementById('editTagsInput').value); }
       catch(e) { return []; }
@@ -765,6 +836,7 @@ function submitEditRecord(e, id) {
     updatedAt: new Date().toISOString()
   });
   selectedCategoryId = null;
+  window._editingSplitBillId = null;
   closeModal();
   showToast(__('records.edit.saved'));
   refreshCurrentPage();
@@ -908,6 +980,7 @@ function removeEditTag(tag) {
   window.batchDelete = batchDelete;
   window.confirmBatchDelete = confirmBatchDelete;
   window.batchChangeCategory = batchChangeCategory;
+  window.confirmBatchChangeCategory = confirmBatchChangeCategory;
   window.buildBatchCategoryTree = buildBatchCategoryTree;
   window.confirmBatchChangeCategory = confirmBatchChangeCategory;
   window.deleteRecordConfirm = deleteRecordConfirm;
@@ -915,6 +988,7 @@ function removeEditTag(tag) {
   window.confirmHardDeleteRecord = confirmHardDeleteRecord;
   window.undoDelete = undoDelete;
   window.openEditRecord = openEditRecord;
+  window.openRecordOrSplitEditor = openRecordOrSplitEditor;
   window.submitEditRecord = submitEditRecord;
   window.recordsSort = recordsSort;
   window.renderSortControls = renderSortControls;
