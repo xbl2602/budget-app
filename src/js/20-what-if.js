@@ -448,6 +448,19 @@ function renderWhatIfResults(result) {
       treeNodes[c.parentId].children.push(treeNodes[c.id]);
     }
   });
+  // Split-bills pseudo-category row (net of repaid contributions), always trend mode
+  const splitProj = (typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID) ? projMap[SplitEngine.SPLIT_ID] : null;
+  if (splitProj) {
+    rootNodes.push({
+      category: splitProj.category,
+      currentTotal: splitProj.currentTotal,
+      projectedRemaining: splitProj.projectedRemaining,
+      projectedTotal: splitProj.projectedTotal,
+      trendTotal: daysPassed > 0 ? (splitProj.currentDailyAvg || 0) * daysInMonth : 0,
+      mode: 'trend',
+      children: []
+    });
+  }
   // Aggregate non-leaf nodes upward
   function aggregateUp(node) {
     if (node.children.length > 0) {

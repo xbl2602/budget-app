@@ -45,7 +45,11 @@ const SimulationEngine = {
           })
       : DataStore.getRecords()
           .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
-    const actualSpent = allRecords.reduce((s, r) => s + r.amount, 0);
+    // Split bills: records are stored at full bill amount under SPLIT_ID, but repaid
+    // others' shares reduce net spending. Net them out to match StatsEngine (overview)
+    // so "all-trend" simulation equals the overview prediction (apples-to-apples).
+    const splitContrib = isRolling ? StatsEngine.getPeriodSplitContrib() : StatsEngine.getSplitContrib(month);
+    const actualSpent = allRecords.reduce((s, r) => s + r.amount, 0) - splitContrib;
     const categoryTotals = {};
     const categoryDays = {};
     allRecords.forEach(r => {
@@ -152,6 +156,32 @@ const SimulationEngine = {
         projectedTotal: (categoryTotals[catId] || 0) + projectedRemaining
       };
     });
+
+    // Split bills: records are stored at full bill amount under SPLIT_ID; expose the
+    // pseudo-category with the net amount (records minus repaid contributions) so the
+    // what-if table shows where split spending went, consistent with stats charts.
+    // Fully-repaid splits (net 0) are hidden, matching getRawChartData behavior.
+    const splitRawTotal = categoryTotals[SplitEngine && SplitEngine.SPLIT_ID] || 0;
+    const splitCat = (typeof SplitEngine !== 'undefined' && SplitEngine.SPLIT_ID) ? DataStore.getCategory(SplitEngine.SPLIT_ID) : null;
+    if (splitCat && splitRawTotal > 0.01) {
+      const splitNet = Math.max(0, splitRawTotal - splitContrib);
+      const splitAvg = daysPassed > 0 ? splitNet / daysPassed : 0;
+      const splitRemaining = splitAvg * remainingDays;
+      totalProjectedRemaining += splitRemaining;
+      if (splitNet > 0.01) {
+        categoryProjections[SplitEngine.SPLIT_ID] = {
+          category: splitCat,
+          rootId: SplitEngine.SPLIT_ID,
+          rootName: splitCat.name,
+          currentTotal: splitNet,
+          currentDailyAvg: splitAvg,
+          mode: 'trend',
+          value: null,
+          projectedRemaining: splitRemaining,
+          projectedTotal: splitNet + splitRemaining
+        };
+      }
+    }
 
     // Add hypothetical categories
     const hypotheticals = (params.hypotheticalCategories) || [];
