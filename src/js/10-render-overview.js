@@ -437,7 +437,7 @@ function refreshOverviewBudget() {
     'overview.targetAchieved': { zh: '✅ 已达成目标', en: '✅ Target Met' },
     'overview.estimatedSave': { zh: '预计存', en: 'Est. save' },
     'overview.savingsPrediction': { zh: '💵 储蓄预测', en: '💵 Savings Forecast' },
-    'overview.currentSaved': { zh: '当前已存', en: 'Currently Saved' },
+    'overview.currentSaved': { zh: '累计已存', en: 'Cumulative Saved' },
     'overview.estimatedMonthEndSavings': { zh: '预计月末储蓄', en: 'Est. Month-End Savings' },
     'overview.targetAchievement': { zh: '目标达成', en: 'Target Progress' },
     'overview.predictionPositive': { zh: '📈 如果维持当前消费习惯，本月末预计可存 {0}', en: '📈 At this rate, est. to save {0} by month end' },
