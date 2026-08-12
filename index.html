@@ -13126,19 +13126,17 @@ function renderWhatIfResults(result) {
   </div>`;
 
   // Draw rings after render
-  setTimeout(() => drawWhatIfRings(result), 50);
+  setTimeout(() => drawWhatIfRings(result, adjustedTotal), 50);
 
   return html;
 }
 
 // Draw the comparison rings
-function drawWhatIfRings(result) {
-  const { income, trendTotal, totalProjected, daysPassed, daysInMonth } = result;
-  const month = getMonthKey(new Date().toISOString());
-  const varSpentTotal = StatsEngine.getVariableSpending(month);
-  const varTrendTotal = daysPassed > 0 ? varSpentTotal / daysPassed * daysInMonth : 0;
-  const varAdjustment = (totalProjected || 0) - varTrendTotal;
-  const adjustedTotal = trendTotal + varAdjustment;
+// Uses the adjustedTotal already computed in renderWhatIfResults so the ring
+// percent always matches the number shown above it (no duplicated/divergent math)
+function drawWhatIfRings(result, adjustedTotal) {
+  const { income, trendTotal } = result;
+  if (adjustedTotal === undefined || adjustedTotal === null) adjustedTotal = trendTotal;
 
   // Trend budget ring
   const trendCanvas = document.getElementById('wi-ring-trend-wi');
