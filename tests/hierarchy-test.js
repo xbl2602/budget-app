@@ -20,7 +20,10 @@ function canvasStub() {
     createRadialGradient: () => ({ addColorStop: noop }),
     createPattern: () => ({}), drawImage: noop,
     getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData: noop,
-    roundRect: noop, resetTransform: noop,
+    roundRect: noop, resetTransform: noop, setLineDash: noop, rect: noop,
+    ellipse: noop, setLineCap: noop, setLineJoin: noop, globalAlpha: 1,
+    globalCompositeOperation: 'source-over', lineWidth: 1, lineCap: 'butt', lineJoin: 'miter',
+    strokeStyle: '#000', fillStyle: '#000', font: '10px sans-serif', textAlign: 'left', textBaseline: 'alphabetic',
   };
 }
 
@@ -120,6 +123,24 @@ async function run() {
   window.renderStats();
   const toggle = window.document.querySelectorAll('[data-hier-level]');
   assert('hierarchy control rendered (3 segments)', toggle.length === 3, 'got ' + toggle.length);
+
+  // On-page detail table (格子) inside pieCard
+  const detailTable = window.document.getElementById('pieDetailTable');
+  assert('on-page detail table present in pieCard', !!detailTable && !!window.document.getElementById('pieCard').contains(detailTable));
+  await new Promise(r => setTimeout(r, 120));
+  const dtHtml = detailTable.innerHTML;
+  assert('on-page table shows 1-layer rows', dtHtml.indexOf('餐饮') !== -1 && dtHtml.indexOf('交通') !== -1 && dtHtml.indexOf('外卖') === -1);
+  assert('on-page table no expander ▸', dtHtml.indexOf('toggleExpandPieRow') === -1);
+
+  // Flat all-level expansion reflected in on-page table at level 3
+  window.setStatsHierarchyLevel(3);
+  await new Promise(r => setTimeout(r, 60));
+  const dtHtml3 = detailTable.innerHTML;
+  assert('on-page table flat: 夜宵 row present', dtHtml3.indexOf('夜宵') !== -1);
+  assert('on-page table flat: path prefix ›', dtHtml3.indexOf(' › ') !== -1);
+  window.setStatsHierarchyLevel(1);
+  await new Promise(r => setTimeout(r, 60));
+  assert('on-page table back to 1 layer: no 夜宵 row', detailTable.innerHTML.indexOf('夜宵') === -1);
 
   // setStatsHierarchyLevel persists + redraws without drill reset
   window.setStatsHierarchyLevel(3);
