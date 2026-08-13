@@ -49,6 +49,7 @@ function updateDrillCharts() {
   drawPieChart('pieChart', statsMonth, sD, eD);
   drawBarChart('barChart', statsMonth, sD, eD);
   syncPieDrillBar();
+  renderPieTable('pieDetailTable');
 }
 /* ============================================================
    CALENDAR HEATMAP
@@ -331,7 +332,7 @@ function setStatsHierarchyLevel(n) {
   try { localStorage.setItem('budgetStatsHierarchy', String(n)); } catch (e) {}
   if (typeof drawPieChart === 'function') drawPieChart('pieChart', statsMonth, null, null, null, 250, false);
   if (document.getElementById('expandPieChart')) drawPieChart('expandPieChart', statsMonth, null, null, null, 360, false);
-  if (typeof renderExpandPieTable === 'function') renderExpandPieTable();
+  if (typeof renderPieTables === 'function') renderPieTables();
   if (typeof syncPieDrillBar === 'function') syncPieDrillBar();
   document.querySelectorAll('[data-hier-level]').forEach(function (btn) {
     const lvl = parseInt(btn.getAttribute('data-hier-level'), 10);
@@ -430,11 +431,11 @@ function buildPieSliceRows(level, canvasId, startDate, endDate) {
   return rows.filter(function (d) { return d.total > 0.001; }).sort(function (a, b) { return b.total - a.total; });
 }
 
-function renderExpandPieTable() {
-  const container = document.getElementById('expandPieTable');
+function renderPieTable(containerId) {
+  const container = document.getElementById(containerId);
   if (!container) return;
   
-  const data = buildPieSliceRows(statsHierarchyLevel, 'expandPieChart', null, null);
+  const data = buildPieSliceRows(statsHierarchyLevel, containerId === 'pieDetailTable' ? 'pieChart' : 'expandPieChart', null, null);
   
   if (!data.length) {
     container.innerHTML = '<div class="text-sm text-muted" style="padding:20px;text-align:center">' + __('stats.noCategoryData') + '</div>';
@@ -450,7 +451,7 @@ function renderExpandPieTable() {
   // Back button + breadcrumb
   if (drillCat) {
     html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">';
-    html += '<button class="btn btn-ghost btn-sm" onclick="resetStatsDrill();drawPieChart(\'expandPieChart\', statsMonth, null, null, null, 360, false);renderExpandPieTable()" title="' + __('stats.back') + '" style="padding:2px 8px;font-size:0.75rem">← ' + __('stats.back') + '</button>';
+    html += '<button class="btn btn-ghost btn-sm" onclick="resetStatsDrill();if(document.getElementById(\'expandPieChart\'))drawPieChart(\'expandPieChart\', statsMonth, null, null, null, 360, false);renderPieTables()" title="' + __('stats.back') + '" style="padding:2px 8px;font-size:0.75rem">← ' + __('stats.back') + '</button>';
     html += '<span class="text-sm text-secondary">' + (parentCat ? parentCat.icon + ' ' + parentCat.name : '') + ' ' + __('stats.drill.subcategory') + '</span>';
     html += '</div>';
   }
@@ -477,7 +478,7 @@ function renderExpandPieTable() {
     
     html += '<div style="flex:1;display:flex;align-items:center;gap:4px;min-width:0;cursor:' + (hasChildren ? 'pointer' : 'default') + '"';
     if (hasChildren) {
-      html += ' onclick="statsDrillStack.push(\'' + d.id + '\');updateDrillCharts();drawPieChart(\'expandPieChart\', statsMonth, null, null, null, 360, false);renderExpandPieTable()"';
+      html += ' onclick="statsDrillStack.push(\'' + d.id + '\');updateDrillCharts();if(document.getElementById(\'expandPieChart\'))drawPieChart(\'expandPieChart\', statsMonth, null, null, null, 360, false);renderPieTables()"';
       html += ' onmouseover="this.style.color=\'var(--primary)\'" onmouseout="this.style.color=\'\'"';
     }
     html += '>';
@@ -502,6 +503,17 @@ function renderExpandPieTable() {
   
   html += '</div>';
   container.innerHTML = html;
+}
+
+/* Refresh both the on-page detail table and the expanded-overlay table */
+function renderPieTables() {
+  renderPieTable('pieDetailTable');
+  renderPieTable('expandPieTable');
+}
+
+/* Compatibility wrapper for the expanded overlay */
+function renderExpandPieTable() {
+  renderPieTable('expandPieTable');
 }
 
 /* Toggle inline expansion of pie table rows */
@@ -861,6 +873,7 @@ function renderStats() {
           <button class="view-toggle-btn" onclick="expandPie()" title="${__('stats.zoomIn')}" style="font-size:0.7rem">⛶ ${__('stats.expand')}</button>
         </div>
         <canvas id="pieChart" width="400" height="300" style="width:100%;height:250px"></canvas>
+        <div id="pieDetailTable" style="margin-top:10px"></div>
         <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('pieChart')">📥 ${__('stats.downloadPNG')}</button>
       </div>
     </div>
@@ -945,6 +958,8 @@ function renderStats() {
     const sD = isCustom ? statsStartDate : null;
     const eD = isCustom ? statsEndDate : null;
     drawPieChart('pieChart', statsMonth, sD, eD);
+    // Category detail table (hierarchy levels) — right after the pie chart
+    renderPieTable('pieDetailTable');
     drawLineChart('lineChart', statsMonth, sD, eD);
     drawMonthlyChart('monthlyChart');
     drawSavingsChart('savingsChart');
@@ -2509,6 +2524,7 @@ addI18nEntries({
   window.expandHeatmap = expandHeatmap;
   window.expandPie = expandPie;
   window.renderExpandPieTable = renderExpandPieTable;
+  window.renderPieTables = renderPieTables;
   window.toggleExpandPieRow = toggleExpandPieRow;
   window.buildPieSliceRows = buildPieSliceRows;
   window.renderHierarchyToggle = renderHierarchyToggle;
