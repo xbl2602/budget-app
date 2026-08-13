@@ -292,7 +292,7 @@ function expandPie() {
   overlay.innerHTML = `
     <div class="chart-expand-inner" style="max-width:800px">
       <button class="chart-expand-close" onclick="shrinkChart()">✕</button>
-      <div class="card-title" style="font-size:1.1rem;margin-bottom:8px">📊 ${__('stats.pieChart.expandTitle')}</div>
+      <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:1.1rem;margin-bottom:8px">📊 ${__('stats.pieChart.expandTitle')} ${renderHierarchyToggle()}</div>
       <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <div style="flex:1;min-width:300px">
           <canvas id="expandPieChart" style="width:100%;max-width:500px;height:360px;margin:0 auto;display:block"></canvas>
@@ -317,30 +317,124 @@ function expandPie() {
 }
 
 /* ===== EXPANDED PIE CATEGORY TABLE ===== */
+/* ============================================================
+   CATEGORY HIERARCHY LEVELS (stats)
+   1 = top-level summary (default/current) · 2 = + direct children · 3 = all leaves
+   ============================================================ */
+let statsHierarchyLevel = parseInt(localStorage.getItem('budgetStatsHierarchy') || '1', 10) || 1;
+if (statsHierarchyLevel < 1 || statsHierarchyLevel > 3) statsHierarchyLevel = 1;
+window.statsHierarchyLevel = statsHierarchyLevel;
+
+function setStatsHierarchyLevel(n) {
+  statsHierarchyLevel = n;
+  window.statsHierarchyLevel = n;
+  try { localStorage.setItem('budgetStatsHierarchy', String(n)); } catch (e) {}
+  if (typeof drawPieChart === 'function') drawPieChart('pieChart', statsMonth, null, null, null, 250, false);
+  if (document.getElementById('expandPieChart')) drawPieChart('expandPieChart', statsMonth, null, null, null, 360, false);
+  if (typeof renderExpandPieTable === 'function') renderExpandPieTable();
+  if (typeof syncPieDrillBar === 'function') syncPieDrillBar();
+  document.querySelectorAll('[data-hier-level]').forEach(function (btn) {
+    const lvl = parseInt(btn.getAttribute('data-hier-level'), 10);
+    const active = lvl === statsHierarchyLevel;
+    btn.style.background = active ? 'var(--primary)' : '';
+    btn.style.color = active ? '#fff' : '';
+  });
+}
+
+function renderHierarchyToggle() {
+  const levels = [1, 2, 3];
+  const labels = [__('stats.hierarchy.level1'), __('stats.hierarchy.level2'), __('stats.hierarchy.all')];
+  return '<span class="view-toggle-btn-group" title="' + __('stats.hierarchy.hint') + '" style="display:inline-flex;align-items:center;gap:2px;font-size:0.7rem;border:1px solid var(--border);border-radius:6px;padding:1px">' +
+    levels.map(function (l, i) {
+      const active = statsHierarchyLevel === l;
+      return '<span data-hier-level="' + l + '" onclick="setStatsHierarchyLevel(' + l + ')" style="cursor:pointer;padding:2px 7px;border-radius:5px;user-select:none;' + (active ? 'background:var(--primary);color:#fff' : 'color:var(--text-secondary)') + '">' + labels[i] + '</span>';
+    }).join('') + '</span>';
+}
+
+/* Direct records for the current view (custom range / rolling30 / month) */
+function getHierarchyRecords(month, startDate, endDate) {
+  if (startDate && endDate) {
+    return DataStore.getRecords().filter(function (r) {
+      const d = new Date(r.date || r.createdAt);
+      return d >= new Date(startDate) && d <= new Date(endDate);
+    });
+  }
+  const isRolling = getStatsRange() === 'rolling30' && month === getMonthKey(new Date().toISOString());
+  if (!month) return [];
+  return isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(month);
+}
+
+/* Build flat slice rows honoring drill state + hierarchy level.
+   level 1: summary rows (descendant totals) — current behavior
+   level 2: + direct children (own direct spend)
+   level 3: recursive to all leaves (own direct spend)
+   Rows are mutually exclusive: sum(rows) === total spend. */
+function buildPieSliceRows(level, canvasId, startDate, endDate) {
+  const toggleId = canvasId === 'expandPieChart' ? 'pieChart' : canvasId;
+  const excludeBills = !isBillToggleChecked(toggleId);
+  const billSet = excludeBills ? new Set((DataStore.getBillCategories() || []).map(function (c) { return getRootAncestorId(c.id); })) : null;
+  const directOf = function (records, catId) {
+    return records.filter(function (r) {
+      if (r.categoryId !== catId) return false;
+      if (billSet && billSet.has(getRootAncestorId(r.categoryId))) return false;
+      return true;
+    }).reduce(function (s, r) { return s + r.amount; }, 0);
+  };
+
+  const drillCategory = getDrillCategory();
+  const rows = [];
+
+  if (drillCategory) {
+    const breakdown = StatsEngine.getCategoryBreakdownDeep(statsMonth, drillCategory);
+    if (!breakdown) return rows;
+    if (level <= 1) {
+      const childrenData = (breakdown.children || []).map(function (c) { return { id: c.category.id, total: c.total, cat: c.category }; });
+      const childrenTotal = childrenData.reduce(function (s, d) { return s + d.total; }, 0);
+      const directTotal = breakdown.total - childrenTotal;
+      childrenData.forEach(function (d) { rows.push({ id: d.id, cat: d.cat, total: d.total, depth: 1, path: [] }); });
+      if (directTotal > 0.001) {
+        rows.push({ id: breakdown.category.id + '-direct', total: directTotal, cat: { name: breakdown.category.name + __('stats.direct'), icon: '📌', color: breakdown.category.color }, depth: 0, path: [] });
+      }
+      return rows.filter(function (d) { return d.total > 0; }).sort(function (a, b) { return b.total - a.total; });
+    }
+    const records = getHierarchyRecords(statsMonth, startDate, endDate);
+    (function visit(catId, depth, path) {
+      (DataStore.getChildren(catId) || []).forEach(function (c) {
+        const direct = directOf(records, c.id);
+        if (direct > 0.001) rows.push({ id: c.id, cat: c, total: direct, depth: depth, path: path.concat(c.name) });
+        if (level >= 3) visit(c.id, depth + 1, path.concat(c.name));
+      });
+    })(breakdown.category.id, 1, [breakdown.category.name]);
+    return rows.sort(function (a, b) { return b.total - a.total; });
+  }
+
+  // Non-drill: start from root categories
+  const roots = getChartData(statsMonth, startDate, endDate, { excludeBills });
+  if (level <= 1) {
+    return roots.map(function (d) { return { id: d.id, cat: d.cat, total: d.total, depth: 0, path: [] }; });
+  }
+  const records = getHierarchyRecords(statsMonth, startDate, endDate);
+  const visit = function (catId, depth, path) {
+    const direct = directOf(records, catId);
+    if (direct > 0.001) rows.push({ id: catId, cat: DataStore.getCategory(catId), total: direct, depth: depth, path: path });
+    if (level >= 3) {
+      (DataStore.getChildren(catId) || []).forEach(function (c) { visit(c.id, depth + 1, path.concat(c.name)); });
+    }
+  };
+  roots.forEach(function (r) {
+    rows.push({ id: r.id, cat: r.cat, total: directOf(records, r.id), depth: 0, path: [] });
+    if (level >= 2) {
+      (DataStore.getChildren(r.id) || []).forEach(function (c) { visit(c.id, 1, [r.cat.name, c.name]); });
+    }
+  });
+  return rows.filter(function (d) { return d.total > 0.001; }).sort(function (a, b) { return b.total - a.total; });
+}
+
 function renderExpandPieTable() {
   const container = document.getElementById('expandPieTable');
   if (!container) return;
   
-  const drillCategory = getDrillCategory();
-  let data;
-  if (drillCategory) {
-    const breakdown = StatsEngine.getCategoryBreakdownDeep(statsMonth, drillCategory);
-    if (breakdown) {
-      const childrenData = (breakdown.children || []).map(c => ({ id: c.category.id, total: c.total, cat: c.category }));
-      const childrenTotal = childrenData.reduce((s, d) => s + d.total, 0);
-      const directTotal = breakdown.total - childrenTotal;
-      data = [...childrenData];
-      if (directTotal > 0.001) {
-        data.push({ id: breakdown.category.id + '-direct', total: directTotal, cat: { name: breakdown.category.name + __('stats.direct'), icon: '📌', color: breakdown.category.color } });
-      }
-      data = data.filter(d => d.total > 0).sort((a, b) => b.total - a.total);
-    } else {
-      data = [];
-    }
-  } else {
-    const excludeBills = !isBillToggleChecked('pieChart');
-    data = getChartData(statsMonth, null, null, { excludeBills });
-  }
+  const data = buildPieSliceRows(statsHierarchyLevel, 'expandPieChart', null, null);
   
   if (!data.length) {
     container.innerHTML = '<div class="text-sm text-muted" style="padding:20px;text-align:center">' + __('stats.noCategoryData') + '</div>';
@@ -354,7 +448,7 @@ function renderExpandPieTable() {
   let html = '<div style="font-size:0.85rem">';
   
   // Back button + breadcrumb
-  if (drillCategory) {
+  if (drillCat) {
     html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">';
     html += '<button class="btn btn-ghost btn-sm" onclick="resetStatsDrill();drawPieChart(\'expandPieChart\', statsMonth, null, null, null, 360, false);renderExpandPieTable()" title="' + __('stats.back') + '" style="padding:2px 8px;font-size:0.75rem">← ' + __('stats.back') + '</button>';
     html += '<span class="text-sm text-secondary">' + (parentCat ? parentCat.icon + ' ' + parentCat.name : '') + ' ' + __('stats.drill.subcategory') + '</span>';
@@ -373,24 +467,14 @@ function renderExpandPieTable() {
   html += '<span style="width:50px;text-align:right">' + __('stats.percentage') + '</span>';
   html += '</div>';
   
-  // Rows with inline expand
+  // Flat rows (hierarchy level driven; no inline expander needed)
   data.forEach(d => {
     const pct = (d.total / total * 100).toFixed(1);
     const color = d.displayColor || d.cat.color;
-    const children = DataStore.getChildren(d.id);
-    const hasChildren = children && children.length > 0;
-    const rowId = 'pie-row-' + String(d.id || '').replace(/[^a-zA-Z0-9]/g, '-');
+    const hasChildren = (DataStore.getChildren(d.id) || []).length > 0;
     
     html += '<div style="display:flex;align-items:center;padding:5px 4px;border-bottom:1px solid var(--border);font-size:0.82rem">';
     
-    // Expand toggle (if has children)
-    if (hasChildren) {
-      html += '<span style="cursor:pointer;flex-shrink:0;width:28px;text-align:center;padding:6px 0;font-size:1rem;user-select:none;border-radius:6px" onclick="event.stopPropagation();toggleExpandPieRow(\'' + rowId + '\')" title="' + __('stats.pieChart.toggleChildren') + '" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">▸</span>';
-    } else {
-      html += '<span style="flex-shrink:0;width:16px"></span>';
-    }
-    
-    // Clickable category name (drills into pie chart)
     html += '<div style="flex:1;display:flex;align-items:center;gap:4px;min-width:0;cursor:' + (hasChildren ? 'pointer' : 'default') + '"';
     if (hasChildren) {
       html += ' onclick="statsDrillStack.push(\'' + d.id + '\');updateDrillCharts();drawPieChart(\'expandPieChart\', statsMonth, null, null, null, 360, false);renderExpandPieTable()"';
@@ -399,31 +483,14 @@ function renderExpandPieTable() {
     html += '>';
     html += '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';flex-shrink:0"></span>';
     html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + d.cat.icon + ' ' + d.cat.name + '</span>';
+    if (d.path && d.path.length > 1) {
+      html += '<span style="color:var(--text-muted);opacity:0.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.7rem;padding-left:4px">' + d.path.slice(0, -1).join(' › ') + '</span>';
+    }
     html += '</div>';
     
     html += '<span style="width:80px;text-align:right;font-weight:600">' + formatMoney(d.total) + '</span>';
     html += '<span style="width:50px;text-align:right;color:var(--text-muted)">' + pct + '%</span>';
     html += '</div>';
-    
-    // Expandable children container (hidden by default)
-    if (hasChildren) {
-      html += '<div id="' + rowId + '" style="display:none">';
-      children.forEach(child => {
-        const childRecs = DataStore.getRecords().filter(r => r.categoryId === child.id);
-        const childTotal = childRecs.reduce((s, r) => s + r.amount, 0);
-        if (childTotal <= 0) return;
-        const childPct = (childTotal / total * 100).toFixed(1);
-        html += '<div style="display:flex;align-items:center;padding:4px 4px 4px 28px;border-bottom:1px dashed var(--border);font-size:0.78rem">';
-        html += '<div style="flex:1;display:flex;align-items:center;gap:4px;min-width:0">';
-        html += '<span style="width:6px;height:6px;border-radius:50%;background:' + child.color + ';flex-shrink:0"></span>';
-        html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + child.icon + ' ' + child.name + '</span>';
-        html += '</div>';
-        html += '<span style="width:80px;text-align:right;font-weight:500">' + formatMoney(childTotal) + '</span>';
-        html += '<span style="width:50px;text-align:right;color:var(--text-muted)">' + childPct + '%</span>';
-        html += '</div>';
-      });
-      html += '</div>';
-    }
   });
   
   // Total row
@@ -788,6 +855,7 @@ function renderStats() {
       <div class="card" id="pieCard">
         <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span>${__('stats.categoryExpenditure')} (${__('stats.pieChart.label')})</span>
+          ${renderHierarchyToggle()}
           <span class="pie-drill-bar" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:0.82rem"></span>
           ${renderBillToggle('pieChart')}
           <button class="view-toggle-btn" onclick="expandPie()" title="${__('stats.zoomIn')}" style="font-size:0.7rem">⛶ ${__('stats.expand')}</button>
@@ -1056,37 +1124,16 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  let data;
-  const drillCategory = getDrillCategory();
-  if (drillCategory) {
-    const breakdown = StatsEngine.getCategoryBreakdownDeep(month, drillCategory);
-    if (breakdown) {
-      const childrenData = (breakdown.children || []).map(c => ({ id: c.category.id, total: c.total, cat: c.category }));
-      const childrenTotal = childrenData.reduce((s, d) => s + d.total, 0);
-      const directTotal = breakdown.total - childrenTotal;
-      data = [...childrenData];
-      if (directTotal > 0.001) {
-        data.push({
-          id: breakdown.category.id + '-direct',
-          total: directTotal,
-          cat: { name: breakdown.category.name + __('stats.direct'), icon: '📌', color: breakdown.category.color }
-        });
-      }
-      if (data.length === 0) {
-        data = [{ id: breakdown.category.id, total: breakdown.total, cat: breakdown.category }];
-      }
-      data = data.filter(d => d.total > 0);
-      data.forEach((d, i) => { d.displayColor = COLORS[i % COLORS.length]; });
-    } else {
-      data = [];
+  let data = buildPieSliceRows(statsHierarchyLevel, canvasId, startDate, endDate)
+    .map(function (d) { return { id: d.id, cat: d.cat, total: d.total, depth: d.depth, path: d.path || [] }; });
+  if (!data.length && getDrillCategory()) {
+    const dc = DataStore.getCategory(getDrillCategory());
+    if (dc) {
+      const db = StatsEngine.getCategoryBreakdownDeep(month, dc.id);
+      data = [{ id: dc.id, cat: dc, total: db ? db.total : 0 }];
     }
-  } else {
-    // For expanded charts, use the same toggle as the original chart
-    const toggleId = canvasId === 'expandPieChart' ? 'pieChart' : canvasId;
-    const excludeBills = !isBillToggleChecked(toggleId);
-    data = getChartData(month, startDate, endDate, { excludeBills });
-    data.forEach((d, i) => { d.displayColor = COLORS[i % COLORS.length]; });
   }
+  data.forEach((d, i) => { d.displayColor = COLORS[i % COLORS.length]; });
 
   if (!data.length) {
     ctx.fillStyle = tc.textMuted;
@@ -1167,7 +1214,10 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
       let lx = cx + Math.cos(midAngle) * labelR;
       let ly = cy + Math.sin(midAngle) * labelR;
       ctx.font = '11px sans-serif';
-      const labelText = slice.cat.name + ' ' + (slice.total / total * 100).toFixed(1) + '%';
+      // Degrade labels when slices are too many (deep flat expansion)
+      const labelText = slices.length > 12
+        ? (slice.cat.icon || slice.cat.name)
+        : slice.cat.name + ' ' + (slice.total / total * 100).toFixed(1) + '%';
       const textWidth = ctx.measureText(labelText).width;
       const textHeight = 14;
       const align = midAngle > Math.PI / 2 && midAngle < Math.PI * 1.5 ? 'right' : 'left';
@@ -2419,8 +2469,12 @@ addI18nEntries({
   'stats.lineChart.label': { zh: '折线图', en: 'Line chart' },
   'stats.pieChart.label': { zh: '饼图', en: 'Pie chart' },
   'stats.pieChart.expandTitle': { zh: '分类支出分析', en: 'Category spending analysis' },
-  'stats.pieChart.drillHint': { zh: '点击 ▸ 展开子分类 · 点击分类名下钻', en: 'Click ▸ to expand · Click name to drill down' },
+  'stats.pieChart.drillHint': { zh: '用层级按钮控制展开深度 · 点击分类名下钻', en: 'Use level buttons for depth · Click name to drill down' },
   'stats.pieChart.toggleChildren': { zh: '展开/收起子分类', en: 'Expand/collapse subcategories' },
+  'stats.hierarchy.level1': { zh: '1 层', en: 'Top' },
+  'stats.hierarchy.level2': { zh: '2 层', en: '2 Lv' },
+  'stats.hierarchy.all': { zh: '全部', en: 'All' },
+  'stats.hierarchy.hint': { zh: '展开子分类到所选深度（全部 = 扁平到所有子集）', en: 'Expand subcategories to depth (All = flat to every level)' },
   'stats.waffle.title': { zh: '标签分布', en: 'Tag distribution' },
   'stats.waffle.includeUntagged': { zh: '含无标签', en: 'Include untagged' },
   'stats.waffle.followRange': { zh: '跟随统计范围', en: 'Follow stats range' },
@@ -2456,6 +2510,9 @@ addI18nEntries({
   window.expandPie = expandPie;
   window.renderExpandPieTable = renderExpandPieTable;
   window.toggleExpandPieRow = toggleExpandPieRow;
+  window.buildPieSliceRows = buildPieSliceRows;
+  window.renderHierarchyToggle = renderHierarchyToggle;
+  window.setStatsHierarchyLevel = setStatsHierarchyLevel;
   window.shrinkChart = shrinkChart;
   window.toggleMonthCompare = toggleMonthCompare;
   window.drawCompareBarChart = drawCompareBarChart;
