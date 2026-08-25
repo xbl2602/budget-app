@@ -417,6 +417,7 @@ function _resetAddSplitState() {
   window._addSplitState = {
     enabled: false,
     selfInvolved: false,
+    selfUnknown: false,
     mode: 'equal',
     selfAmount: '',
     rows: getContacts().map(c => ({ contactId: c.id, name: c.name, included: false, amount: '', unknown: false }))
@@ -439,6 +440,17 @@ function setSplitMode(mode) {
 
 function toggleSplitSelfInvolved(checked) {
   window._addSplitState.selfInvolved = !!checked;
+  if (!checked) window._addSplitState.selfUnknown = false;
+  renderAddSplitForm();
+  previewSplitShares();
+}
+
+// My own share can be unknown too — same marker participants already get
+function toggleSplitSelfUnknown(checked) {
+  const st = window._addSplitState;
+  if (!st) return;
+  st.selfUnknown = !!checked;
+  if (st.selfUnknown) st.selfAmount = '';
   renderAddSplitForm();
   previewSplitShares();
 }
@@ -479,23 +491,29 @@ function _syncSplitRows() {
   const contacts = getContacts();
   st.rows = contacts.map(c => {
     const existing = (st.rows || []).find(r => r.contactId === c.id);
-    return existing || { contactId: c.id, name: c.name, included: false, amount: '' };
+    return existing || { contactId: c.id, name: c.name, included: false, amount: '', unknown: false };
   });
 }
 
 function renderAddSplitForm() {
   const section = document.getElementById('addSplitSection');
   if (!section) return;
-  if (!window._addSplitState) window._addSplitState = { enabled: false, selfInvolved: false, mode: 'equal', selfAmount: '', rows: [] };
+  if (!window._addSplitState) window._addSplitState = { enabled: false, selfInvolved: false, selfUnknown: false, mode: 'equal', selfAmount: '', rows: [] };
   const st = window._addSplitState;
   _syncSplitRows();
   section.innerHTML = `
     <div class="split-form">
-      <label class="split-form-row" style="cursor:pointer">
-        <span class="split-form-label">${__('split.selfInvolved')}</span>
-        <input type="checkbox" ${st.selfInvolved ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer" onchange="toggleSplitSelfInvolved(this.checked)">
-      </label>
-      ${st.selfInvolved && st.mode === 'specified' ? `
+      <div class="split-form-row">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0">
+          <input type="checkbox" ${st.selfInvolved ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer" onchange="toggleSplitSelfInvolved(this.checked)">
+          <span class="split-form-label" style="margin:0">${__('split.selfInvolved')}</span>
+        </label>
+        <label title="${__('split.selfUnknownHint')}" style="display:flex;align-items:center;gap:3px;cursor:${st.selfInvolved ? 'pointer' : 'not-allowed'};flex-shrink:0;opacity:${st.selfInvolved ? '1' : '0.45'}">
+          <input type="checkbox" ${st.selfUnknown ? 'checked' : ''} ${st.selfInvolved ? '' : 'disabled'} style="width:14px;height:14px;cursor:inherit" onchange="toggleSplitSelfUnknown(this.checked)">
+          <span class="text-xs text-muted" style="font-size:0.68rem">❓ ${__('split.unknownAmount')}</span>
+        </label>
+      </div>
+      ${st.selfInvolved && !st.selfUnknown && st.mode === 'specified' ? `
       <div class="split-form-row">
         <span class="split-form-label">${__('split.selfAmountLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
@@ -569,9 +587,9 @@ function previewSplitShares() {
     return;
   }
   const pool = [];
-  if (st.selfInvolved) pool.push({ id: 'self', name: __('split.me'), specified: _selfSpecified(st) });
+  if (st.selfInvolved) pool.push({ id: 'self', name: __('split.me'), specified: st.selfUnknown ? null : _selfSpecified(st) });
   st.rows.forEach(r => {
-    if (r.included) pool.push({ id: r.contactId, name: r.name, specified: r.amount });
+    if (r.included) pool.push({ id: r.contactId, name: r.name, specified: r.unknown ? null : r.amount });
   });
   const result = computeShares(total, pool, st.selfInvolved);
   if (result.error) {
@@ -580,9 +598,9 @@ function previewSplitShares() {
   }
   preview.innerHTML = result.shares.map(s => {
     const selfTag = s.id === 'self' ? ' (自己)' : '';
-    const unk = s.id !== 'self' && (st.rows || []).find(r => r.contactId === s.id && r.unknown);
+    const unk = s.id === 'self' ? !!st.selfUnknown : !!(st.rows || []).find(r => r.contactId === s.id && r.unknown);
     if (unk) {
-      return `<span class="split-share-chip" style="color:var(--text-secondary)">${escHtml(s.name)}: <b>❓ ${__('split.unknownAmount')}</b></span>`;
+      return `<span class="split-share-chip" style="color:var(--text-secondary)">${escHtml(s.name)}${selfTag}: <b>❓ ${__('split.unknownAmount')}</b></span>`;
     }
     return `<span class="split-share-chip" style="color:var(--text-secondary)">${escHtml(s.name)}${selfTag}: <b>${formatMoney(s.share)}</b></span>`;
   }).join('');
@@ -590,7 +608,7 @@ function previewSplitShares() {
 
 function openSplitQuickAdd() {
   try {
-    if (!window._addSplitState) window._addSplitState = { enabled: false, selfInvolved: false, mode: 'equal', rows: [] };
+    if (!window._addSplitState) window._addSplitState = { enabled: false, selfInvolved: false, selfUnknown: false, mode: 'equal', selfAmount: '', rows: [] };
     showModal(`
     <div class="modal-title">＋ ${__('split.addPerson')}</div>
     <div class="input-group">
@@ -630,7 +648,7 @@ function _confirmSplitQuickAdd() {
   const row = window._addSplitState.rows.find(r => r.contactId === contact.id);
   const isNew = !row;
   if (isNew) {
-    window._addSplitState.rows.push({ contactId: contact.id, name: contact.name, included: false, amount: '' });
+    window._addSplitState.rows.push({ contactId: contact.id, name: contact.name, included: false, amount: '', unknown: false });
   }
   closeModal();
   renderAddSplitForm();
@@ -648,7 +666,7 @@ function _selfSpecified(st) {
 function collectSplitBill(args) {
   const st = window._addSplitState || {};
   const pool = [];
-  if (st.selfInvolved) pool.push({ id: 'self', name: __('split.me'), specified: _selfSpecified(st) });
+  if (st.selfInvolved) pool.push({ id: 'self', name: __('split.me'), specified: st.selfUnknown ? null : _selfSpecified(st) });
   (st.rows || []).forEach(r => {
     if (!r.included) return;
     // Unknown-amount participants cannot type a specified amount; they get the
@@ -679,6 +697,7 @@ function collectSplitBill(args) {
     tag: Array.isArray(args.tags) ? args.tags.map(t => t.trim()).filter(Boolean).join('、') : String(args.tag || '').trim(),
     categoryId: args.categoryId || '',
     selfShare,
+    selfUnknown: !!(st.selfInvolved && st.selfUnknown),
     participants,
     // Remember how the split was entered so the editor reopens in the same mode
     // (equal-split shares are NOT treated as user-specified values on reopen)
@@ -840,7 +859,7 @@ function _splitBillCard(b, opts) {
       ${settled ? `<button class="btn btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger)" onclick="openSplitBillSettleOptions('${b.id}')">🗑 ${__('split.deleteBill')}</button>` : ''}`;
   const peopleHtml = `
     <div style="border-top:1px dashed var(--border);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:4px">
-      ${(b.selfShare || 0) > 0 ? _splitPersonRow(__('split.me'), formatMoney(b.selfShare), `<span class="split-paid-badge">✅ ${__('split.paidLabel')}</span>`) : ''}
+      ${((b.selfShare || 0) > 0 || b.selfUnknown) ? _splitPersonRow(__('split.me'), b.selfUnknown ? '❓ ' + __('split.unknownAmount') : formatMoney(b.selfShare), `<span class="split-paid-badge">✅ ${__('split.paidLabel')}</span>`) : ''}
       ${(b.participants || []).map(p => {
         const amt = parseFloat(p.share) || 0;
         const disp = p.unknown ? '❓ ' + __('split.unknownAmount') : formatMoney(amt);
@@ -867,7 +886,7 @@ function _splitBillCard(b, opts) {
           <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:2px">
             ${_splitCatChip(b.categoryId)}
             <span class="text-xs text-muted">${String(b.date || '').slice(0, 10)}</span>
-            <span class="text-xs text-muted">${__('split.myShare')} ${formatMoney(b.selfShare || 0)}</span>
+            <span class="text-xs text-muted">${__('split.myShare')} ${b.selfUnknown ? '❓ ' + __('split.unknownAmount') : formatMoney(b.selfShare || 0)}</span>
           </div>
         </div>
         <div class="text-right" style="flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:2px">
@@ -1036,7 +1055,7 @@ function openSplitBillEditor(billId, fromRecords) {
   _splitEditorFromRecords = !!fromRecords;
   window._editingSplitBillId = billId;
   const contacts = getContacts();
-  const selfInvolved = (bill.selfShare || 0) > 0;
+  const selfInvolved = (bill.selfShare || 0) > 0 || !!bill.selfUnknown;
   const pCount = (bill.participants || []).length;
   const divCount = pCount + (selfInvolved ? 1 : 0);
   const uniform = bill.amount > 0 && divCount > 0 ? bill.amount / divCount : 0;
@@ -1047,28 +1066,33 @@ function openSplitBillEditor(billId, fromRecords) {
   if (bill.mode === 'specified') {
     mode = 'specified';
   } else if (!bill.mode && bill.amount > 0 && divCount > 0) {
-    const selfDev = selfInvolved && Math.abs((bill.selfShare || 0) - uniform) > 0.01;
-    const partDev = (bill.participants || []).some(p => Math.abs((parseFloat(p.share) || 0) - uniform) > 0.01);
+    const selfDev = selfInvolved && !bill.selfUnknown && Math.abs((bill.selfShare || 0) - uniform) > 0.01;
+    const partDev = (bill.participants || []).some(p => !p.unknown && Math.abs((parseFloat(p.share) || 0) - uniform) > 0.01);
     if (selfDev || partDev) mode = 'specified';
   }
   const rowsByKey = {};
   contacts.forEach(c => { rowsByKey[c.id] = { contactId: c.id, name: c.name, included: false, amount: '', unknown: false }; });
   (bill.participants || []).forEach(p => {
     const key = p.contactId || ('anon:' + (p.name || ''));
+    // An unknown-amount person has no meaningful typed value — leave the box empty
+    // so unchecking "unknown" gives a clean, editable field.
+    const amt = p.unknown ? '' : String(p.share);
     if (rowsByKey[key]) {
       rowsByKey[key].included = true;
-      rowsByKey[key].amount = String(p.share);
+      rowsByKey[key].amount = amt;
       rowsByKey[key].unknown = !!p.unknown;
     } else {
-      rowsByKey[key] = { contactId: key, name: p.name || __('split.unknown'), included: true, amount: String(p.share), unknown: !!p.unknown };
+      rowsByKey[key] = { contactId: key, name: p.name || __('split.unknown'), included: true, amount: amt, unknown: !!p.unknown };
     }
   });
   const st = {
     selfInvolved,
+    selfUnknown: !!bill.selfUnknown,
     mode,
     tag: bill.tag || '',
     rows: Object.values(rowsByKey)
   };
+  const dtValue = String(bill.date || bill.createdAt || '').slice(0, 16);
   // keep local; render editor
   showModal(`
     <div class="modal-title">🧾 ${__('split.editTitle')}</div>
@@ -1086,21 +1110,35 @@ function openSplitBillEditor(billId, fromRecords) {
         </button>
       </div>
       <div class="split-form-row">
+        <span class="split-form-label">${__('split.dateLabel')}</span>
+        <input type="datetime-local" id="editSplitDateTime" class="input-field" value="${escHtml(dtValue)}" style="flex:1">
+      </div>
+      <div class="split-form-row">
+        <span class="split-form-label">${__('split.noteLabel')}</span>
+        <input type="text" id="editSplitNote" class="input-field" placeholder="${__('split.notePlaceholder')}" value="${escHtml(bill.note || '')}" style="flex:1">
+      </div>
+      <div class="split-form-row">
         <span class="split-form-label">${__('split.totalLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
           <input type="number" id="editSplitAmount" class="input-field" min="0" step="0.01" value="${escHtml(String(bill.amount))}" oninput="updateEditSplitPreview()" style="width:110px">
         </span>
       </div>
-      <label class="split-form-row" style="cursor:pointer">
-        <span class="split-form-label">${__('split.selfInvolved')}</span>
-        <input type="checkbox" id="editSplitSelf" ${st.selfInvolved ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer" onchange="updateEditSplitPreview()">
-      </label>
-      <div class="split-form-row spec-amount" id="editSplitSelfRow">
+      <div class="split-form-row">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0">
+          <input type="checkbox" id="editSplitSelf" ${st.selfInvolved ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer" onchange="updateEditSplitPreview()">
+          <span class="split-form-label" style="margin:0">${__('split.selfInvolved')}</span>
+        </label>
+        <label title="${__('split.unknownAmountTitle')}" style="display:flex;align-items:center;gap:3px;cursor:pointer;flex-shrink:0">
+          <input type="checkbox" id="editSplitSelfUnknown" ${st.selfUnknown ? 'checked' : ''} style="width:14px;height:14px;cursor:pointer" onchange="updateEditSplitPreview()">
+          <span class="text-xs text-muted" style="font-size:0.68rem">❓ ${__('split.unknownAmount')}</span>
+        </label>
+      </div>
+      <div class="split-form-row" id="editSplitSelfRow">
         <span class="split-form-label">${__('split.selfAmountLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" id="editSplitSelfAmount" class="input-field" min="0" step="0.01" placeholder="0.00" value="${escHtml(st.selfInvolved ? String(bill.selfShare) : '')}" oninput="updateEditSplitPreview()" style="width:110px">
+          <input type="number" id="editSplitSelfAmount" class="input-field" min="0" step="0.01" placeholder="0.00" value="${escHtml(st.selfInvolved && !st.selfUnknown ? String(bill.selfShare) : '')}" oninput="onEditSplitAmountTyped(this)" style="width:110px">
         </span>
       </div>
       <div class="split-form-row split-form-row-top">
@@ -1113,16 +1151,16 @@ function openSplitBillEditor(billId, fromRecords) {
         ${st.rows.map(r => `
           <div class="split-person-row">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0">
-              <input type="checkbox" ${r.included ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer" onchange="updateEditSplitPreview()">
+              <input type="checkbox" data-edit-include ${r.included ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer" onchange="updateEditSplitPreview()">
               <span style="flex:1;min-width:0;word-break:break-word">${escHtml(r.name)}</span>
-              <label title="${__('split.unknownAmountTitle')}" style="display:flex;align-items:center;gap:3px;cursor:pointer;flex-shrink:0" onclick="event.stopPropagation()">
-                <input type="checkbox" data-edit-unknown="${escHtml(r.contactId || 'anon:' + r.name)}" ${r.unknown ? 'checked' : ''} style="width:14px;height:14px;cursor:pointer" onchange="updateEditSplitPreview()">
-                <span class="text-xs text-muted" style="font-size:0.68rem">❓ ${__('split.unknownAmount')}</span>
-              </label>
+            </label>
+            <label title="${__('split.unknownAmountTitle')}" style="display:flex;align-items:center;gap:3px;cursor:pointer;flex-shrink:0">
+              <input type="checkbox" data-edit-unknown="${escHtml(r.contactId || 'anon:' + r.name)}" ${r.unknown ? 'checked' : ''} style="width:14px;height:14px;cursor:pointer" onchange="updateEditSplitPreview()">
+              <span class="text-xs text-muted" style="font-size:0.68rem">❓ ${__('split.unknownAmount')}</span>
             </label>
             <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
               <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-              <input type="number" class="input-field split-person-amount spec-amount" min="0" step="0.01" placeholder="0.00" value="${escHtml(r.amount)}" oninput="updateEditSplitPreview()" style="display:none">
+              <input type="number" class="input-field split-person-amount" min="0" step="0.01" placeholder="0.00" value="${escHtml(r.amount)}" oninput="onEditSplitAmountTyped(this)">
             </span>
           </div>
         `).join('')}
@@ -1157,27 +1195,53 @@ function _editSplitMode() {
   return 'equal';
 }
 
+// Typing any per-person amount means the split is no longer a plain even share —
+// flip the mode radio instead of silently discarding what was typed.
+function onEditSplitAmountTyped(el) {
+  if (el && String(el.value).trim() !== '' && _editSplitMode() !== 'specified') {
+    const radio = document.querySelector('input[name="editSplitMode"][value="specified"]');
+    if (radio) radio.checked = true;
+  }
+  updateEditSplitPreview();
+}
+
 function updateEditSplitPreview() {
   const rows = window._editSplitRows || [];
-  // toggle amount inputs visibility per mode
   const mode = _editSplitMode();
-  document.querySelectorAll('.spec-amount').forEach(el => { el.style.display = mode === 'specified' ? '' : 'none'; });
   const selfChk = document.getElementById('editSplitSelf');
+  const selfUnkChk = document.getElementById('editSplitSelfUnknown');
   const selfRow = document.getElementById('editSplitSelfRow');
-  if (selfRow && selfChk) selfRow.style.display = (mode === 'specified' && selfChk.checked) ? '' : 'none';
-  // sync values into state
+  const selfAmtEl = document.getElementById('editSplitSelfAmount');
+  const self = selfChk ? selfChk.checked : false;
+  const selfUnknown = self && selfUnkChk ? selfUnkChk.checked : false;
+  if (selfUnkChk) selfUnkChk.disabled = !self;
+  // "My amount" row: shown whenever I'm in the split and my share is known.
+  // It is NOT gated on the mode — an empty box just means "give me the even share".
+  if (selfRow) selfRow.style.display = (self && !selfUnknown) ? '' : 'none';
+  if (selfUnknown && selfAmtEl) selfAmtEl.value = '';
+  if (mode !== 'specified' && selfAmtEl) selfAmtEl.value = '';
+
+  // Sync every row's state FROM the DOM — including the typed amount, which the
+  // preview and the save path both read back out of state.
   document.querySelectorAll('#editSplitPeopleList .split-person-row').forEach((rowEl, i) => {
-    const chk = rowEl.querySelector('input[type="checkbox"]:not([data-edit-unknown])');
+    const chk = rowEl.querySelector('input[data-edit-include]');
     const unkChk = rowEl.querySelector('input[data-edit-unknown]');
-    const amt = rowEl.querySelector('.spec-amount');
-    if (rows[i]) {
-      rows[i].included = chk.checked;
-      rows[i].unknown = unkChk ? unkChk.checked : false;
-      if (rows[i].unknown) { rows[i].amount = ''; if (amt) amt.value = ''; }
-      if (amt) amt.disabled = rows[i].unknown;
+    const amt = rowEl.querySelector('.split-person-amount');
+    const r = rows[i];
+    if (!r) return;
+    r.included = chk ? chk.checked : false;
+    r.unknown = unkChk ? unkChk.checked : false;
+    if (unkChk) unkChk.disabled = !r.included;
+    if (amt) {
+      // Equal mode has no per-person amounts; unknown people have none either.
+      if (mode !== 'specified' || r.unknown) amt.value = '';
+      amt.disabled = r.unknown || !r.included;
+      r.amount = amt.value;
+    } else {
+      r.amount = '';
     }
   });
-  const self = selfChk ? selfChk.checked : false;
+
   const preview = document.getElementById('editSplitPreview');
   if (!preview) return;
   const amtEl = document.getElementById('editSplitAmount');
@@ -1185,13 +1249,9 @@ function updateEditSplitPreview() {
   window._editSplitBillAmount = total;
   const pool = [];
   if (self) {
-    if (mode === 'specified') {
-      const selfAmtEl = document.getElementById('editSplitSelfAmount');
-      const selfVal = selfAmtEl && selfAmtEl.value !== '' ? parseFloat(selfAmtEl.value) : null;
-      pool.push({ id: 'self', name: __('split.me'), specified: (selfVal !== null && isFinite(selfVal)) ? selfVal : null });
-    } else {
-      pool.push({ id: 'self', name: __('split.me'), specified: null });
-    }
+    const selfVal = (!selfUnknown && mode === 'specified' && selfAmtEl && selfAmtEl.value !== '')
+      ? parseFloat(selfAmtEl.value) : null;
+    pool.push({ id: 'self', name: __('split.me'), specified: (selfVal !== null && isFinite(selfVal)) ? selfVal : null });
   }
   rows.forEach(r => { if (r.included) pool.push({ id: r.contactId, name: r.name, specified: mode === 'specified' && !r.unknown ? r.amount : null }); });
   if (!(total > 0) || pool.length === 0) {
@@ -1207,21 +1267,40 @@ function updateEditSplitPreview() {
   }
   preview.innerHTML = result.shares.map(s => {
     const selfTag = s.id === 'self' ? ' (自己)' : '';
-    const unk = s.id !== 'self' && rows.find(r => r.contactId === s.id && r.unknown);
+    const unk = s.id === 'self' ? selfUnknown : !!rows.find(r => r.contactId === s.id && r.unknown);
     if (unk) {
-      return `<span class="split-share-chip">${escHtml(s.name)}: <b>❓ ${__('split.unknownAmount')}</b></span>`;
+      return `<span class="split-share-chip">${escHtml(s.name)}${selfTag}: <b>❓ ${__('split.unknownAmount')}</b></span>`;
     }
     return `<span class="split-share-chip">${escHtml(s.name)}${selfTag}: <b>${formatMoney(s.share)}</b></span>`;
   }).join('');
+  // Show each person's computed share as a placeholder so an empty box reads as
+  // "auto", not "missing" — the user can see the number they'd be overriding.
+  document.querySelectorAll('#editSplitPeopleList .split-person-row').forEach((rowEl, i) => {
+    const amt = rowEl.querySelector('.split-person-amount');
+    const r = rows[i];
+    if (!amt || !r) return;
+    const sh = result.shares.find(s => s.id === r.contactId);
+    amt.placeholder = (r.included && !r.unknown && sh) ? formatMoney(sh.share).replace(/[^\d.]/g, '') : '0.00';
+  });
+  if (selfAmtEl) {
+    const selfSh = result.shares.find(s => s.id === 'self');
+    selfAmtEl.placeholder = selfSh ? formatMoney(selfSh.share).replace(/[^\d.]/g, '') : '0.00';
+  }
   // persist current computed shares for save
   window._editSplitComputed = result.shares;
+  window._editSplitSelfUnknown = selfUnknown;
 }
 
 function saveSplitBillEditor(billId) {
   const bill = getSplitBill(billId);
   if (!bill) return;
   const tag = document.getElementById('editSplitTag') ? document.getElementById('editSplitTag').value.trim() : '';
+  const noteEl = document.getElementById('editSplitNote');
+  const note = noteEl ? noteEl.value.trim() : (bill.note || '');
+  const dtEl = document.getElementById('editSplitDateTime');
+  const newDate = dtEl && dtEl.value ? dtEl.value : (bill.date || '');
   const self = document.getElementById('editSplitSelf') ? document.getElementById('editSplitSelf').checked : false;
+  const selfUnknown = self && !!window._editSplitSelfUnknown;
   const shares = window._editSplitComputed;
   if (!shares) { showToast(__('split.previewNeedPeople'), 'error'); return; }
   const selfShare = self ? (shares.find(s => s.id === 'self') || { share: 0 }).share : 0;
@@ -1238,17 +1317,36 @@ function saveSplitBillEditor(billId) {
       const unk = (window._editSplitRows || []).find(r => r.contactId === key);
       return { contactId: s.id, name: s.name, share: s.share, paid, unknown: unk ? !!unk.unknown : (prev ? !!prev.unknown : false) };
     });
-  const patch = { tag, selfShare, participants };
+  const patch = {
+    tag,
+    note,
+    selfShare,
+    selfUnknown,
+    participants,
+    // Round-trip the entry mode so reopening the editor shows the same layout it
+    // was saved with (without this, a custom split reopens as an even one).
+    mode: _editSplitMode() === 'specified' ? 'specified' : 'equal'
+  };
   if (bill.archived && participants.some(p => !p.paid)) patch.archived = false;
   const amtEl = document.getElementById('editSplitAmount');
   const newAmount = amtEl ? (parseFloat(amtEl.value) || 0) : bill.amount;
-  if (newAmount > 0 && Math.abs(newAmount - (parseFloat(bill.amount) || 0)) > 0.01) {
-    patch.amount = newAmount;
-    (DataStore._data.records || []).forEach(r => {
-      if (r.splitBillId === billId) r.amount = newAmount;
-    });
-    logEvent('splitEditorAmountSync', 'id=' + billId);
-  }
+  const amountChanged = newAmount > 0 && Math.abs(newAmount - (parseFloat(bill.amount) || 0)) > 0.01;
+  if (amountChanged) patch.amount = newAmount;
+  if (newDate) patch.date = newDate;
+  // The bill's tag field IS the record's tag list, joined — split it back so the
+  // two never drift apart (records page filters and stats read r.tags)
+  const recTags = tag.split(/[、,，]/).map(t => t.trim()).filter(Boolean);
+  recTags.forEach(t => DataStore.addTagUsage(t));
+  // Keep the linked record(s) in step with everything editable here
+  (DataStore._data.records || []).forEach(r => {
+    if (r.splitBillId !== billId) return;
+    if (amountChanged) r.amount = newAmount;
+    if (newDate) r.date = newDate;
+    r.note = note;
+    r.tags = recTags;
+    r.updatedAt = new Date().toISOString();
+  });
+  if (amountChanged) logEvent('splitEditorAmountSync', 'id=' + billId);
   updateSplitBill(billId, patch);
   DataStore.save();
   closeModal();
@@ -1474,6 +1572,10 @@ addI18nEntries({
   'split.unpaidToast': { zh: '已改回未还', en: 'Marked as unpaid' },
   'split.editTitle': { zh: '编辑分摊账单', en: 'Edit Split Bill' },
   'split.totalLabel': { zh: '账单总金额', en: 'Total amount' },
+  'split.dateLabel': { zh: '日期时间', en: 'Date & time' },
+  'split.noteLabel': { zh: '备注', en: 'Note' },
+  'split.notePlaceholder': { zh: '选填', en: 'Optional' },
+  'split.selfUnknownHint': { zh: '我自己这份金额也不明', en: 'My own amount is unknown too' },
   'split.paidCountLabel': { zh: '还款状态', en: 'Repayment Status' },
   'split.noParticipants': { zh: '暂无其他人参与', en: 'No other participants' },
   'split.delete': { zh: '删除', en: 'Delete' },
@@ -1565,6 +1667,7 @@ addI18nEntries({
   window.previewSplitShares = previewSplitShares;
   window.setSplitMode = setSplitMode;
   window.toggleSplitSelfInvolved = toggleSplitSelfInvolved;
+  window.toggleSplitSelfUnknown = toggleSplitSelfUnknown;
   window.toggleSplitRowIncluded = toggleSplitRowIncluded;
   window.toggleSplitRowUnknown = toggleSplitRowUnknown;
   window.setSplitRowAmount = setSplitRowAmount;
@@ -1582,6 +1685,7 @@ addI18nEntries({
   window.markSplitPaid = markSplitPaid;
   window.openSplitBillEditor = openSplitBillEditor;
   window.updateEditSplitPreview = updateEditSplitPreview;
+  window.onEditSplitAmountTyped = onEditSplitAmountTyped;
   window.saveSplitBillEditor = saveSplitBillEditor;
   window.openSplitBillDeleteConfirm = openSplitBillDeleteConfirm;
   window.openSplitBillSettleOptions = openSplitBillSettleOptions;

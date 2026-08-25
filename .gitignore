@@ -6,3 +6,6 @@ user/
 # Ignore IDE settings
 .vscode/
 
+# Test-only dependency (tests/*.js run under jsdom: npm i --no-save jsdom)
+node_modules/
+package-lock.json

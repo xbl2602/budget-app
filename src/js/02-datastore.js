@@ -436,9 +436,16 @@ const DataStore = {
   addCategory(cat) {
     cat.id = uuid();
     if (!cat.color) {
-      const idx = this._data.colorIndex || 0;
-      cat.color = COLORS[idx % COLORS.length];
-      this._data.colorIndex = (this._data.colorIndex || 0) + 1;
+      // A child inherits its parent's color so one branch reads as one family in
+      // charts and lists; only root categories consume a new palette slot.
+      const parent = cat.parentId ? this._data.categories.find(c => c.id === cat.parentId) : null;
+      if (parent && parent.color) {
+        cat.color = parent.color;
+      } else {
+        const idx = this._data.colorIndex || 0;
+        cat.color = COLORS[idx % COLORS.length];
+        this._data.colorIndex = (this._data.colorIndex || 0) + 1;
+      }
     }
     this._data.categories.push(cat);
     this.save();

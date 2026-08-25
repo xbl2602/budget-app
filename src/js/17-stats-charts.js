@@ -49,7 +49,7 @@ function updateDrillCharts() {
   drawPieChart('pieChart', statsMonth, sD, eD);
   drawBarChart('barChart', statsMonth, sD, eD);
   syncPieDrillBar();
-  renderPieTable('pieDetailTable');
+  renderPieDetailTable();
 }
 /* ============================================================
    CALENDAR HEATMAP
@@ -331,6 +331,28 @@ function setStatsHierarchyLevel(n) {
   });
 }
 
+/* The on-page detail table is opt-in: at level 2/3 it can run to dozens of rows
+   and would otherwise stretch the pie card far past the chart it belongs to. */
+let statsPieTableOpen = false;
+try { statsPieTableOpen = localStorage.getItem('budgetStatsPieTable') === '1'; } catch (e) {}
+
+function togglePieDetailTable() {
+  statsPieTableOpen = !statsPieTableOpen;
+  try { localStorage.setItem('budgetStatsPieTable', statsPieTableOpen ? '1' : '0'); } catch (e) {}
+  const box = document.getElementById('pieDetailTable');
+  const btn = document.getElementById('pieDetailToggleBtn');
+  if (box) box.style.display = statsPieTableOpen ? 'block' : 'none';
+  if (btn) btn.textContent = (statsPieTableOpen ? '▼ ' : '▶ ') + __('stats.categoryDetail');
+  if (statsPieTableOpen) renderPieTable('pieDetailTable');
+}
+
+/* Only pay for the on-page table when it is actually showing */
+function renderPieDetailTable() {
+  const box = document.getElementById('pieDetailTable');
+  if (box) box.style.display = statsPieTableOpen ? 'block' : 'none';
+  if (statsPieTableOpen) renderPieTable('pieDetailTable');
+}
+
 function renderHierarchyToggle() {
   const levels = [1, 2, 3];
   const labels = [__('stats.hierarchy.level1'), __('stats.hierarchy.level2'), __('stats.hierarchy.all')];
@@ -496,7 +518,7 @@ function renderPieTable(containerId) {
 
 /* Refresh both the on-page detail table and the expanded-overlay table */
 function renderPieTables() {
-  renderPieTable('pieDetailTable');
+  renderPieDetailTable();
   renderPieTable('expandPieTable');
 }
 
@@ -856,8 +878,11 @@ function renderStats() {
           <button class="view-toggle-btn" onclick="expandPie()" title="${__('stats.zoomIn')}" style="font-size:0.7rem">⛶ ${__('stats.expand')}</button>
         </div>
         <canvas id="pieChart" width="400" height="300" style="width:100%;height:250px"></canvas>
-        <div id="pieDetailTable" style="margin-top:10px"></div>
-        <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('pieChart')">📥 ${__('stats.downloadPNG')}</button>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <button class="btn btn-ghost btn-sm" id="pieDetailToggleBtn" onclick="togglePieDetailTable()">${statsPieTableOpen ? '▼' : '▶'} ${__('stats.categoryDetail')}</button>
+          <button class="btn btn-ghost btn-sm" onclick="downloadChart('pieChart')">📥 ${__('stats.downloadPNG')}</button>
+        </div>
+        <div id="pieDetailTable" style="margin-top:10px;display:${statsPieTableOpen ? 'block' : 'none'}"></div>
       </div>
     </div>
     <div class="card mb-16">
@@ -942,7 +967,7 @@ function renderStats() {
     const eD = isCustom ? statsEndDate : null;
     drawPieChart('pieChart', statsMonth, sD, eD);
     // Category detail table (hierarchy levels) — right after the pie chart
-    renderPieTable('pieDetailTable');
+    renderPieDetailTable();
     drawLineChart('lineChart', statsMonth, sD, eD);
     drawMonthlyChart('monthlyChart');
     drawSavingsChart('savingsChart');
@@ -1205,50 +1230,80 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
 
     // --- Labels (pie slice labels in chart area, with background for readability) ---
     const labelMargin = 4;
-    // First pass: compute all label positions for overlap detection
-    const labelPositions = slices.map(slice => {
+    const legendX = w * 0.68;   // labels must stop before the legend column
+    const labelLineH = 15;      // vertical footprint of one label
+    ctx.font = '11px sans-serif';
+
+    // Trim a label to fit the space it actually has, rather than letting it run
+    // under the legend or off the canvas.
+    const fitText = (text, maxW) => {
+      if (maxW <= 0) return '';
+      if (ctx.measureText(text).width <= maxW) return text;
+      let t = text;
+      while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+      return t + '…';
+    };
+
+    // Deep flat expansion produces dozens of hair-thin slices. Labelling every one
+    // of them is a wall of overlapping text — label the readable ones and let the
+    // legend and the detail table carry the rest.
+    const minLabelPct = slices.length > 8 ? 0.03 : 0;
+    const labelled = slices.filter(s => (s.total / total) >= minLabelPct);
+    const compactLabels = labelled.length > 10;
+
+    const labelPositions = labelled.map(slice => {
       const midAngle = slice.angleStart + slice.sliceAngle / 2;
-      const labelR = r * 1.55;
+      const labelR = r * 1.16;
       let lx = cx + Math.cos(midAngle) * labelR;
       let ly = cy + Math.sin(midAngle) * labelR;
-      ctx.font = '11px sans-serif';
-      // Degrade labels when slices are too many (deep flat expansion)
-      const labelText = slices.length > 12
-        ? (slice.cat.icon || slice.cat.name)
-        : slice.cat.name + ' ' + (slice.total / total * 100).toFixed(1) + '%';
+      const pct = (slice.total / total * 100).toFixed(1) + '%';
+      const name = compactLabels ? (slice.cat.icon || slice.cat.name) : slice.cat.name;
+      const align = midAngle > Math.PI / 2 && midAngle < Math.PI * 1.5 ? 'right' : 'left';
+      // Room available on this side of the pie
+      const maxW = align === 'right'
+        ? Math.max(24, cx - r * 0.15 - labelMargin)
+        : Math.max(24, legendX - 6 - (cx + r * 0.15));
+      const labelText = fitText(name + ' ' + pct, maxW);
       const textWidth = ctx.measureText(labelText).width;
       const textHeight = 14;
-      const align = midAngle > Math.PI / 2 && midAngle < Math.PI * 1.5 ? 'right' : 'left';
       if (align === 'right') {
-        lx = Math.max(textWidth + labelMargin, Math.min(w - labelMargin, lx));
+        lx = Math.max(textWidth + labelMargin, Math.min(cx, lx));
       } else {
-        lx = Math.max(labelMargin, Math.min(w - textWidth - labelMargin, lx));
+        lx = Math.max(cx, Math.min(legendX - 6 - textWidth, lx));
       }
       ly = Math.max(textHeight, Math.min(h - labelMargin, ly));
       return { slice, lx, ly, labelText, textWidth, textHeight, align, midAngle };
     });
-    // Second pass: resolve vertical overlap between adjacent labels (same side only)
-    for (let pass = 0; pass < 3; pass++) {
-      for (let i = 0; i < labelPositions.length; i++) {
-        for (let j = i + 1; j < labelPositions.length; j++) {
-          const a = labelPositions[i], b = labelPositions[j];
-          if (a.align !== b.align) continue; // different sides won't collide
-          const minGap = 2;
-          const overlap = Math.max(0, minGap - (b.ly - a.ly));
-          if (overlap > 0) {
-            const shift = overlap / 2;
-            a.ly -= shift;
-            b.ly += shift;
-            // Clamp again
-            a.ly = Math.max(a.textHeight, Math.min(h - labelMargin, a.ly));
-            b.ly = Math.max(b.textHeight, Math.min(h - labelMargin, b.ly));
-          }
+
+    // Second pass: per side, push labels apart in vertical order so none overlaps.
+    // (The old pairwise nudge used a 2px gap against 14px-tall text, which meant
+    // stacked labels stayed stacked.)
+    ['right', 'left'].forEach(side => {
+      const group = labelPositions.filter(pos => pos.align === side).sort((a, b) => a.ly - b.ly);
+      if (group.length < 2) return;
+      const top = 14, bottom = h - labelMargin;
+      for (let i = 1; i < group.length; i++) {
+        if (group[i].ly - group[i - 1].ly < labelLineH) group[i].ly = group[i - 1].ly + labelLineH;
+      }
+      // If that ran off the bottom, walk back up from the last one
+      if (group[group.length - 1].ly > bottom) {
+        group[group.length - 1].ly = bottom;
+        for (let i = group.length - 2; i >= 0; i--) {
+          if (group[i + 1].ly - group[i].ly < labelLineH) group[i].ly = group[i + 1].ly - labelLineH;
         }
       }
-    }
+      // ...and clamp the top without re-colliding (drops the ones that cannot fit)
+      for (let i = 0; i < group.length; i++) {
+        if (group[i].ly < top) group[i].ly = top + i * labelLineH;
+      }
+      group.forEach(pos => { pos.hidden = pos.ly > bottom || pos.ly < 0; });
+    });
+
     // Third pass: draw labels
-    labelPositions.forEach(({ slice, lx, ly, labelText, textWidth, textHeight, align }) => {
+    labelPositions.forEach(({ slice, lx, ly, labelText, textWidth, textHeight, align, hidden }) => {
+      if (hidden || !labelText) return;
       ctx.textAlign = align;
+      ctx.font = '11px sans-serif';
       const textX = align === 'right' ? lx - textWidth : lx;
       // Semi-transparent background for readability (dark mode → dark bg)
       const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -1273,19 +1328,26 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
 
     // --- Legend (right side, also clickable) ---
     const legendRects = [];
-    let legendY = h * 0.08;
-    const budgetMonth = (typeof month === 'string' && month) || null;
-    slices.forEach((slice, i) => {
+    const legendTop = h * 0.08;
+    const legendLineH = 20;
+    const colorBoxX = w * 0.7;
+    const textX = colorBoxX + 16;
+    const legendMaxW = Math.max(30, w - textX - 4);
+    // Only list what fits inside the canvas; the overflow gets one summary line
+    // instead of being drawn past the bottom edge on top of everything else.
+    const legendCap = Math.max(1, Math.floor((h - legendTop - 4) / legendLineH));
+    const legendSlices = slices.length > legendCap ? slices.slice(0, legendCap - 1) : slices;
+    let legendY = legendTop;
+    ctx.font = '11px sans-serif';
+    legendSlices.forEach((slice, i) => {
       const color = slice.displayColor || slice.cat.color;
-      const colorBoxX = w * 0.7;
-      const textX = w * 0.7 + 16;
       ctx.fillStyle = color;
       ctx.fillRect(colorBoxX, legendY, 10, 10);
       ctx.fillStyle = tc.text;
       ctx.font = '11px sans-serif';
       ctx.textAlign = 'left';
-      const label = slice.cat.name + ' ' + formatMoney(slice.total);
-      const textWidth = ctx.measureText(label).width;
+      const label = fitText(slice.cat.name + ' ' + formatMoney(slice.total), legendMaxW);
+      const legendTextW = ctx.measureText(label).width;
       ctx.fillText(label, textX, legendY + 10);
       // Store legend item bounding box (for click/hover)
       const itemH = 18;
@@ -1293,11 +1355,19 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
         sliceIndex: i,
         x: colorBoxX,
         y: legendY,
-        w: textX + textWidth - colorBoxX,
+        w: textX + legendTextW - colorBoxX,
         h: itemH
       });
-      legendY += 20;
+      legendY += legendLineH;
     });
+    if (legendSlices.length < slices.length) {
+      const restCount = slices.length - legendSlices.length;
+      const restTotal = slices.slice(legendSlices.length).reduce((sum, x) => sum + x.total, 0);
+      ctx.fillStyle = tc.textMuted;
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(fitText(__('stats.legendMore', restCount, formatMoney(restTotal)), legendMaxW + 16), colorBoxX, legendY + 10);
+    }
     // Store legend rects on canvas for interaction handlers
     canvas._legendRects = legendRects;
   }
@@ -2415,6 +2485,7 @@ addI18nEntries({
   'stats.back': { zh: '返回', en: 'Back' },
   'stats.direct': { zh: '(直接)', en: '(direct)' },
   'stats.categoryDetail': { zh: '分类明细', en: 'Category details' },
+  'stats.legendMore': { zh: '+{0} 项 · {1}', en: '+{0} more · {1}' },
   'stats.category': { zh: '分类', en: 'Category' },
   'stats.amount': { zh: '金额', en: 'Amount' },
   'stats.percentage': { zh: '占比', en: 'Percentage' },
@@ -2508,6 +2579,8 @@ addI18nEntries({
   window.expandPie = expandPie;
   window.renderExpandPieTable = renderExpandPieTable;
   window.renderPieTables = renderPieTables;
+  window.togglePieDetailTable = togglePieDetailTable;
+  window.renderPieDetailTable = renderPieDetailTable;
   window.toggleExpandPieRow = toggleExpandPieRow;
   window.buildPieSliceRows = buildPieSliceRows;
   window.renderHierarchyToggle = renderHierarchyToggle;

@@ -18,11 +18,10 @@
   .modal-title { font-size: 1rem; }
   .report-container { padding: 0; }
   .report-header-buttons .flex { flex-direction: column; align-items: stretch; }
-  .heatmap-grid { gap: 2px; }
-  .heatmap-day { width: 32px; height: 32px; font-size: 0.65rem; }
+  .heatmap-grid { gap: 3px; }
+  .heatmap-day { font-size: 0.65rem; }
   .heatmap-tooltip { font-size: 0.6rem; padding: 2px 4px; }
   .chart-expand-inner { padding: 12px !important; width: 96% !important; }
-  .chart-expand-inner .heatmap-day { width: 38px !important; height: 38px !important; }
   #pieChart { height: 200px !important; }
   #lineChart { height: 200px !important; }
   .nav-item { font-size: 0.65rem; padding: 4px 2px; }
@@ -54,7 +53,7 @@
   }
   .top-header h1 { font-size: 1.3rem; }
   .card { padding: 20px; margin-bottom: 14px; }
-  .heatmap-day { width: 40px; height: 40px; font-size: 0.75rem; }
+  .heatmap-day { font-size: 0.78rem; }
 }
 
 /* ===== RESPONSIVE: DESKTOP (1024px+) ===== */
@@ -125,8 +124,6 @@
   margin: 0 auto;
 }
 .chart-modal .heatmap-day {
-  min-width: 36px;
-  min-height: 36px;
   font-size: 0.85rem;
 }
 .chart-modal-close {
@@ -210,11 +207,10 @@
 .chart-expand-inner .heatmap-grid {
   max-width: 480px !important;
   margin: 0 auto !important;
+  gap: 6px !important;
 }
 .chart-expand-inner .heatmap-day {
-  width: 54px !important;
-  height: 54px !important;
-  font-size: 0.85rem !important;
+  font-size: 0.9rem !important;
 }
 .chart-expand-inner #expandPieChart {
   width: 100% !important;

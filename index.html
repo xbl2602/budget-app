@@ -896,22 +896,26 @@ body.modal-open {
 .heatmap-container { user-select: none; }
 .heatmap-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 3px;
-  margin-top: 8px;
+  /* Cells fill their column, so the gap is the ONLY spacing between them.
+     Fixed cell widths inside 1fr columns leave ragged dead space — don't. */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin: 8px auto 0;
+  max-width: 420px;
 }
 .heatmap-day {
-  aspect-ratio: 1;
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.78rem;
+  font-size: clamp(0.62rem, 2.4vw, 0.8rem);
   font-weight: 500;
   border-radius: 6px;
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
   position: relative;
-  min-height: 36px;
 }
 .heatmap-day:hover {
   transform: scale(1.12);
@@ -1464,11 +1468,10 @@ body.modal-open {
   .modal-title { font-size: 1rem; }
   .report-container { padding: 0; }
   .report-header-buttons .flex { flex-direction: column; align-items: stretch; }
-  .heatmap-grid { gap: 2px; }
-  .heatmap-day { width: 32px; height: 32px; font-size: 0.65rem; }
+  .heatmap-grid { gap: 3px; }
+  .heatmap-day { font-size: 0.65rem; }
   .heatmap-tooltip { font-size: 0.6rem; padding: 2px 4px; }
   .chart-expand-inner { padding: 12px !important; width: 96% !important; }
-  .chart-expand-inner .heatmap-day { width: 38px !important; height: 38px !important; }
   #pieChart { height: 200px !important; }
   #lineChart { height: 200px !important; }
   .nav-item { font-size: 0.65rem; padding: 4px 2px; }
@@ -1500,7 +1503,7 @@ body.modal-open {
   }
   .top-header h1 { font-size: 1.3rem; }
   .card { padding: 20px; margin-bottom: 14px; }
-  .heatmap-day { width: 40px; height: 40px; font-size: 0.75rem; }
+  .heatmap-day { font-size: 0.78rem; }
 }
 
 /* ===== RESPONSIVE: DESKTOP (1024px+) ===== */
@@ -1571,8 +1574,6 @@ body.modal-open {
   margin: 0 auto;
 }
 .chart-modal .heatmap-day {
-  min-width: 36px;
-  min-height: 36px;
   font-size: 0.85rem;
 }
 .chart-modal-close {
@@ -1656,11 +1657,10 @@ body.modal-open {
 .chart-expand-inner .heatmap-grid {
   max-width: 480px !important;
   margin: 0 auto !important;
+  gap: 6px !important;
 }
 .chart-expand-inner .heatmap-day {
-  width: 54px !important;
-  height: 54px !important;
-  font-size: 0.85rem !important;
+  font-size: 0.9rem !important;
 }
 .chart-expand-inner #expandPieChart {
   width: 100% !important;
@@ -1888,6 +1888,8 @@ body.modal-open {
   padding: 4px 2px;
   font-size: 0.85rem;
   border-bottom: 1px dashed var(--border);
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .split-person-row:last-child {
@@ -1901,8 +1903,12 @@ body.modal-open {
   text-align: right;
 }
 
-.split-person-amount.spec-amount {
-  width: 120px;
+/* An "amount unknown" box stays in place but reads as inert, so unchecking the
+   marker visibly hands the field back instead of making a box appear/disappear. */
+.split-person-amount:disabled,
+.split-form-row input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .split-share-preview {
@@ -3357,9 +3363,16 @@ const DataStore = {
   addCategory(cat) {
     cat.id = uuid();
     if (!cat.color) {
-      const idx = this._data.colorIndex || 0;
-      cat.color = COLORS[idx % COLORS.length];
-      this._data.colorIndex = (this._data.colorIndex || 0) + 1;
+      // A child inherits its parent's color so one branch reads as one family in
+      // charts and lists; only root categories consume a new palette slot.
+      const parent = cat.parentId ? this._data.categories.find(c => c.id === cat.parentId) : null;
+      if (parent && parent.color) {
+        cat.color = parent.color;
+      } else {
+        const idx = this._data.colorIndex || 0;
+        cat.color = COLORS[idx % COLORS.length];
+        this._data.colorIndex = (this._data.colorIndex || 0) + 1;
+      }
     }
     this._data.categories.push(cat);
     this.save();
@@ -4498,6 +4511,16 @@ function exportToExcel() {
     xml += `    <Cell><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
     xml += '   </Row>\n';
 
+    // My own share can be flagged unknown too — surface it the way participants are
+    if (b.selfUnknown) {
+      xml += '   <Row>\n';
+      xml += `    <Cell><Data ss:Type="String">${esc('  \u21b3 ' + __('excel.split.label.self'))}</Data></Cell>\n`;
+      xml += `    <Cell><Data ss:Type="String">${esc(__('excel.split.label.unknownMark'))}</Data></Cell>\n`;
+      xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(selfShare)}</Data></Cell>\n`;
+      xml += `    <Cell><Data ss:Type="String">${esc(__('excel.split.status.paid'))}</Data></Cell>\n`;
+      xml += '   </Row>\n';
+    }
+
     if (parts.length > 0) {
       parts.forEach((p, pi) => {
         const pAmt = parseFloat(p.share) || 0;
@@ -4650,6 +4673,7 @@ function exportToExcel() {
     'excel.split.label.unpaid': { zh: '他人待收 (RM)', en: 'Unpaid (RM)' },
     'excel.split.label.paid': { zh: '他人已还 (RM)', en: 'Paid (RM)' },
     'excel.split.label.unknownMark': { zh: '❓ 金额不明', en: '❓ Unknown amount' },
+    'excel.split.label.self': { zh: '我自己', en: 'Me' },
     'excel.split.status.archived': { zh: '已归档', en: 'Archived' },
     'excel.split.status.active': { zh: '进行中', en: 'Active' },
     'excel.split.status.paid': { zh: '✅ 已还', en: '✅ Paid' },
@@ -8098,6 +8122,9 @@ function submitRecord(e) {
       categoryId: splitRes.bill.categoryId || '',
       payer: 'self',
       selfShare: splitRes.bill.selfShare,
+      selfUnknown: !!splitRes.bill.selfUnknown,
+      // Persist the entry mode so the editor reopens showing the same split style
+      mode: splitRes.bill.mode || 'equal',
       participants: active,
       createdAt: new Date().toISOString()
     });
@@ -9673,6 +9700,7 @@ function confirmAddRootCategory() {
 }
 
 function addChildCategory(parentId) {
+  const parent = DataStore.getCategory(parentId);
   showModal(`
     <div class="modal-title">${__('categories.addChildModal.title')}</div>
     <div class="input-group">
@@ -9683,6 +9711,14 @@ function addChildCategory(parentId) {
       <label class="input-label">${__('categories.icon')}</label>
       <input type="text" id="newChildIcon" class="input-field" value="📁" placeholder="${__('categories.iconPlaceholder')}">
     </div>
+    ${parent && parent.color ? `
+    <div class="input-group">
+      <label class="input-label">${__('categories.colorLabel')}</label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:22px;height:22px;border-radius:50%;background:${escHtml(parent.color)};display:inline-block;border:1px solid var(--border)"></span>
+        <span class="text-xs text-muted">${__('categories.colorInherited', escHtml(parent.name))}</span>
+      </div>
+    </div>` : ''}
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">${__('categories.cancel')}</button>
       <button class="btn btn-primary" onclick="confirmAddChildCategory('${parentId}')">${__('categories.add')}</button>
@@ -9731,10 +9767,24 @@ const EMOJI_GRID = ['🍜','🥐','🍱','🍽️','☕','🚗','⛽','🅿️',
 function changeCategoryIcon(id) {
   const cat = DataStore.getCategory(id);
   if (!cat) return;
-  let html = `<div class="modal-title">${__('categories.iconPicker.title', escHtml(cat.name))}</div><div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;max-height:50vh;overflow-y:auto">`;
+  // Custom field first: creation lets you type any emoji, so editing must too —
+  // the preset grid below is a shortcut, not the only choice.
+  let html = `<div class="modal-title">${__('categories.iconPicker.title', escHtml(cat.name))}</div>`;
+  html += `<div class="input-group">
+      <label class="input-label">${__('categories.iconPicker.custom')}</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="customIconInput" class="input-field" maxlength="8" style="flex:1;font-size:1.2rem"
+               placeholder="${__('categories.iconPlaceholder')}" value="${escHtml(cat.icon || '')}"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();confirmCustomIcon('${id}')}">
+        <button class="btn btn-primary btn-sm" onclick="confirmCustomIcon('${id}')">${__('categories.iconPicker.apply')}</button>
+      </div>
+    </div>`;
+  html += `<div class="input-label" style="margin-bottom:4px">${__('categories.iconPicker.presets')}</div>`;
+  html += `<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;max-height:38vh;overflow-y:auto">`;
   EMOJI_GRID.forEach(emoji => {
-    html += `<div style="font-size:1.5rem;padding:8px;text-align:center;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast)" 
-                  onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"
+    const isCurrent = emoji === cat.icon;
+    html += `<div style="font-size:1.5rem;padding:8px;text-align:center;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast);${isCurrent ? 'background:var(--primary);' : ''}"
+                  onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='${isCurrent ? 'var(--primary)' : ''}'"
                   onclick="confirmChangeIcon('${id}','${emoji}')">${emoji}</div>`;
   });
   html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('categories.cancel') + '</button></div>';
@@ -9746,6 +9796,13 @@ function confirmChangeIcon(id, icon) {
   closeModal();
   showToast(__('categories.iconUpdated'));
   renderCategories();
+}
+
+function confirmCustomIcon(id) {
+  const el = document.getElementById('customIconInput');
+  const icon = el ? el.value.trim() : '';
+  if (!icon) { showToast(__('categories.iconPicker.invalid'), 'error'); return; }
+  confirmChangeIcon(id, icon);
 }
 
 function changeCategoryColor(id) {
@@ -10027,6 +10084,7 @@ function saveCategoryEdit(catId) {
   window.EMOJI_GRID = EMOJI_GRID;
   window.changeCategoryIcon = changeCategoryIcon;
   window.confirmChangeIcon = confirmChangeIcon;
+  window.confirmCustomIcon = confirmCustomIcon;
   window.changeCategoryColor = changeCategoryColor;
   window.confirmChangeColor = confirmChangeColor;
   window.confirmCustomColor = confirmCustomColor;
@@ -10082,6 +10140,10 @@ function saveCategoryEdit(catId) {
     'categories.save': { zh: '保存', en: 'Save' },
     'categories.renamed': { zh: '✅ 名称已更新', en: '✅ Name updated' },
     'categories.iconPicker.title': { zh: '选择图标 — {0}', en: 'Select icon — {0}' },
+    'categories.iconPicker.custom': { zh: '自定义图标 (任意 Emoji / 文字)', en: 'Custom icon (any emoji / text)' },
+    'categories.iconPicker.presets': { zh: '或从常用图标中选择', en: 'Or pick a preset' },
+    'categories.iconPicker.apply': { zh: '应用', en: 'Apply' },
+    'categories.iconPicker.invalid': { zh: '请输入图标', en: 'Please enter an icon' },
     'categories.iconUpdated': { zh: '✅ 图标已更新', en: '✅ Icon updated' },
     'categories.colorPicker.title': { zh: '选择颜色 — {0}', en: 'Select color — {0}' },
     'categories.colorPicker.custom': { zh: '自定义颜色 (HEX)', en: 'Custom color (HEX)' },
@@ -10111,6 +10173,7 @@ function saveCategoryEdit(catId) {
     'categories.iconLabel': { zh: '图标', en: 'Icon' },
     'categories.edit.changeIcon': { zh: '🎨 更改图标', en: '🎨 Change icon' },
     'categories.colorLabel': { zh: '颜色', en: 'Color' },
+    'categories.colorInherited': { zh: '继承自「{0}」，创建后可单独修改', en: 'Inherited from "{0}" — changeable after creation' },
     'categories.edit.changeColor': { zh: '🌈 更改颜色', en: '🌈 Change color' },
     'categories.edit.move': { zh: '📦 移动到…', en: '📦 Move to…' },
     'categories.edit.merge': { zh: '🔀 合并到…', en: '🔀 Merge to…' },
@@ -10172,7 +10235,7 @@ function updateDrillCharts() {
   drawPieChart('pieChart', statsMonth, sD, eD);
   drawBarChart('barChart', statsMonth, sD, eD);
   syncPieDrillBar();
-  renderPieTable('pieDetailTable');
+  renderPieDetailTable();
 }
 /* ============================================================
    CALENDAR HEATMAP
@@ -10454,6 +10517,28 @@ function setStatsHierarchyLevel(n) {
   });
 }
 
+/* The on-page detail table is opt-in: at level 2/3 it can run to dozens of rows
+   and would otherwise stretch the pie card far past the chart it belongs to. */
+let statsPieTableOpen = false;
+try { statsPieTableOpen = localStorage.getItem('budgetStatsPieTable') === '1'; } catch (e) {}
+
+function togglePieDetailTable() {
+  statsPieTableOpen = !statsPieTableOpen;
+  try { localStorage.setItem('budgetStatsPieTable', statsPieTableOpen ? '1' : '0'); } catch (e) {}
+  const box = document.getElementById('pieDetailTable');
+  const btn = document.getElementById('pieDetailToggleBtn');
+  if (box) box.style.display = statsPieTableOpen ? 'block' : 'none';
+  if (btn) btn.textContent = (statsPieTableOpen ? '▼ ' : '▶ ') + __('stats.categoryDetail');
+  if (statsPieTableOpen) renderPieTable('pieDetailTable');
+}
+
+/* Only pay for the on-page table when it is actually showing */
+function renderPieDetailTable() {
+  const box = document.getElementById('pieDetailTable');
+  if (box) box.style.display = statsPieTableOpen ? 'block' : 'none';
+  if (statsPieTableOpen) renderPieTable('pieDetailTable');
+}
+
 function renderHierarchyToggle() {
   const levels = [1, 2, 3];
   const labels = [__('stats.hierarchy.level1'), __('stats.hierarchy.level2'), __('stats.hierarchy.all')];
@@ -10619,7 +10704,7 @@ function renderPieTable(containerId) {
 
 /* Refresh both the on-page detail table and the expanded-overlay table */
 function renderPieTables() {
-  renderPieTable('pieDetailTable');
+  renderPieDetailTable();
   renderPieTable('expandPieTable');
 }
 
@@ -10979,8 +11064,11 @@ function renderStats() {
           <button class="view-toggle-btn" onclick="expandPie()" title="${__('stats.zoomIn')}" style="font-size:0.7rem">⛶ ${__('stats.expand')}</button>
         </div>
         <canvas id="pieChart" width="400" height="300" style="width:100%;height:250px"></canvas>
-        <div id="pieDetailTable" style="margin-top:10px"></div>
-        <button class="btn btn-ghost btn-sm mt-8" onclick="downloadChart('pieChart')">📥 ${__('stats.downloadPNG')}</button>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <button class="btn btn-ghost btn-sm" id="pieDetailToggleBtn" onclick="togglePieDetailTable()">${statsPieTableOpen ? '▼' : '▶'} ${__('stats.categoryDetail')}</button>
+          <button class="btn btn-ghost btn-sm" onclick="downloadChart('pieChart')">📥 ${__('stats.downloadPNG')}</button>
+        </div>
+        <div id="pieDetailTable" style="margin-top:10px;display:${statsPieTableOpen ? 'block' : 'none'}"></div>
       </div>
     </div>
     <div class="card mb-16">
@@ -11065,7 +11153,7 @@ function renderStats() {
     const eD = isCustom ? statsEndDate : null;
     drawPieChart('pieChart', statsMonth, sD, eD);
     // Category detail table (hierarchy levels) — right after the pie chart
-    renderPieTable('pieDetailTable');
+    renderPieDetailTable();
     drawLineChart('lineChart', statsMonth, sD, eD);
     drawMonthlyChart('monthlyChart');
     drawSavingsChart('savingsChart');
@@ -11328,50 +11416,80 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
 
     // --- Labels (pie slice labels in chart area, with background for readability) ---
     const labelMargin = 4;
-    // First pass: compute all label positions for overlap detection
-    const labelPositions = slices.map(slice => {
+    const legendX = w * 0.68;   // labels must stop before the legend column
+    const labelLineH = 15;      // vertical footprint of one label
+    ctx.font = '11px sans-serif';
+
+    // Trim a label to fit the space it actually has, rather than letting it run
+    // under the legend or off the canvas.
+    const fitText = (text, maxW) => {
+      if (maxW <= 0) return '';
+      if (ctx.measureText(text).width <= maxW) return text;
+      let t = text;
+      while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+      return t + '…';
+    };
+
+    // Deep flat expansion produces dozens of hair-thin slices. Labelling every one
+    // of them is a wall of overlapping text — label the readable ones and let the
+    // legend and the detail table carry the rest.
+    const minLabelPct = slices.length > 8 ? 0.03 : 0;
+    const labelled = slices.filter(s => (s.total / total) >= minLabelPct);
+    const compactLabels = labelled.length > 10;
+
+    const labelPositions = labelled.map(slice => {
       const midAngle = slice.angleStart + slice.sliceAngle / 2;
-      const labelR = r * 1.55;
+      const labelR = r * 1.16;
       let lx = cx + Math.cos(midAngle) * labelR;
       let ly = cy + Math.sin(midAngle) * labelR;
-      ctx.font = '11px sans-serif';
-      // Degrade labels when slices are too many (deep flat expansion)
-      const labelText = slices.length > 12
-        ? (slice.cat.icon || slice.cat.name)
-        : slice.cat.name + ' ' + (slice.total / total * 100).toFixed(1) + '%';
+      const pct = (slice.total / total * 100).toFixed(1) + '%';
+      const name = compactLabels ? (slice.cat.icon || slice.cat.name) : slice.cat.name;
+      const align = midAngle > Math.PI / 2 && midAngle < Math.PI * 1.5 ? 'right' : 'left';
+      // Room available on this side of the pie
+      const maxW = align === 'right'
+        ? Math.max(24, cx - r * 0.15 - labelMargin)
+        : Math.max(24, legendX - 6 - (cx + r * 0.15));
+      const labelText = fitText(name + ' ' + pct, maxW);
       const textWidth = ctx.measureText(labelText).width;
       const textHeight = 14;
-      const align = midAngle > Math.PI / 2 && midAngle < Math.PI * 1.5 ? 'right' : 'left';
       if (align === 'right') {
-        lx = Math.max(textWidth + labelMargin, Math.min(w - labelMargin, lx));
+        lx = Math.max(textWidth + labelMargin, Math.min(cx, lx));
       } else {
-        lx = Math.max(labelMargin, Math.min(w - textWidth - labelMargin, lx));
+        lx = Math.max(cx, Math.min(legendX - 6 - textWidth, lx));
       }
       ly = Math.max(textHeight, Math.min(h - labelMargin, ly));
       return { slice, lx, ly, labelText, textWidth, textHeight, align, midAngle };
     });
-    // Second pass: resolve vertical overlap between adjacent labels (same side only)
-    for (let pass = 0; pass < 3; pass++) {
-      for (let i = 0; i < labelPositions.length; i++) {
-        for (let j = i + 1; j < labelPositions.length; j++) {
-          const a = labelPositions[i], b = labelPositions[j];
-          if (a.align !== b.align) continue; // different sides won't collide
-          const minGap = 2;
-          const overlap = Math.max(0, minGap - (b.ly - a.ly));
-          if (overlap > 0) {
-            const shift = overlap / 2;
-            a.ly -= shift;
-            b.ly += shift;
-            // Clamp again
-            a.ly = Math.max(a.textHeight, Math.min(h - labelMargin, a.ly));
-            b.ly = Math.max(b.textHeight, Math.min(h - labelMargin, b.ly));
-          }
+
+    // Second pass: per side, push labels apart in vertical order so none overlaps.
+    // (The old pairwise nudge used a 2px gap against 14px-tall text, which meant
+    // stacked labels stayed stacked.)
+    ['right', 'left'].forEach(side => {
+      const group = labelPositions.filter(pos => pos.align === side).sort((a, b) => a.ly - b.ly);
+      if (group.length < 2) return;
+      const top = 14, bottom = h - labelMargin;
+      for (let i = 1; i < group.length; i++) {
+        if (group[i].ly - group[i - 1].ly < labelLineH) group[i].ly = group[i - 1].ly + labelLineH;
+      }
+      // If that ran off the bottom, walk back up from the last one
+      if (group[group.length - 1].ly > bottom) {
+        group[group.length - 1].ly = bottom;
+        for (let i = group.length - 2; i >= 0; i--) {
+          if (group[i + 1].ly - group[i].ly < labelLineH) group[i].ly = group[i + 1].ly - labelLineH;
         }
       }
-    }
+      // ...and clamp the top without re-colliding (drops the ones that cannot fit)
+      for (let i = 0; i < group.length; i++) {
+        if (group[i].ly < top) group[i].ly = top + i * labelLineH;
+      }
+      group.forEach(pos => { pos.hidden = pos.ly > bottom || pos.ly < 0; });
+    });
+
     // Third pass: draw labels
-    labelPositions.forEach(({ slice, lx, ly, labelText, textWidth, textHeight, align }) => {
+    labelPositions.forEach(({ slice, lx, ly, labelText, textWidth, textHeight, align, hidden }) => {
+      if (hidden || !labelText) return;
       ctx.textAlign = align;
+      ctx.font = '11px sans-serif';
       const textX = align === 'right' ? lx - textWidth : lx;
       // Semi-transparent background for readability (dark mode → dark bg)
       const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -11396,19 +11514,26 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
 
     // --- Legend (right side, also clickable) ---
     const legendRects = [];
-    let legendY = h * 0.08;
-    const budgetMonth = (typeof month === 'string' && month) || null;
-    slices.forEach((slice, i) => {
+    const legendTop = h * 0.08;
+    const legendLineH = 20;
+    const colorBoxX = w * 0.7;
+    const textX = colorBoxX + 16;
+    const legendMaxW = Math.max(30, w - textX - 4);
+    // Only list what fits inside the canvas; the overflow gets one summary line
+    // instead of being drawn past the bottom edge on top of everything else.
+    const legendCap = Math.max(1, Math.floor((h - legendTop - 4) / legendLineH));
+    const legendSlices = slices.length > legendCap ? slices.slice(0, legendCap - 1) : slices;
+    let legendY = legendTop;
+    ctx.font = '11px sans-serif';
+    legendSlices.forEach((slice, i) => {
       const color = slice.displayColor || slice.cat.color;
-      const colorBoxX = w * 0.7;
-      const textX = w * 0.7 + 16;
       ctx.fillStyle = color;
       ctx.fillRect(colorBoxX, legendY, 10, 10);
       ctx.fillStyle = tc.text;
       ctx.font = '11px sans-serif';
       ctx.textAlign = 'left';
-      const label = slice.cat.name + ' ' + formatMoney(slice.total);
-      const textWidth = ctx.measureText(label).width;
+      const label = fitText(slice.cat.name + ' ' + formatMoney(slice.total), legendMaxW);
+      const legendTextW = ctx.measureText(label).width;
       ctx.fillText(label, textX, legendY + 10);
       // Store legend item bounding box (for click/hover)
       const itemH = 18;
@@ -11416,11 +11541,19 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
         sliceIndex: i,
         x: colorBoxX,
         y: legendY,
-        w: textX + textWidth - colorBoxX,
+        w: textX + legendTextW - colorBoxX,
         h: itemH
       });
-      legendY += 20;
+      legendY += legendLineH;
     });
+    if (legendSlices.length < slices.length) {
+      const restCount = slices.length - legendSlices.length;
+      const restTotal = slices.slice(legendSlices.length).reduce((sum, x) => sum + x.total, 0);
+      ctx.fillStyle = tc.textMuted;
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(fitText(__('stats.legendMore', restCount, formatMoney(restTotal)), legendMaxW + 16), colorBoxX, legendY + 10);
+    }
     // Store legend rects on canvas for interaction handlers
     canvas._legendRects = legendRects;
   }
@@ -12538,6 +12671,7 @@ addI18nEntries({
   'stats.back': { zh: '返回', en: 'Back' },
   'stats.direct': { zh: '(直接)', en: '(direct)' },
   'stats.categoryDetail': { zh: '分类明细', en: 'Category details' },
+  'stats.legendMore': { zh: '+{0} 项 · {1}', en: '+{0} more · {1}' },
   'stats.category': { zh: '分类', en: 'Category' },
   'stats.amount': { zh: '金额', en: 'Amount' },
   'stats.percentage': { zh: '占比', en: 'Percentage' },
@@ -12631,6 +12765,8 @@ addI18nEntries({
   window.expandPie = expandPie;
   window.renderExpandPieTable = renderExpandPieTable;
   window.renderPieTables = renderPieTables;
+  window.togglePieDetailTable = togglePieDetailTable;
+  window.renderPieDetailTable = renderPieDetailTable;
   window.toggleExpandPieRow = toggleExpandPieRow;
   window.buildPieSliceRows = buildPieSliceRows;
   window.renderHierarchyToggle = renderHierarchyToggle;
@@ -17732,6 +17868,7 @@ function _resetAddSplitState() {
   window._addSplitState = {
     enabled: false,
     selfInvolved: false,
+    selfUnknown: false,
     mode: 'equal',
     selfAmount: '',
     rows: getContacts().map(c => ({ contactId: c.id, name: c.name, included: false, amount: '', unknown: false }))
@@ -17754,6 +17891,17 @@ function setSplitMode(mode) {
 
 function toggleSplitSelfInvolved(checked) {
   window._addSplitState.selfInvolved = !!checked;
+  if (!checked) window._addSplitState.selfUnknown = false;
+  renderAddSplitForm();
+  previewSplitShares();
+}
+
+// My own share can be unknown too — same marker participants already get
+function toggleSplitSelfUnknown(checked) {
+  const st = window._addSplitState;
+  if (!st) return;
+  st.selfUnknown = !!checked;
+  if (st.selfUnknown) st.selfAmount = '';
   renderAddSplitForm();
   previewSplitShares();
 }
@@ -17794,23 +17942,29 @@ function _syncSplitRows() {
   const contacts = getContacts();
   st.rows = contacts.map(c => {
     const existing = (st.rows || []).find(r => r.contactId === c.id);
-    return existing || { contactId: c.id, name: c.name, included: false, amount: '' };
+    return existing || { contactId: c.id, name: c.name, included: false, amount: '', unknown: false };
   });
 }
 
 function renderAddSplitForm() {
   const section = document.getElementById('addSplitSection');
   if (!section) return;
-  if (!window._addSplitState) window._addSplitState = { enabled: false, selfInvolved: false, mode: 'equal', selfAmount: '', rows: [] };
+  if (!window._addSplitState) window._addSplitState = { enabled: false, selfInvolved: false, selfUnknown: false, mode: 'equal', selfAmount: '', rows: [] };
   const st = window._addSplitState;
   _syncSplitRows();
   section.innerHTML = `
     <div class="split-form">
-      <label class="split-form-row" style="cursor:pointer">
-        <span class="split-form-label">${__('split.selfInvolved')}</span>
-        <input type="checkbox" ${st.selfInvolved ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer" onchange="toggleSplitSelfInvolved(this.checked)">
-      </label>
-      ${st.selfInvolved && st.mode === 'specified' ? `
+      <div class="split-form-row">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0">
+          <input type="checkbox" ${st.selfInvolved ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer" onchange="toggleSplitSelfInvolved(this.checked)">
+          <span class="split-form-label" style="margin:0">${__('split.selfInvolved')}</span>
+        </label>
+        <label title="${__('split.selfUnknownHint')}" style="display:flex;align-items:center;gap:3px;cursor:${st.selfInvolved ? 'pointer' : 'not-allowed'};flex-shrink:0;opacity:${st.selfInvolved ? '1' : '0.45'}">
+          <input type="checkbox" ${st.selfUnknown ? 'checked' : ''} ${st.selfInvolved ? '' : 'disabled'} style="width:14px;height:14px;cursor:inherit" onchange="toggleSplitSelfUnknown(this.checked)">
+          <span class="text-xs text-muted" style="font-size:0.68rem">❓ ${__('split.unknownAmount')}</span>
+        </label>
+      </div>
+      ${st.selfInvolved && !st.selfUnknown && st.mode === 'specified' ? `
       <div class="split-form-row">
         <span class="split-form-label">${__('split.selfAmountLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
@@ -17884,9 +18038,9 @@ function previewSplitShares() {
     return;
   }
   const pool = [];
-  if (st.selfInvolved) pool.push({ id: 'self', name: __('split.me'), specified: _selfSpecified(st) });
+  if (st.selfInvolved) pool.push({ id: 'self', name: __('split.me'), specified: st.selfUnknown ? null : _selfSpecified(st) });
   st.rows.forEach(r => {
-    if (r.included) pool.push({ id: r.contactId, name: r.name, specified: r.amount });
+    if (r.included) pool.push({ id: r.contactId, name: r.name, specified: r.unknown ? null : r.amount });
   });
   const result = computeShares(total, pool, st.selfInvolved);
   if (result.error) {
@@ -17895,9 +18049,9 @@ function previewSplitShares() {
   }
   preview.innerHTML = result.shares.map(s => {
     const selfTag = s.id === 'self' ? ' (自己)' : '';
-    const unk = s.id !== 'self' && (st.rows || []).find(r => r.contactId === s.id && r.unknown);
+    const unk = s.id === 'self' ? !!st.selfUnknown : !!(st.rows || []).find(r => r.contactId === s.id && r.unknown);
     if (unk) {
-      return `<span class="split-share-chip" style="color:var(--text-secondary)">${escHtml(s.name)}: <b>❓ ${__('split.unknownAmount')}</b></span>`;
+      return `<span class="split-share-chip" style="color:var(--text-secondary)">${escHtml(s.name)}${selfTag}: <b>❓ ${__('split.unknownAmount')}</b></span>`;
     }
     return `<span class="split-share-chip" style="color:var(--text-secondary)">${escHtml(s.name)}${selfTag}: <b>${formatMoney(s.share)}</b></span>`;
   }).join('');
@@ -17905,7 +18059,7 @@ function previewSplitShares() {
 
 function openSplitQuickAdd() {
   try {
-    if (!window._addSplitState) window._addSplitState = { enabled: false, selfInvolved: false, mode: 'equal', rows: [] };
+    if (!window._addSplitState) window._addSplitState = { enabled: false, selfInvolved: false, selfUnknown: false, mode: 'equal', selfAmount: '', rows: [] };
     showModal(`
     <div class="modal-title">＋ ${__('split.addPerson')}</div>
     <div class="input-group">
@@ -17945,7 +18099,7 @@ function _confirmSplitQuickAdd() {
   const row = window._addSplitState.rows.find(r => r.contactId === contact.id);
   const isNew = !row;
   if (isNew) {
-    window._addSplitState.rows.push({ contactId: contact.id, name: contact.name, included: false, amount: '' });
+    window._addSplitState.rows.push({ contactId: contact.id, name: contact.name, included: false, amount: '', unknown: false });
   }
   closeModal();
   renderAddSplitForm();
@@ -17963,7 +18117,7 @@ function _selfSpecified(st) {
 function collectSplitBill(args) {
   const st = window._addSplitState || {};
   const pool = [];
-  if (st.selfInvolved) pool.push({ id: 'self', name: __('split.me'), specified: _selfSpecified(st) });
+  if (st.selfInvolved) pool.push({ id: 'self', name: __('split.me'), specified: st.selfUnknown ? null : _selfSpecified(st) });
   (st.rows || []).forEach(r => {
     if (!r.included) return;
     // Unknown-amount participants cannot type a specified amount; they get the
@@ -17994,6 +18148,7 @@ function collectSplitBill(args) {
     tag: Array.isArray(args.tags) ? args.tags.map(t => t.trim()).filter(Boolean).join('、') : String(args.tag || '').trim(),
     categoryId: args.categoryId || '',
     selfShare,
+    selfUnknown: !!(st.selfInvolved && st.selfUnknown),
     participants,
     // Remember how the split was entered so the editor reopens in the same mode
     // (equal-split shares are NOT treated as user-specified values on reopen)
@@ -18155,7 +18310,7 @@ function _splitBillCard(b, opts) {
       ${settled ? `<button class="btn btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger)" onclick="openSplitBillSettleOptions('${b.id}')">🗑 ${__('split.deleteBill')}</button>` : ''}`;
   const peopleHtml = `
     <div style="border-top:1px dashed var(--border);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:4px">
-      ${(b.selfShare || 0) > 0 ? _splitPersonRow(__('split.me'), formatMoney(b.selfShare), `<span class="split-paid-badge">✅ ${__('split.paidLabel')}</span>`) : ''}
+      ${((b.selfShare || 0) > 0 || b.selfUnknown) ? _splitPersonRow(__('split.me'), b.selfUnknown ? '❓ ' + __('split.unknownAmount') : formatMoney(b.selfShare), `<span class="split-paid-badge">✅ ${__('split.paidLabel')}</span>`) : ''}
       ${(b.participants || []).map(p => {
         const amt = parseFloat(p.share) || 0;
         const disp = p.unknown ? '❓ ' + __('split.unknownAmount') : formatMoney(amt);
@@ -18182,7 +18337,7 @@ function _splitBillCard(b, opts) {
           <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:2px">
             ${_splitCatChip(b.categoryId)}
             <span class="text-xs text-muted">${String(b.date || '').slice(0, 10)}</span>
-            <span class="text-xs text-muted">${__('split.myShare')} ${formatMoney(b.selfShare || 0)}</span>
+            <span class="text-xs text-muted">${__('split.myShare')} ${b.selfUnknown ? '❓ ' + __('split.unknownAmount') : formatMoney(b.selfShare || 0)}</span>
           </div>
         </div>
         <div class="text-right" style="flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:2px">
@@ -18351,7 +18506,7 @@ function openSplitBillEditor(billId, fromRecords) {
   _splitEditorFromRecords = !!fromRecords;
   window._editingSplitBillId = billId;
   const contacts = getContacts();
-  const selfInvolved = (bill.selfShare || 0) > 0;
+  const selfInvolved = (bill.selfShare || 0) > 0 || !!bill.selfUnknown;
   const pCount = (bill.participants || []).length;
   const divCount = pCount + (selfInvolved ? 1 : 0);
   const uniform = bill.amount > 0 && divCount > 0 ? bill.amount / divCount : 0;
@@ -18362,28 +18517,33 @@ function openSplitBillEditor(billId, fromRecords) {
   if (bill.mode === 'specified') {
     mode = 'specified';
   } else if (!bill.mode && bill.amount > 0 && divCount > 0) {
-    const selfDev = selfInvolved && Math.abs((bill.selfShare || 0) - uniform) > 0.01;
-    const partDev = (bill.participants || []).some(p => Math.abs((parseFloat(p.share) || 0) - uniform) > 0.01);
+    const selfDev = selfInvolved && !bill.selfUnknown && Math.abs((bill.selfShare || 0) - uniform) > 0.01;
+    const partDev = (bill.participants || []).some(p => !p.unknown && Math.abs((parseFloat(p.share) || 0) - uniform) > 0.01);
     if (selfDev || partDev) mode = 'specified';
   }
   const rowsByKey = {};
   contacts.forEach(c => { rowsByKey[c.id] = { contactId: c.id, name: c.name, included: false, amount: '', unknown: false }; });
   (bill.participants || []).forEach(p => {
     const key = p.contactId || ('anon:' + (p.name || ''));
+    // An unknown-amount person has no meaningful typed value — leave the box empty
+    // so unchecking "unknown" gives a clean, editable field.
+    const amt = p.unknown ? '' : String(p.share);
     if (rowsByKey[key]) {
       rowsByKey[key].included = true;
-      rowsByKey[key].amount = String(p.share);
+      rowsByKey[key].amount = amt;
       rowsByKey[key].unknown = !!p.unknown;
     } else {
-      rowsByKey[key] = { contactId: key, name: p.name || __('split.unknown'), included: true, amount: String(p.share), unknown: !!p.unknown };
+      rowsByKey[key] = { contactId: key, name: p.name || __('split.unknown'), included: true, amount: amt, unknown: !!p.unknown };
     }
   });
   const st = {
     selfInvolved,
+    selfUnknown: !!bill.selfUnknown,
     mode,
     tag: bill.tag || '',
     rows: Object.values(rowsByKey)
   };
+  const dtValue = String(bill.date || bill.createdAt || '').slice(0, 16);
   // keep local; render editor
   showModal(`
     <div class="modal-title">🧾 ${__('split.editTitle')}</div>
@@ -18401,21 +18561,35 @@ function openSplitBillEditor(billId, fromRecords) {
         </button>
       </div>
       <div class="split-form-row">
+        <span class="split-form-label">${__('split.dateLabel')}</span>
+        <input type="datetime-local" id="editSplitDateTime" class="input-field" value="${escHtml(dtValue)}" style="flex:1">
+      </div>
+      <div class="split-form-row">
+        <span class="split-form-label">${__('split.noteLabel')}</span>
+        <input type="text" id="editSplitNote" class="input-field" placeholder="${__('split.notePlaceholder')}" value="${escHtml(bill.note || '')}" style="flex:1">
+      </div>
+      <div class="split-form-row">
         <span class="split-form-label">${__('split.totalLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
           <input type="number" id="editSplitAmount" class="input-field" min="0" step="0.01" value="${escHtml(String(bill.amount))}" oninput="updateEditSplitPreview()" style="width:110px">
         </span>
       </div>
-      <label class="split-form-row" style="cursor:pointer">
-        <span class="split-form-label">${__('split.selfInvolved')}</span>
-        <input type="checkbox" id="editSplitSelf" ${st.selfInvolved ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer" onchange="updateEditSplitPreview()">
-      </label>
-      <div class="split-form-row spec-amount" id="editSplitSelfRow">
+      <div class="split-form-row">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0">
+          <input type="checkbox" id="editSplitSelf" ${st.selfInvolved ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer" onchange="updateEditSplitPreview()">
+          <span class="split-form-label" style="margin:0">${__('split.selfInvolved')}</span>
+        </label>
+        <label title="${__('split.unknownAmountTitle')}" style="display:flex;align-items:center;gap:3px;cursor:pointer;flex-shrink:0">
+          <input type="checkbox" id="editSplitSelfUnknown" ${st.selfUnknown ? 'checked' : ''} style="width:14px;height:14px;cursor:pointer" onchange="updateEditSplitPreview()">
+          <span class="text-xs text-muted" style="font-size:0.68rem">❓ ${__('split.unknownAmount')}</span>
+        </label>
+      </div>
+      <div class="split-form-row" id="editSplitSelfRow">
         <span class="split-form-label">${__('split.selfAmountLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" id="editSplitSelfAmount" class="input-field" min="0" step="0.01" placeholder="0.00" value="${escHtml(st.selfInvolved ? String(bill.selfShare) : '')}" oninput="updateEditSplitPreview()" style="width:110px">
+          <input type="number" id="editSplitSelfAmount" class="input-field" min="0" step="0.01" placeholder="0.00" value="${escHtml(st.selfInvolved && !st.selfUnknown ? String(bill.selfShare) : '')}" oninput="onEditSplitAmountTyped(this)" style="width:110px">
         </span>
       </div>
       <div class="split-form-row split-form-row-top">
@@ -18428,16 +18602,16 @@ function openSplitBillEditor(billId, fromRecords) {
         ${st.rows.map(r => `
           <div class="split-person-row">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0">
-              <input type="checkbox" ${r.included ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer" onchange="updateEditSplitPreview()">
+              <input type="checkbox" data-edit-include ${r.included ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer" onchange="updateEditSplitPreview()">
               <span style="flex:1;min-width:0;word-break:break-word">${escHtml(r.name)}</span>
-              <label title="${__('split.unknownAmountTitle')}" style="display:flex;align-items:center;gap:3px;cursor:pointer;flex-shrink:0" onclick="event.stopPropagation()">
-                <input type="checkbox" data-edit-unknown="${escHtml(r.contactId || 'anon:' + r.name)}" ${r.unknown ? 'checked' : ''} style="width:14px;height:14px;cursor:pointer" onchange="updateEditSplitPreview()">
-                <span class="text-xs text-muted" style="font-size:0.68rem">❓ ${__('split.unknownAmount')}</span>
-              </label>
+            </label>
+            <label title="${__('split.unknownAmountTitle')}" style="display:flex;align-items:center;gap:3px;cursor:pointer;flex-shrink:0">
+              <input type="checkbox" data-edit-unknown="${escHtml(r.contactId || 'anon:' + r.name)}" ${r.unknown ? 'checked' : ''} style="width:14px;height:14px;cursor:pointer" onchange="updateEditSplitPreview()">
+              <span class="text-xs text-muted" style="font-size:0.68rem">❓ ${__('split.unknownAmount')}</span>
             </label>
             <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
               <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-              <input type="number" class="input-field split-person-amount spec-amount" min="0" step="0.01" placeholder="0.00" value="${escHtml(r.amount)}" oninput="updateEditSplitPreview()" style="display:none">
+              <input type="number" class="input-field split-person-amount" min="0" step="0.01" placeholder="0.00" value="${escHtml(r.amount)}" oninput="onEditSplitAmountTyped(this)">
             </span>
           </div>
         `).join('')}
@@ -18472,27 +18646,53 @@ function _editSplitMode() {
   return 'equal';
 }
 
+// Typing any per-person amount means the split is no longer a plain even share —
+// flip the mode radio instead of silently discarding what was typed.
+function onEditSplitAmountTyped(el) {
+  if (el && String(el.value).trim() !== '' && _editSplitMode() !== 'specified') {
+    const radio = document.querySelector('input[name="editSplitMode"][value="specified"]');
+    if (radio) radio.checked = true;
+  }
+  updateEditSplitPreview();
+}
+
 function updateEditSplitPreview() {
   const rows = window._editSplitRows || [];
-  // toggle amount inputs visibility per mode
   const mode = _editSplitMode();
-  document.querySelectorAll('.spec-amount').forEach(el => { el.style.display = mode === 'specified' ? '' : 'none'; });
   const selfChk = document.getElementById('editSplitSelf');
+  const selfUnkChk = document.getElementById('editSplitSelfUnknown');
   const selfRow = document.getElementById('editSplitSelfRow');
-  if (selfRow && selfChk) selfRow.style.display = (mode === 'specified' && selfChk.checked) ? '' : 'none';
-  // sync values into state
+  const selfAmtEl = document.getElementById('editSplitSelfAmount');
+  const self = selfChk ? selfChk.checked : false;
+  const selfUnknown = self && selfUnkChk ? selfUnkChk.checked : false;
+  if (selfUnkChk) selfUnkChk.disabled = !self;
+  // "My amount" row: shown whenever I'm in the split and my share is known.
+  // It is NOT gated on the mode — an empty box just means "give me the even share".
+  if (selfRow) selfRow.style.display = (self && !selfUnknown) ? '' : 'none';
+  if (selfUnknown && selfAmtEl) selfAmtEl.value = '';
+  if (mode !== 'specified' && selfAmtEl) selfAmtEl.value = '';
+
+  // Sync every row's state FROM the DOM — including the typed amount, which the
+  // preview and the save path both read back out of state.
   document.querySelectorAll('#editSplitPeopleList .split-person-row').forEach((rowEl, i) => {
-    const chk = rowEl.querySelector('input[type="checkbox"]:not([data-edit-unknown])');
+    const chk = rowEl.querySelector('input[data-edit-include]');
     const unkChk = rowEl.querySelector('input[data-edit-unknown]');
-    const amt = rowEl.querySelector('.spec-amount');
-    if (rows[i]) {
-      rows[i].included = chk.checked;
-      rows[i].unknown = unkChk ? unkChk.checked : false;
-      if (rows[i].unknown) { rows[i].amount = ''; if (amt) amt.value = ''; }
-      if (amt) amt.disabled = rows[i].unknown;
+    const amt = rowEl.querySelector('.split-person-amount');
+    const r = rows[i];
+    if (!r) return;
+    r.included = chk ? chk.checked : false;
+    r.unknown = unkChk ? unkChk.checked : false;
+    if (unkChk) unkChk.disabled = !r.included;
+    if (amt) {
+      // Equal mode has no per-person amounts; unknown people have none either.
+      if (mode !== 'specified' || r.unknown) amt.value = '';
+      amt.disabled = r.unknown || !r.included;
+      r.amount = amt.value;
+    } else {
+      r.amount = '';
     }
   });
-  const self = selfChk ? selfChk.checked : false;
+
   const preview = document.getElementById('editSplitPreview');
   if (!preview) return;
   const amtEl = document.getElementById('editSplitAmount');
@@ -18500,13 +18700,9 @@ function updateEditSplitPreview() {
   window._editSplitBillAmount = total;
   const pool = [];
   if (self) {
-    if (mode === 'specified') {
-      const selfAmtEl = document.getElementById('editSplitSelfAmount');
-      const selfVal = selfAmtEl && selfAmtEl.value !== '' ? parseFloat(selfAmtEl.value) : null;
-      pool.push({ id: 'self', name: __('split.me'), specified: (selfVal !== null && isFinite(selfVal)) ? selfVal : null });
-    } else {
-      pool.push({ id: 'self', name: __('split.me'), specified: null });
-    }
+    const selfVal = (!selfUnknown && mode === 'specified' && selfAmtEl && selfAmtEl.value !== '')
+      ? parseFloat(selfAmtEl.value) : null;
+    pool.push({ id: 'self', name: __('split.me'), specified: (selfVal !== null && isFinite(selfVal)) ? selfVal : null });
   }
   rows.forEach(r => { if (r.included) pool.push({ id: r.contactId, name: r.name, specified: mode === 'specified' && !r.unknown ? r.amount : null }); });
   if (!(total > 0) || pool.length === 0) {
@@ -18522,21 +18718,40 @@ function updateEditSplitPreview() {
   }
   preview.innerHTML = result.shares.map(s => {
     const selfTag = s.id === 'self' ? ' (自己)' : '';
-    const unk = s.id !== 'self' && rows.find(r => r.contactId === s.id && r.unknown);
+    const unk = s.id === 'self' ? selfUnknown : !!rows.find(r => r.contactId === s.id && r.unknown);
     if (unk) {
-      return `<span class="split-share-chip">${escHtml(s.name)}: <b>❓ ${__('split.unknownAmount')}</b></span>`;
+      return `<span class="split-share-chip">${escHtml(s.name)}${selfTag}: <b>❓ ${__('split.unknownAmount')}</b></span>`;
     }
     return `<span class="split-share-chip">${escHtml(s.name)}${selfTag}: <b>${formatMoney(s.share)}</b></span>`;
   }).join('');
+  // Show each person's computed share as a placeholder so an empty box reads as
+  // "auto", not "missing" — the user can see the number they'd be overriding.
+  document.querySelectorAll('#editSplitPeopleList .split-person-row').forEach((rowEl, i) => {
+    const amt = rowEl.querySelector('.split-person-amount');
+    const r = rows[i];
+    if (!amt || !r) return;
+    const sh = result.shares.find(s => s.id === r.contactId);
+    amt.placeholder = (r.included && !r.unknown && sh) ? formatMoney(sh.share).replace(/[^\d.]/g, '') : '0.00';
+  });
+  if (selfAmtEl) {
+    const selfSh = result.shares.find(s => s.id === 'self');
+    selfAmtEl.placeholder = selfSh ? formatMoney(selfSh.share).replace(/[^\d.]/g, '') : '0.00';
+  }
   // persist current computed shares for save
   window._editSplitComputed = result.shares;
+  window._editSplitSelfUnknown = selfUnknown;
 }
 
 function saveSplitBillEditor(billId) {
   const bill = getSplitBill(billId);
   if (!bill) return;
   const tag = document.getElementById('editSplitTag') ? document.getElementById('editSplitTag').value.trim() : '';
+  const noteEl = document.getElementById('editSplitNote');
+  const note = noteEl ? noteEl.value.trim() : (bill.note || '');
+  const dtEl = document.getElementById('editSplitDateTime');
+  const newDate = dtEl && dtEl.value ? dtEl.value : (bill.date || '');
   const self = document.getElementById('editSplitSelf') ? document.getElementById('editSplitSelf').checked : false;
+  const selfUnknown = self && !!window._editSplitSelfUnknown;
   const shares = window._editSplitComputed;
   if (!shares) { showToast(__('split.previewNeedPeople'), 'error'); return; }
   const selfShare = self ? (shares.find(s => s.id === 'self') || { share: 0 }).share : 0;
@@ -18553,17 +18768,36 @@ function saveSplitBillEditor(billId) {
       const unk = (window._editSplitRows || []).find(r => r.contactId === key);
       return { contactId: s.id, name: s.name, share: s.share, paid, unknown: unk ? !!unk.unknown : (prev ? !!prev.unknown : false) };
     });
-  const patch = { tag, selfShare, participants };
+  const patch = {
+    tag,
+    note,
+    selfShare,
+    selfUnknown,
+    participants,
+    // Round-trip the entry mode so reopening the editor shows the same layout it
+    // was saved with (without this, a custom split reopens as an even one).
+    mode: _editSplitMode() === 'specified' ? 'specified' : 'equal'
+  };
   if (bill.archived && participants.some(p => !p.paid)) patch.archived = false;
   const amtEl = document.getElementById('editSplitAmount');
   const newAmount = amtEl ? (parseFloat(amtEl.value) || 0) : bill.amount;
-  if (newAmount > 0 && Math.abs(newAmount - (parseFloat(bill.amount) || 0)) > 0.01) {
-    patch.amount = newAmount;
-    (DataStore._data.records || []).forEach(r => {
-      if (r.splitBillId === billId) r.amount = newAmount;
-    });
-    logEvent('splitEditorAmountSync', 'id=' + billId);
-  }
+  const amountChanged = newAmount > 0 && Math.abs(newAmount - (parseFloat(bill.amount) || 0)) > 0.01;
+  if (amountChanged) patch.amount = newAmount;
+  if (newDate) patch.date = newDate;
+  // The bill's tag field IS the record's tag list, joined — split it back so the
+  // two never drift apart (records page filters and stats read r.tags)
+  const recTags = tag.split(/[、,，]/).map(t => t.trim()).filter(Boolean);
+  recTags.forEach(t => DataStore.addTagUsage(t));
+  // Keep the linked record(s) in step with everything editable here
+  (DataStore._data.records || []).forEach(r => {
+    if (r.splitBillId !== billId) return;
+    if (amountChanged) r.amount = newAmount;
+    if (newDate) r.date = newDate;
+    r.note = note;
+    r.tags = recTags;
+    r.updatedAt = new Date().toISOString();
+  });
+  if (amountChanged) logEvent('splitEditorAmountSync', 'id=' + billId);
   updateSplitBill(billId, patch);
   DataStore.save();
   closeModal();
@@ -18789,6 +19023,10 @@ addI18nEntries({
   'split.unpaidToast': { zh: '已改回未还', en: 'Marked as unpaid' },
   'split.editTitle': { zh: '编辑分摊账单', en: 'Edit Split Bill' },
   'split.totalLabel': { zh: '账单总金额', en: 'Total amount' },
+  'split.dateLabel': { zh: '日期时间', en: 'Date & time' },
+  'split.noteLabel': { zh: '备注', en: 'Note' },
+  'split.notePlaceholder': { zh: '选填', en: 'Optional' },
+  'split.selfUnknownHint': { zh: '我自己这份金额也不明', en: 'My own amount is unknown too' },
   'split.paidCountLabel': { zh: '还款状态', en: 'Repayment Status' },
   'split.noParticipants': { zh: '暂无其他人参与', en: 'No other participants' },
   'split.delete': { zh: '删除', en: 'Delete' },
@@ -18880,6 +19118,7 @@ addI18nEntries({
   window.previewSplitShares = previewSplitShares;
   window.setSplitMode = setSplitMode;
   window.toggleSplitSelfInvolved = toggleSplitSelfInvolved;
+  window.toggleSplitSelfUnknown = toggleSplitSelfUnknown;
   window.toggleSplitRowIncluded = toggleSplitRowIncluded;
   window.toggleSplitRowUnknown = toggleSplitRowUnknown;
   window.setSplitRowAmount = setSplitRowAmount;
@@ -18897,6 +19136,7 @@ addI18nEntries({
   window.markSplitPaid = markSplitPaid;
   window.openSplitBillEditor = openSplitBillEditor;
   window.updateEditSplitPreview = updateEditSplitPreview;
+  window.onEditSplitAmountTyped = onEditSplitAmountTyped;
   window.saveSplitBillEditor = saveSplitBillEditor;
   window.openSplitBillDeleteConfirm = openSplitBillDeleteConfirm;
   window.openSplitBillSettleOptions = openSplitBillSettleOptions;
