@@ -2620,6 +2620,47 @@ body.modal-open {
   .plan-card-meta { flex-direction: column; gap: 2px; }
 }
 
+/* ===== PLAN MONTH PICKER =====
+   Two selects instead of <input type="month">: identical in every browser and
+   structurally incapable of producing a 13th month. */
+.plan-month-picker {
+  display: flex;
+  gap: 6px;
+}
+
+.plan-month-year { flex: 1 1 58%; min-width: 0; }
+.plan-month-mon  { flex: 1 1 42%; min-width: 0; }
+
+.plan-month-quick {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.plan-month-quick .btn {
+  padding: 1px 8px;
+  font-size: 0.7rem;
+}
+
+.plan-span {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin: 2px 0 6px;
+  min-height: 1em;
+}
+
+.plan-icon-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .plan-when-row { flex-wrap: wrap; }
+}
+
 </style>
 </head>
 <body>
@@ -19835,6 +19876,17 @@ try{
 const PLAN_MODES = ['save', 'borrow', 'credit'];
 const MODE_ICON = { save: '🐖', borrow: '🏦', credit: '💳' };
 
+// Editor bounds. PLAN_YEAR_BACK/FWD size the dropdown around today; the wider
+// PLAN_YEAR_MIN/MAX is what validation accepts, so opening a plan that started
+// before the dropdown's window can still be edited and saved unchanged.
+const PLAN_YEAR_BACK = 10;
+const PLAN_YEAR_FWD = 15;
+const PLAN_YEAR_MIN = 1970;
+const PLAN_YEAR_MAX = 2200;
+const PLAN_MONTHS_MAX = 120;
+const PLAN_AMOUNT_MAX = 99999999;
+const MONTH_LABELS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 // Which plans have their per-period ledger expanded in the center modal
 const _planExpanded = {};
 
@@ -19844,6 +19896,89 @@ function round2(n) {
 
 function currentMonth() {
   return getMonthKey(new Date().toISOString());
+}
+
+/* ============================================================
+   MONTH INPUT
+
+   <input type="month"> is not usable everywhere: browsers without native
+   support fall back to a bare text box that happily accepts "2026-13", and the
+   ones that DO support it silently blank the field when the typed value is
+   invalid. Two selects can only ever produce a real month, look the same in
+   every browser, and never lose what was already chosen.
+   ============================================================ */
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+/* Parse a 'YYYY-MM' key, rejecting month 0/13+ and years outside the editor
+   range. Returns { y, m, key, index } or null. */
+function parsePlanMonth(key) {
+  const mt = /^(\d{4})-(\d{2})$/.exec(String(key || '').trim());
+  if (!mt) return null;
+  const y = parseInt(mt[1], 10);
+  const m = parseInt(mt[2], 10);
+  if (!isFinite(y) || !isFinite(m)) return null;
+  if (m < 1 || m > 12) return null;
+  if (y < PLAN_YEAR_MIN || y > PLAN_YEAR_MAX) return null;
+  return { y, m, key: y + '-' + pad2(m), index: y * 12 + (m - 1) };
+}
+
+function planMonthShift(key, n) {
+  const parsed = parsePlanMonth(key);
+  if (!parsed) return '';
+  const idx = parsed.index + n;
+  return Math.floor(idx / 12) + '-' + pad2((idx % 12) + 1);
+}
+
+function monthLabel(m) {
+  return (typeof getCurrentLocale === 'function' && getCurrentLocale() === 'en')
+    ? MONTH_LABELS_EN[m - 1]
+    : m + ' ' + __('plan.monthUnit');
+}
+
+/* Year+month selects. `selected` is kept selectable even when it falls outside
+   the normal range, so editing an old plan never silently moves its start. */
+function monthSelectHtml(selected) {
+  const thisYear = new Date().getFullYear();
+  const parsed = parsePlanMonth(selected);
+  const cur = parsed || parsePlanMonth(currentMonth());
+  const years = [];
+  for (let y = thisYear - PLAN_YEAR_BACK; y <= thisYear + PLAN_YEAR_FWD; y++) years.push(y);
+  if (cur && years.indexOf(cur.y) === -1) { years.push(cur.y); years.sort((a, b) => a - b); }
+  const yearOpts = years.map(y =>
+    '<option value="' + y + '"' + (cur && y === cur.y ? ' selected' : '') + '>' + y + '</option>').join('');
+  let monthOpts = '';
+  for (let m = 1; m <= 12; m++) {
+    monthOpts += '<option value="' + pad2(m) + '"' + (cur && m === cur.m ? ' selected' : '') + '>' +
+      escHtml(monthLabel(m)) + '</option>';
+  }
+  return '<div class="plan-month-picker">' +
+    '<select class="input-field plan-month-year" id="planStartYear">' + yearOpts + '</select>' +
+    '<select class="input-field plan-month-mon" id="planStartMonth">' + monthOpts + '</select>' +
+    '</div>';
+}
+
+/* The chosen start month, or '' when the selects are missing */
+function readPlanStartMonth() {
+  const y = document.getElementById('planStartYear');
+  const m = document.getElementById('planStartMonth');
+  if (!y || !m) return '';
+  return String(y.value) + '-' + String(m.value);
+}
+
+function setPlanStartMonth(key) {
+  const parsed = parsePlanMonth(key);
+  if (!parsed) return;
+  const y = document.getElementById('planStartYear');
+  const m = document.getElementById('planStartMonth');
+  if (y && !Array.prototype.some.call(y.options, o => o.value === String(parsed.y))) {
+    const opt = document.createElement('option');
+    opt.value = String(parsed.y);
+    opt.textContent = String(parsed.y);
+    y.appendChild(opt);
+  }
+  if (y) y.value = String(parsed.y);
+  if (m) m.value = pad2(parsed.m);
+  updateEditorPreview();
 }
 
 function modeLabel(mode) {
@@ -19989,9 +20124,14 @@ function showPlanOverdueDialog(planId) {
 function extendPlan(planId) {
   const el = document.getElementById('planExtendMonths');
   const add = Math.floor(parseFloat(el ? el.value : '3'));
-  if (!isFinite(add) || add < 1) { showToast(__('plan.err.months'), 'error'); return; }
+  if (!isFinite(add) || add < 1) { showToast(__('plan.err.months', PLAN_MONTHS_MAX), 'error'); return; }
   const plan = DataStore.getPurchasePlan(planId);
   if (!plan) return;
+  // Extending must not push the plan past the same ceiling the editor enforces
+  if (plan.months + add > PLAN_MONTHS_MAX) {
+    showToast(__('plan.err.extendMax', PLAN_MONTHS_MAX), 'error');
+    return;
+  }
   DataStore.updatePurchasePlan(planId, { months: plan.months + add, overdueAsked: false });
   showToast(__('plan.extended', add));
   closeModal();
@@ -20262,8 +20402,9 @@ function openPlanEditor(planId) {
       '<div class="input-group">' +
         '<label class="input-label">' + __('plan.fieldIcon') + '</label>' +
         '<div class="plan-icon-row">' +
-          '<input type="text" class="input-field plan-icon-input" id="planIcon" maxlength="8" value="' +
+          '<input type="text" class="input-field plan-icon-input" id="planIcon" maxlength="8" placeholder="🎯" value="' +
             escHtml(plan ? (plan.icon || MODE_ICON[mode]) : MODE_ICON[mode]) + '">' +
+          '<span class="plan-icon-hint">' + __('plan.iconHint') + '</span>' +
           '<button type="button" class="btn btn-sm btn-outline" id="planIconToggle">' + __('plan.pickIcon') + '</button>' +
         '</div>' +
         '<div class="plan-emoji-grid" id="planEmojiGrid" style="display:none">' + emojiGridHtml() + '</div>' +
@@ -20277,16 +20418,21 @@ function openPlanEditor(planId) {
         '<div class="plan-mode-group" id="planModeGroup">' + modeBtns + '</div>' +
         '<div class="plan-mode-desc" id="planModeDesc"></div>' +
       '</div>' +
-      '<div class="flex gap-8">' +
-        '<div class="input-group" style="flex:1">' +
+      '<div class="flex gap-8 plan-when-row">' +
+        '<div class="input-group" style="flex:2;min-width:0">' +
           '<label class="input-label">' + __('plan.fieldStart') + '</label>' +
-          '<input type="month" class="input-field" id="planStart" value="' + escHtml(plan ? plan.startMonth : currentMonth()) + '">' +
+          monthSelectHtml(plan ? plan.startMonth : currentMonth()) +
+          '<div class="plan-month-quick">' +
+            '<button type="button" class="btn btn-sm btn-ghost" data-plan-month="0">' + __('plan.monthThis') + '</button>' +
+            '<button type="button" class="btn btn-sm btn-ghost" data-plan-month="1">' + __('plan.monthNext') + '</button>' +
+          '</div>' +
         '</div>' +
-        '<div class="input-group" style="flex:1">' +
+        '<div class="input-group" style="flex:1;min-width:0">' +
           '<label class="input-label">' + __('plan.fieldMonths') + '</label>' +
-          '<input type="number" class="input-field" id="planMonths" min="1" max="120" value="' + (plan ? plan.months : 6) + '">' +
+          '<input type="number" class="input-field" id="planMonths" min="1" max="' + PLAN_MONTHS_MAX + '" step="1" value="' + (plan ? plan.months : 6) + '">' +
         '</div>' +
       '</div>' +
+      '<div class="plan-span" id="planSpan"></div>' +
       '<div class="input-group" id="planCategoryGroup" style="display:none">' +
         '<label class="input-label">' + __('plan.fieldCategory') + '</label>' +
         '<select class="input-field" id="planCategory">' + leafCategoryOptions(plan ? plan.categoryId : null) + '</select>' +
@@ -20316,6 +20462,15 @@ function openPlanEditor(planId) {
   ['planAmount', 'planMonths'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.oninput = updateEditorPreview;
+  });
+  ['planStartYear', 'planStartMonth'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.onchange = updateEditorPreview;
+  });
+  document.querySelectorAll('[data-plan-month]').forEach(btn => {
+    btn.onclick = function() {
+      setPlanStartMonth(planMonthShift(currentMonth(), parseInt(this.getAttribute('data-plan-month'), 10) || 0));
+    };
   });
 
   // Inline emoji picker
@@ -20360,9 +20515,25 @@ function updateEditorMode() {
 
 function updateEditorPreview() {
   const box = document.getElementById('planPreview');
-  if (!box) return;
   const amount = parseFloat((document.getElementById('planAmount') || {}).value);
   const months = Math.floor(parseFloat((document.getElementById('planMonths') || {}).value));
+
+  // Start → end span, so the period count reads as a real stretch of calendar
+  const spanBox = document.getElementById('planSpan');
+  if (spanBox) {
+    const start = readPlanStartMonth();
+    const valid = parsePlanMonth(start);
+    if (valid && isFinite(months) && months >= 1 && months <= PLAN_MONTHS_MAX) {
+      const end = planMonthShift(start, months - 1);
+      spanBox.innerHTML = months === 1
+        ? __('plan.spanSingle', valid.key)
+        : __('plan.span', valid.key, end, months);
+    } else {
+      spanBox.innerHTML = '';
+    }
+  }
+
+  if (!box) return;
   if (!isFinite(amount) || amount <= 0 || !isFinite(months) || months < 1) { box.innerHTML = ''; return; }
   const mode = selectedEditorMode();
   const per = round2(amount / months);
@@ -20380,15 +20551,18 @@ function savePlanEditor(planId) {
   const name = (document.getElementById('planName') || {}).value || '';
   const amount = parseFloat((document.getElementById('planAmount') || {}).value);
   const months = Math.floor(parseFloat((document.getElementById('planMonths') || {}).value));
-  const startMonth = (document.getElementById('planStart') || {}).value || '';
+  const startMonth = readPlanStartMonth();
   const note = (document.getElementById('planNote') || {}).value || '';
   const mode = selectedEditorMode();
   const categoryId = (document.getElementById('planCategory') || {}).value || '';
 
   if (!name.trim()) { showToast(__('plan.err.name'), 'error'); return; }
   if (!isFinite(amount) || amount <= 0) { showToast(__('plan.err.amount'), 'error'); return; }
-  if (!isFinite(months) || months < 1 || months > 120) { showToast(__('plan.err.months'), 'error'); return; }
-  if (!/^\d{4}-\d{2}$/.test(startMonth)) { showToast(__('plan.err.start'), 'error'); return; }
+  if (amount > PLAN_AMOUNT_MAX) { showToast(__('plan.err.amountMax', formatMoney(PLAN_AMOUNT_MAX)), 'error'); return; }
+  if (!isFinite(months) || months < 1 || months > PLAN_MONTHS_MAX) { showToast(__('plan.err.months', PLAN_MONTHS_MAX), 'error'); return; }
+  // Never trust the field: reject month 0/13+ and out-of-range years outright
+  const startParsed = parsePlanMonth(startMonth);
+  if (!startParsed) { showToast(__('plan.err.start'), 'error'); return; }
   if (mode === 'credit' && !categoryId) { showToast(__('plan.err.category'), 'error'); return; }
 
   const iconRaw = ((document.getElementById('planIcon') || {}).value || '').trim();
@@ -20397,7 +20571,7 @@ function savePlanEditor(planId) {
     icon: iconRaw ? iconRaw.slice(0, 8) : MODE_ICON[mode],
     totalAmount: round2(amount),
     mode: mode,
-    startMonth: startMonth,
+    startMonth: startParsed.key,
     months: months,
     categoryId: mode === 'credit' ? categoryId : '',
     note: note.trim()
@@ -20542,7 +20716,13 @@ function renderPlanOverviewCard(month) {
 
     'plan.fieldName': { zh: '目标物', en: 'Item' },
     'plan.fieldIcon': { zh: '图标', en: 'Icon' },
-    'plan.pickIcon': { zh: '选择', en: 'Pick' },
+    'plan.pickIcon': { zh: '常用图标', en: 'Presets' },
+    'plan.iconHint': { zh: '可直接输入任意 Emoji', en: 'Type any emoji' },
+    'plan.monthUnit': { zh: '月', en: 'month' },
+    'plan.monthThis': { zh: '本月', en: 'This month' },
+    'plan.monthNext': { zh: '下月', en: 'Next month' },
+    'plan.span': { zh: '📆 {0} → {1}（共 {2} 期）', en: '📆 {0} → {1} ({2} periods)' },
+    'plan.spanSingle': { zh: '📆 仅 {0} 一期', en: '📆 {0} only (1 period)' },
     'plan.fieldAmount': { zh: '总金额 (RM)', en: 'Total Amount (RM)' },
     'plan.fieldMode': { zh: '模式', en: 'Mode' },
     'plan.fieldStart': { zh: '起始月份', en: 'Start Month' },
@@ -20634,7 +20814,9 @@ function renderPlanOverviewCard(month) {
 
     'plan.err.name': { zh: '请填写目标物名称', en: 'Please enter an item name' },
     'plan.err.amount': { zh: '请输入有效的总金额', en: 'Please enter a valid amount' },
-    'plan.err.months': { zh: '期数需在 1–120 之间', en: 'Periods must be between 1 and 120' },
+    'plan.err.months': { zh: '期数需在 1–{0} 之间', en: 'Periods must be between 1 and {0}' },
+    'plan.err.extendMax': { zh: '延长后总期数不能超过 {0} 期', en: 'Total periods cannot exceed {0} after extending' },
+    'plan.err.amountMax': { zh: '金额不能超过 {0}', en: 'Amount cannot exceed {0}' },
     'plan.err.start': { zh: '请选择起始月份', en: 'Please pick a start month' },
     'plan.err.category': { zh: '信用卡分期需要选择记账分类', en: 'Card instalments need a category' }
   });
@@ -20665,6 +20847,11 @@ if (document.readyState === 'loading') {
   window.planBootstrap = planBootstrap;
   window.openPlanCenter = openPlanCenter;
   window.openPlanEditor = openPlanEditor;
+  window.savePlanEditor = savePlanEditor;
+  window.parsePlanMonth = parsePlanMonth;
+  window.planMonthShift = planMonthShift;
+  window.readPlanStartMonth = readPlanStartMonth;
+  window.setPlanStartMonth = setPlanStartMonth;
   window.syncPlanRecords = syncPlanRecords;
   window.checkPlanEvents = checkPlanEvents;
   window.renderPlanOverviewCard = renderPlanOverviewCard;

@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.0.0
+# 记账软件 · Budget App v3.1.0
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -100,6 +100,12 @@ Print-optimized monthly summary featuring budget and savings rings, a category b
 ### 🔮 假设分析 What-If
 Adjust future spending assumptions per category with modes: keep trend, set daily limit, fix remaining total, percentage change, adjust by amount, or zero out. Compare projections against current trends with visual savings bars and ring charts. Supports hypothetical new categories and global adjustments.
 
+### 🧾 分摊收款 Split Bills
+Mark a record as a split bill, pick who was in on it, and let the total divide evenly or by amounts you set per person — including "amount unknown" for anyone whose share isn't settled yet, yourself included. The Collection Center tracks who still owes what, by person or by bill. Repayments are **amounts, not checkboxes**: tick for a full settle, or record a partial. One lump sum can clear several bills at once — select bills (all / none / invert) and spread the money **evenly**, **oldest-first**, or **by hand**, with a live preview before anything is written. Settled bills can be archived or converted into a plain record.
+
+### 💳 大额分期计划 Purchase Plans
+Plan a large purchase in three modes: save up first (先攒后买), buy now and repay (先买后还), or a credit-card instalment (信用卡分期, which backfills real repayment records). The monthly instalment is deducted from your spendable budget, and the ledger is **replayed month by month** rather than stored — so skipping a month or editing an old record recalculates automatically. Overdue plans prompt to extend, pay off, or abandon. Custom emoji icon per plan.
+
 ### ⚙️ 设置 Settings
 Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fixed amount or percentage). Export and import data via JSON (replace or merge), CSV, or Excel (XML Spreadsheet 2003 with 5 sheets and live formulas). Clear all data option available. LAN sync via WebRTC (same Wi-Fi, zero server).
 
@@ -119,8 +125,8 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 🔥 Highlights
 
 - **Zero external dependencies** — Pure HTML, CSS, and JavaScript. No CDN, no frameworks, no libraries.
-- **Modular source structure** — 13 CSS + 24 JS files organized by domain in `src/`, built into a single deployable HTML via `build.sh`.
-- **IIFE scope isolation** — 24 JS files each wrapped in an IIFE, only explicitly exported symbols (`window.*`) are shared across files, preventing global namespace pollution.
+- **Modular source structure** — 15 CSS + 27 JS files organized by domain in `src/`, built into a single deployable HTML via `build.sh`.
+- **IIFE scope isolation** — 27 JS files each wrapped in an IIFE, only explicitly exported symbols (`window.*`) are shared across files, preventing global namespace pollution.
 - **Elastic animated pie chart** — Smooth hover pop-out effects and full drill-down navigation.
 - **Calendar heatmap** — Spending ratio visualized with a 6-color gradient across the month.
 - **Soft delete with 5-second undo** — Accidentally deleted a record? Undo it within 5 seconds.

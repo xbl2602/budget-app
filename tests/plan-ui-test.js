@@ -220,7 +220,7 @@ setTimeout(() => {
     doc.getElementById('planName').value = '新电脑';
     doc.getElementById('planAmount').value = '2400';
     doc.getElementById('planMonths').value = '8';
-    doc.getElementById('planStart').value = thisMonth;
+    window.setPlanStartMonth(thisMonth);   // year+month selects, not <input type="month">
     doc.querySelector('[data-plan-action="save"]').onclick(); // real button, real binding
     const saved = DataStore.getPurchasePlans().find(p => p.name === '新电脑');
     ok('custom icon persisted', saved && saved.icon === '💻', saved ? saved.icon : 'not saved');
