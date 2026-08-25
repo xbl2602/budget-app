@@ -458,7 +458,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 
 ---
 
-### 17. `17-stats-charts.js` — 统计页 + 所有图表（最大文件，1877 行）
+### 17. `17-stats-charts.js` — 统计页 + 所有图表（最大文件）
 
 **状态变量：**
 | 符号 | 说明 |
@@ -466,8 +466,27 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `statsMonth` | 当前统计月份 |
 | `statsStartDate` / `statsEndDate` | 自定义日期范围 |
 | `statsDrillStack` | 饼图下钻栈 |
+| `statsHierarchyLevel` | 分类层级（1 层 / 2 层 / 全部），存 `budgetStatsHierarchy` |
+| `statsCatView` | 分类卡片视图（`'pie'` / `'waffle'`），存 `budgetStatsCatView` |
+| `statsPieTableOpen` | 分类明细表是否展开（默认收起），存 `budgetStatsPieTable` |
 | `showMonthCompare` | 月度对比开关 |
 | `_expandedChart` | 展开的图表类型（'heatmap' / 'pie'） |
+
+**分类支出卡片的两种视图**——饼图和格子图（waffle）读的是**同一份** `buildPieSliceRows()` 行，所以下钻状态、层级选择、排除账单开关在两种视图间完全通用，配色也一一对应（都用 `COLORS[i]`）。
+
+| 函数 | 说明 |
+|------|------|
+| `renderCatViewToggle()` / `setStatsCatView(v)` | 卡片标题栏的「🥧 饼图 / ▦ 格子图」切换（展开弹窗里也有一份） |
+| `applyStatsCatView()` | 切换可见的 canvas 并重绘。**只换 canvas，不动页面布局**——格子图按 `cols = √(格数 × 宽高比)` 自适应，窄卡片只是行数变多，不像饼图那样要固定留出图例列 |
+| `buildCategoryWaffleData(canvasId, s, e)` | 把 `buildPieSliceRows` 的行转成 `{id, name, amount, color}` |
+| `drawCategoryWaffle(canvasId, s, e, h)` | 画分类格子图。点格子 = 下钻（与点饼图扇区一致），叶子分类不响应 |
+| `setCatWaffleDensity(n)` | 分类格子图密度，独立于标签卡片（`budgetCatWaffleDensity` vs `budgetWaffleDensity`） |
+| `renderWaffle(canvasId, data, opts)` | **共用的格子图渲染器**。`opts = { height, density, legendId, emptyText, onItem, onSwatch }`，`opts` 挂在 canvas 上供 hover/点击回调读取 |
+| `drawWaffleChart(canvasId, records)` | 标签格子图入口：聚合 `r.tags` 后交给 `renderWaffle`（点击跳流水页筛选、色块开颜色选择器） |
+
+> 分类格子图**不提供**色块改色——它的配色跟随饼图调色板（`COLORS[i]`），改了也不会生效；标签格子图才有自定义颜色。
+>
+> `animateWaffle` 收显式的 `canvas` 参数，不要退回用 `ctx.canvas`：清屏范围要按真实 canvas 高度算（展开视图是 360px，不是卡片里的 220/250px）。
 
 **统计页面：**
 | 函数 | 说明 |
@@ -822,16 +841,48 @@ Canvas Drawing Functions / DOM innerHTML
 
 ---
 
+## 测试
+
+测试跑在 **构建产物 `index.html`** 上（用 jsdom 加载整页），所以**改完 `src/` 必须先 `bash build.sh` 再跑测试**，否则测的是旧代码。
+
+```bash
+npm i --no-save jsdom          # 唯一的测试依赖，不进 package.json
+bash build.sh                  # 必须先构建
+for t in tests/*.js; do node "$t"; done
+```
+
+每个文件独立可跑，退出码非 0 表示有断言失败。
+
+| 文件 | 覆盖范围 |
+|------|----------|
+| `tests/export-coverage-test.js` | Excel / CSV / JSON 导出与导入合并的字段覆盖 |
+| `tests/hierarchy-test.js` | 统计页分类层级展开（1 层 / 2 层 / 全部）、饼图明细表 |
+| `tests/plan-ui-test.js` | 大额计划：`PlanMath` 结算瀑布、预测、卡片渲染、图标选择器 |
+| `tests/plan-editor-bounds-test.js` | 大额计划编辑器：月份选择器与全部边界校验（13 月 / 期数 / 金额） |
+| `tests/partial-repayment-test.js` | 分摊部分还款：金额模型、三种分配方式、限制、收款对话框 |
+| `tests/structure-fixes-test.js` | 分类颜色继承与自定义图标、分摊编辑器字段、饼图标签几何 |
+| `tests/category-waffle-test.js` | 分类格子图：视图切换与持久化、与饼图共用数据/配色、下钻、密度独立、标签格子图回归 |
+
+写测试时注意：
+
+- **canvas 要打桩**。jsdom 没有 2D 上下文，所有测试都在 `beforeParse` 里替换 `HTMLCanvasElement.prototype.getContext`。要断言绘制结果（如饼图标签位置）就用记录型上下文捕获 `fillText`。
+- **联系人按姓名排序**（`getContacts()` 用 `localeCompare`），所以分摊的人员行**不能按下标定位**，要按 `data-*` 里的 contact key 找。
+- **格子图的图例要等动画跑完**（约 1 秒：30 批 × 20ms + 400ms 弹入）才会写进 DOM，断言前要等够。
+- **下钻状态要用 `window.getDrillCategory()` 读**，别去改 `window.statsDrillStack`——它只是模块内数组的别名，重新赋值会切断别名，之后读到的是你自己那个空数组。
+- 断言要能真的失败。加完一条断言，先把源码改坏验证它会 FAIL，再改回来——否则容易写出恒真的断言。
+
+---
+
 ## 修改指南
 
 ### 添加新功能
 1. 确定属于哪个功能域，在对应的 JS 文件中添加函数
 2. 如果需要新样式，在对应的 CSS 文件中添加
-3. 运行 `bash build.sh` 测试
+3. 运行 `bash build.sh`，再跑 `tests/` 下的测试
 
 ### 修改现有功能
 1. 在 `src/js/` 的对应文件中找到函数
-2. 修改后运行 `bash build.sh` 测试
+2. 修改后运行 `bash build.sh`，再跑 `tests/` 下的测试
 
 ### 添加新页面
 1. 在 `src/index.html` 中增加 `<section class="page-section" id="page-xxx">`
