@@ -697,10 +697,25 @@ IIFE 自执行，暴露 `window.SyncUI` 和 `window.LANSync`。
 | 符号 | 说明 |
 |------|------|
 | `SplitEngine` | 分摊引擎：账单增删改查、`getSplitBillForRecord`/`getSplitBillUnpaid` 关联查询、`getPendingSummary` 待收汇总、`applyRecordEditToBill`/`setBillCategory` 记录-账单同步、`deleteSplitBillWithRecords` 联动删除 |
-| `openSplitBillEditor(billId, fromRecords)` | 分摊设置编辑器（模式推断、总金额/自己金额/参与人/已还、保存同步记录） |
+| `openSplitBillEditor(billId, fromRecords)` | 分摊设置编辑器。含**日期时间 / 备注 / 总额 / 分类 / 标签**等流水字段（流水页点分摊记录跳的就是这里），保存时同步关联流水；`mode`（平均 / 自定义）与 `selfUnknown` 均落盘，重开保持原样 |
 | `archiveSplitBill` / `unarchiveSplitBill` / `convertSplitBillToRecord` | 已结清账单的归档 / 恢复 / 转为普通记账记录 |
 | `openSplitCenter` / `closeSplitCenter` | 追账中心（按人员/按账单双视图、归档区、增量更新已还状态） |
-| 配套样式 | `src/css/14-split.css`（分摊表单/追账中心/编辑器） |
+| 配套样式 | `src/css/14-split.css`（分摊表单/追账中心/编辑器/部分还款） |
+
+**部分还款（金额模型）**——参与人记 `share`（应还）+ `paidAmount`（已还）；`paid` 布尔值变成派生值但**仍然写入**，所以 Excel 导出、局域网同步和任何旧读取点看到的 `paid` 依旧正确。只有布尔值的老账单读作「全有或全无」，无需迁移。
+
+| 符号 | 说明 |
+|------|------|
+| `partShare` / `partPaid` / `partOwed` / `partSettled` | 参与人金额读取。`partPaid` 优先读 `paidAmount`，缺失时回退到布尔 `paid` |
+| `withPaidAmount(p, n)` | 唯一的写入口，把金额夹进 `[0, share]` 并同步派生 `paid` |
+| `setSplitPaidAmount(billId, key, n)` | 单人单笔直接设定已还金额（也是撤销路径）。返回 `{ ok, error }`；金额超过 `share` 一律拒绝；账单已归档但不再结清时自动取消归档 |
+| `allocateRepayment(amount, rows, mode, manual)` | 一笔钱冲抵多张账单。`mode` = `even`（平均分配，某笔还满后余额自动再分给其余）/ `ordered`（按日期先后逐笔还清）/ `manual`（逐笔手填）。**全程整数分运算**，反复拆分不丢厘 |
+| `applyRepayment(alloc)` | 落盘。写入时**重新读一遍账单再夹一次**，预览过期也不可能把人还超 |
+| `openSplitReceive(key)` / `openSplitPartial(billId, key)` | 收款登记对话框（全选 / 全不选 / 反选 + 三种分配方式 + 实时预览）/ 单笔已还金额设定 |
+
+口径：`billContrib`、`getPendingSummary`、`getSplitBillUnpaid` 以及 `StatsEngine._splitContribBetween`（实收）/ `_splitUnpaidBetween`（未收）/ `_splitContribByDay` 全部按金额计算，一个人可以同时出现在「已收」和「未收」两边。数据指纹（`02-datastore.js`）含 `paidAmount`，否则局域网同步察觉不到还款。
+
+> ⚠️ 已知限制：局域网同步的合并只**新增**本地没有的账单，不更新已存在的（`23-lan-sync.js`），因此在另一台设备上登记的还款不会覆盖本机同一张账单。
 
 ---
 
