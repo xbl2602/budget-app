@@ -26,8 +26,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 ├── index.html                  # 构建产物（不手动编辑）
 ├── src/
 │   ├── index.html              # HTML 骨架
-│   ├── css/                    # 13 个 CSS 文件
-│   └── js/                     # 25 个 JS 文件
+│   ├── css/                    # 15 个 CSS 文件
+│   └── js/                     # 27 个 JS 文件
 ├── features/                   # 功能文档
 │   └── budget-app-feature-catalog.md  # 完整功能目录
 ├── logs/                       # 开发日志
@@ -54,6 +54,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `11-print.css` | 打印样式 | `@media print` |
 | `12-responsive.css` | 响应式 + 图表弹窗 | `@media (min-width: 1024px)`, `.chart-expand-*`, `.settings-nav-card` |
 | `13-guides.css` | 页面引导 | `.guide-btn`, `.guide-section`, `.guide-feature-grid`, `.guide-tip`, `.guide-mode-toggle` |
+| `14-split.css` | 分摊收款 | `.split-form`, `.split-person-row`, `.split-contact-card`, `.split-paid-toggle`, `.split-partial-chip`, `.split-pay-list`, `.split-pay-row` |
+| `15-plans.css` | 大额分期计划 | `.plan-card`, `.plan-mode-btn`, `.plan-emoji-grid`, `.plan-month-picker`, `.plan-month-quick`, `.plan-span` |
 
 ---
 
@@ -723,12 +725,31 @@ IIFE 自执行，暴露 `window.SyncUI` 和 `window.LANSync`。
 
 | 符号 | 说明 |
 |------|------|
-| `openPlanCenter` / `openPlanEditor` | 大额计划中心（列表+进度条+本月占用汇总）/ 新建与编辑表单（三模式切换、月供预览） |
+| `openPlanCenter` / `openPlanEditor` | 大额计划中心（列表+进度条+本月占用汇总）/ 新建与编辑表单（三模式切换、月供预览、起止区间提示） |
+| `parsePlanMonth(key)` | `YYYY-MM` 严格解析。月份必须 1–12、年份必须落在 `PLAN_YEAR_MIN..MAX`（1970–2200），否则返回 `null`。保存前必过这一关，**不信任表单值** |
+| `monthSelectHtml` / `readPlanStartMonth` / `setPlanStartMonth` | 年 + 月两个 `<select>` 组成的起始月选择器，替代 `<input type="month">` |
+| `planMonthShift(key, n)` | 月份偏移（跨年正确），用于「本月 / 下月」快捷键与起止区间计算 |
 | `syncPlanRecords()` | `credit` 模式的真实还款流水回填。从 `startMonth` 循环而非递增计数，跳月/补建历史计划也能逐期补齐；靠 `planId`+`planMonth` 幂等 |
 | `checkPlanEvents()` | 完成提示与逾期弹窗（延期 / 一次性补齐 / 放弃）。一次只弹一个，且不覆盖已打开的其他弹窗 |
 | `renderPlanOverviewCard(month)` | 总览页入口卡片，无活跃计划时返回空串 |
 | `planBootstrap()` | 自注册启动钩子。**不能从 `22-init.js` 直接调用**——`build.sh` 按文件名拼接，22 先于 27 执行 |
-| 配套样式 | `src/css/15-plans.css`（计划卡片/进度条/模式选择器/编辑器） |
+| 配套样式 | `src/css/15-plans.css`（计划卡片/进度条/模式选择器/编辑器/月份选择器） |
+
+**为什么不用 `<input type="month">`**——它在不支持的浏览器（如 Firefox 桌面版）上退化成纯文本框，`2026-13` 能原样存进去；而在支持它的浏览器上，输入非法值时字段会**静默清空**，用户不知道发生了什么。两个 `<select>` 在所有浏览器长得一样，结构上不可能产出第 13 个月，也不会丢掉已选的值。
+
+**编辑器边界**（`savePlanEditor` 逐条校验，任一不过则不落盘）：
+
+| 项 | 限制 |
+|----|------|
+| 名称 | 非空 |
+| 金额 | `> 0` 且 `≤ PLAN_AMOUNT_MAX`（99,999,999），存储前 `round2` |
+| 期数 | 整数 `1..PLAN_MONTHS_MAX`（120）；`extendPlan` 延期后的总期数同样受此上限约束 |
+| 起始月 | 过 `parsePlanMonth`；月份 1–12、年份 1970–2200 |
+| 分类 | 仅 `credit` 模式必填 |
+
+下拉框只列出「今年 −10 ~ +15」，但校验放宽到 1970–2200——这样打开一个更早开始的旧计划时，它的起始月仍然可选、可原样保存，不会被静默改成本月。
+
+图标是 `#planIcon` 自由文本框（任意 Emoji / 文字，`maxlength=8`），旁边的「常用图标」按钮展开 `EMOJI_GRID` 预设网格；两条路径都可用，预设只是快捷方式。
 
 计算部分不在本文件，见 `04-stats-engine.js` 的 `PlanMath`：
 

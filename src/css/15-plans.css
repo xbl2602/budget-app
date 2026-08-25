@@ -516,3 +516,44 @@
   .plan-mode-group { flex-direction: column; }
   .plan-card-meta { flex-direction: column; gap: 2px; }
 }
+
+/* ===== PLAN MONTH PICKER =====
+   Two selects instead of <input type="month">: identical in every browser and
+   structurally incapable of producing a 13th month. */
+.plan-month-picker {
+  display: flex;
+  gap: 6px;
+}
+
+.plan-month-year { flex: 1 1 58%; min-width: 0; }
+.plan-month-mon  { flex: 1 1 42%; min-width: 0; }
+
+.plan-month-quick {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.plan-month-quick .btn {
+  padding: 1px 8px;
+  font-size: 0.7rem;
+}
+
+.plan-span {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin: 2px 0 6px;
+  min-height: 1em;
+}
+
+.plan-icon-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .plan-when-row { flex-wrap: wrap; }
+}
