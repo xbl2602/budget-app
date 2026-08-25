@@ -46,7 +46,8 @@ function updateDrillCharts() {
   const isCustom = useCustomRange();
   const sD = isCustom ? statsStartDate : null;
   const eD = isCustom ? statsEndDate : null;
-  drawPieChart('pieChart', statsMonth, sD, eD);
+  if (statsCatView === 'waffle') drawCategoryWaffle('catWaffleChart', sD, eD, 250);
+  else drawPieChart('pieChart', statsMonth, sD, eD);
   drawBarChart('barChart', statsMonth, sD, eD);
   syncPieDrillBar();
   renderPieDetailTable();
@@ -282,10 +283,11 @@ function expandPie() {
   overlay.innerHTML = `
     <div class="chart-expand-inner" style="max-width:800px">
       <button class="chart-expand-close" onclick="shrinkChart()">✕</button>
-      <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:1.1rem;margin-bottom:8px">📊 ${__('stats.pieChart.expandTitle')} ${renderHierarchyToggle()}</div>
+      <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:1.1rem;margin-bottom:8px">📊 ${__('stats.pieChart.expandTitle')} ${renderCatViewToggle()} ${renderHierarchyToggle()}</div>
       <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <div style="flex:1;min-width:300px">
-          <canvas id="expandPieChart" style="width:100%;max-width:500px;height:360px;margin:0 auto;display:block"></canvas>
+          <canvas id="expandPieChart" style="width:100%;max-width:500px;height:360px;margin:0 auto;display:${statsCatView === 'waffle' ? 'none' : 'block'}"></canvas>
+          <canvas id="expandCatWaffle" style="width:100%;max-width:500px;height:360px;margin:0 auto;cursor:pointer;display:${statsCatView === 'waffle' ? 'block' : 'none'}"></canvas>
         </div>
         <div style="flex:1;min-width:250px" id="expandPieTable">
           <!-- Category table rendered here after chart draw -->
@@ -297,10 +299,14 @@ function expandPie() {
   document.body.style.overflow = 'hidden';
   setTimeout(() => {
     const isCustom = useCustomRange();
-    drawPieChart('expandPieChart', statsMonth,
-      isCustom ? statsStartDate : null,
-      isCustom ? statsEndDate : null,
-      shrinkChart, 360, true);
+    if (statsCatView === 'waffle') {
+      drawCategoryWaffle('expandCatWaffle', isCustom ? statsStartDate : null, isCustom ? statsEndDate : null, 360);
+    } else {
+      drawPieChart('expandPieChart', statsMonth,
+        isCustom ? statsStartDate : null,
+        isCustom ? statsEndDate : null,
+        shrinkChart, 360, true);
+    }
     // Render category table
     renderExpandPieTable();
   }, 50);
@@ -319,7 +325,9 @@ function setStatsHierarchyLevel(n) {
   statsHierarchyLevel = n;
   window.statsHierarchyLevel = n;
   try { localStorage.setItem('budgetStatsHierarchy', String(n)); } catch (e) {}
-  if (typeof drawPieChart === 'function') drawPieChart('pieChart', statsMonth, null, null, null, 250, false);
+  if (statsCatView === 'waffle') drawCategoryWaffle('catWaffleChart', null, null, 250);
+  else if (typeof drawPieChart === 'function') drawPieChart('pieChart', statsMonth, null, null, null, 250, false);
+  if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', null, null, 360);
   if (document.getElementById('expandPieChart')) drawPieChart('expandPieChart', statsMonth, null, null, null, 360, false);
   if (typeof renderPieTables === 'function') renderPieTables();
   if (typeof syncPieDrillBar === 'function') syncPieDrillBar();
@@ -351,6 +359,90 @@ function renderPieDetailTable() {
   const box = document.getElementById('pieDetailTable');
   if (box) box.style.display = statsPieTableOpen ? 'block' : 'none';
   if (statsPieTableOpen) renderPieTable('pieDetailTable');
+}
+
+/* Pie vs waffle for the category-spending card. Both read the same rows, so the
+   drill state, hierarchy level and exclude-bills toggle survive the switch. */
+let statsCatView = 'pie';
+try { statsCatView = localStorage.getItem('budgetStatsCatView') === 'waffle' ? 'waffle' : 'pie'; } catch (e) {}
+
+function renderCatViewToggle() {
+  const views = [['pie', '🥧 ' + __('stats.catView.pie')], ['waffle', '▦ ' + __('stats.catView.waffle')]];
+  return '<span class="view-toggle-btn-group" title="' + __('stats.catView.hint') + '" style="display:inline-flex;align-items:center;gap:2px;font-size:0.7rem;border:1px solid var(--border);border-radius:6px;padding:1px">' +
+    views.map(function (v) {
+      const active = statsCatView === v[0];
+      return '<span data-cat-view="' + v[0] + '" onclick="setStatsCatView(\'' + v[0] + '\')" style="cursor:pointer;padding:2px 7px;border-radius:5px;user-select:none;' +
+        (active ? 'background:var(--primary);color:#fff' : 'color:var(--text-secondary)') + '">' + v[1] + '</span>';
+    }).join('') + '</span>';
+}
+
+function setStatsCatView(view) {
+  statsCatView = view === 'waffle' ? 'waffle' : 'pie';
+  try { localStorage.setItem('budgetStatsCatView', statsCatView); } catch (e) {}
+  applyStatsCatView();
+  document.querySelectorAll('[data-cat-view]').forEach(function (el) {
+    const active = el.getAttribute('data-cat-view') === statsCatView;
+    el.style.background = active ? 'var(--primary)' : '';
+    el.style.color = active ? '#fff' : 'var(--text-secondary)';
+  });
+}
+
+/* Swap which canvas is showing and redraw it. Nothing about the page layout
+   moves — the waffle sizes itself to whatever box the card already had. */
+function applyStatsCatView() {
+  // The expanded overlay carries its own pair of canvases
+  const xPie = document.getElementById('expandPieChart');
+  const xWaffle = document.getElementById('expandCatWaffle');
+  if (xPie || xWaffle) {
+    const showWaffle = statsCatView === 'waffle';
+    if (xPie) xPie.style.display = showWaffle ? 'none' : 'block';
+    if (xWaffle) xWaffle.style.display = showWaffle ? 'block' : 'none';
+    if (showWaffle) drawCategoryWaffle('expandCatWaffle', null, null, 360);
+    else drawPieChart('expandPieChart', statsMonth, null, null, null, 360, false);
+    renderExpandPieTable();
+  }
+  const pie = document.getElementById('pieChart');
+  const waffle = document.getElementById('catWaffleChart');
+  const densityRow = document.getElementById('catWaffleDensity');
+  const dlBtn = document.getElementById('catViewDownloadBtn');
+  const isWaffle = statsCatView === 'waffle';
+  if (pie) pie.style.display = isWaffle ? 'none' : '';
+  if (waffle) waffle.style.display = isWaffle ? '' : 'none';
+  if (densityRow) densityRow.style.display = isWaffle ? '' : 'none';
+  if (dlBtn) dlBtn.setAttribute('onclick', isWaffle ? "downloadChart('catWaffleChart')" : "downloadChart('pieChart')");
+  const isCustom = useCustomRange();
+  const sD = isCustom ? statsStartDate : null;
+  const eD = isCustom ? statsEndDate : null;
+  if (isWaffle) {
+    if (waffle) drawCategoryWaffle('catWaffleChart', sD, eD, 250);
+  } else {
+    if (pie) drawPieChart('pieChart', statsMonth, sD, eD);
+  }
+}
+
+function setCatWaffleDensity(level) {
+  if (level < 1 || level > 5) return;
+  catWaffleDensity = level;
+  try { localStorage.setItem('budgetCatWaffleDensity', String(level)); } catch (e) {}
+  document.querySelectorAll('[data-cat-density]').forEach(function (el) {
+    const active = parseInt(el.getAttribute('data-cat-density'), 10) === level;
+    el.style.background = active ? 'var(--primary)' : 'var(--bg)';
+    el.style.color = active ? '#fff' : 'var(--text-secondary)';
+  });
+  const isCustom = useCustomRange();
+  drawCategoryWaffle('catWaffleChart', isCustom ? statsStartDate : null, isCustom ? statsEndDate : null, 250);
+  if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', null, null, 360);
+}
+
+function renderCatDensityControl() {
+  return '<span id="catWaffleDensity" style="display:' + (statsCatView === 'waffle' ? 'inline-flex' : 'none') +
+    ';align-items:center;gap:2px;font-size:0.65rem">' +
+    '<span class="text-muted" style="margin-right:2px">' + __('stats.waffle.density') + '</span>' +
+    [1, 2, 3, 4, 5].map(function (d) {
+      const active = catWaffleDensity === d;
+      return '<span data-cat-density="' + d + '" onclick="setCatWaffleDensity(' + d + ')" style="padding:2px 5px;border-radius:4px;cursor:pointer;background:' +
+        (active ? 'var(--primary)' : 'var(--bg)') + ';color:' + (active ? '#fff' : 'var(--text-secondary)') + '">' + '█'.repeat(d) + '</span>';
+    }).join('') + '</span>';
 }
 
 function renderHierarchyToggle() {
@@ -872,15 +964,18 @@ function renderStats() {
       <div class="card" id="pieCard">
         <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span>${__('stats.categoryExpenditure')} (${__('stats.pieChart.label')})</span>
+          ${renderCatViewToggle()}
           ${renderHierarchyToggle()}
           <span class="pie-drill-bar" style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:0.82rem"></span>
           ${renderBillToggle('pieChart')}
           <button class="view-toggle-btn" onclick="expandPie()" title="${__('stats.zoomIn')}" style="font-size:0.7rem">⛶ ${__('stats.expand')}</button>
         </div>
-        <canvas id="pieChart" width="400" height="300" style="width:100%;height:250px"></canvas>
+        <canvas id="pieChart" width="400" height="300" style="width:100%;height:250px;display:${statsCatView === 'waffle' ? 'none' : ''}"></canvas>
+        <canvas id="catWaffleChart" width="400" height="250" style="width:100%;height:250px;cursor:pointer;display:${statsCatView === 'waffle' ? '' : 'none'}"></canvas>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button class="btn btn-ghost btn-sm" id="pieDetailToggleBtn" onclick="togglePieDetailTable()">${statsPieTableOpen ? '▼' : '▶'} ${__('stats.categoryDetail')}</button>
-          <button class="btn btn-ghost btn-sm" onclick="downloadChart('pieChart')">📥 ${__('stats.downloadPNG')}</button>
+          ${renderCatDensityControl()}
+          <button class="btn btn-ghost btn-sm" id="catViewDownloadBtn" onclick="downloadChart('${statsCatView === 'waffle' ? 'catWaffleChart' : 'pieChart'}')">📥 ${__('stats.downloadPNG')}</button>
         </div>
         <div id="pieDetailTable" style="margin-top:10px;display:${statsPieTableOpen ? 'block' : 'none'}"></div>
       </div>
@@ -965,8 +1060,8 @@ function renderStats() {
   setTimeout(() => {
     const sD = isCustom ? statsStartDate : null;
     const eD = isCustom ? statsEndDate : null;
-    drawPieChart('pieChart', statsMonth, sD, eD);
-    // Category detail table (hierarchy levels) — right after the pie chart
+    applyStatsCatView();
+    // Category detail table (hierarchy levels) — right after the chart
     renderPieDetailTable();
     drawLineChart('lineChart', statsMonth, sD, eD);
     drawMonthlyChart('monthlyChart');
@@ -2027,20 +2122,7 @@ function downloadChart(canvasId) {
    WAFFLE CHART — Tag Distribution Visualization
    ============================================================ */
 function drawWaffleChart(canvasId, records) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-
-  // 1. Get dimensions
-  const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  const w = rect.width;
-  const h = 220;
-  canvas.width = Math.round(w * dpr);
-  canvas.height = Math.round(h * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  // 2. If independent month selected, filter records
+  // Tag entry point: aggregate, then hand off to the shared renderer
   var filteredRecords = records;
   if (waffleSelectedMonth) {
     filteredRecords = records.filter(function(r) {
@@ -2048,15 +2130,11 @@ function drawWaffleChart(canvasId, records) {
     });
   }
 
-  // 3. Aggregate tags
   const tagTotals = {};
   let untaggedTotal = 0;
-
   filteredRecords.forEach(function(r) {
     if (r.tags && r.tags.length > 0) {
-      r.tags.forEach(function(t) {
-        tagTotals[t] = (tagTotals[t] || 0) + r.amount;
-      });
+      r.tags.forEach(function(t) { tagTotals[t] = (tagTotals[t] || 0) + r.amount; });
     } else {
       untaggedTotal += r.amount;
     }
@@ -2068,38 +2146,115 @@ function drawWaffleChart(canvasId, records) {
     return { name: name, amount: tagTotals[name], color: customColors[name] || COLORS[idx % COLORS.length] };
   });
   tagData.sort(function(a, b) { return b.amount - a.amount; });
-
   if (waffleIncludeUntagged && untaggedTotal > 0) {
     tagData.push({ name: __('stats.waffle.untagged'), amount: untaggedTotal, color: '#999' });
   }
 
-  var totalAmount = tagData.reduce(function(s, d) { return s + d.amount; }, 0);
+  renderWaffle(canvasId, tagData, {
+    height: 220,
+    density: waffleDensity,
+    legendId: 'waffleLegend',
+    onItem: function(item) {
+      if (typeof window.setRecordsTagFilter === 'function') {
+        window.setRecordsTagFilter(item.name);
+        navigateTo('records');
+      }
+    },
+    onSwatch: function(item) { openWaffleTagColorPicker(item.name, item.color); }
+  });
+}
+
+/* ============================================================
+   CATEGORY WAFFLE
+
+   Same grid, category spend instead of tags. It reads the SAME rows the pie
+   does (buildPieSliceRows), so drill state, the 1层/2层/全部 level and the
+   exclude-bills toggle all carry over, and slice colors line up between the
+   two views.
+   ============================================================ */
+let catWaffleDensity = parseInt(localStorage.getItem('budgetCatWaffleDensity') || '3', 10) || 3;
+
+function buildCategoryWaffleData(canvasId, startDate, endDate) {
+  const rows = buildPieSliceRows(statsHierarchyLevel, canvasId, startDate, endDate);
+  return rows.map(function (d, i) {
+    return {
+      id: d.id,
+      name: (d.cat && d.cat.icon ? d.cat.icon + ' ' : '') + (d.cat ? d.cat.name : ''),
+      amount: d.total,
+      // Match drawPieChart's palette so a slice keeps its colour across views
+      color: COLORS[i % COLORS.length]
+    };
+  }).filter(function (d) { return d.amount > 0; });
+}
+
+function drawCategoryWaffle(canvasId, startDate, endDate, height) {
+  const data = buildCategoryWaffleData(canvasId, startDate, endDate);
+  const isExpand = canvasId === 'expandCatWaffle';
+  renderWaffle(canvasId, data, {
+    height: height || 220,
+    density: catWaffleDensity,
+    legendId: isExpand ? null : null,   // the detail table already lists every row
+    emptyText: __('stats.noCategoryData'),
+    onItem: function (item) {
+      // Clicking a block drills in, exactly like clicking its pie slice
+      if (!item.id) return;
+      const children = DataStore.getChildren(item.id);
+      if (!children || !children.length) return;
+      if (getDrillCategory() !== item.id) statsDrillStack.push(item.id);
+      updateDrillCharts();
+      if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', null, null, 360);
+      renderPieTables();
+      syncPieDrillBar();
+    }
+  });
+}
+
+/* ---------- Shared waffle renderer ----------
+   data: [{ name, amount, color, id? }] already sorted/filtered.
+   opts: { height, density, legendId, emptyText, onItem, onSwatch } */
+function renderWaffle(canvasId, data, opts) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  opts = opts || {};
+  const ctx = canvas.getContext('2d');
+
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const w = rect.width || 400;
+  const h = opts.height || 220;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  canvas._waffleOpts = opts;
+
+  var totalAmount = data.reduce(function(s, d) { return s + d.amount; }, 0);
   if (totalAmount === 0) {
-    ctx.fillStyle = 'var(--text-muted)';
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = getThemeColors().textMuted;
+    ctx.font = '13px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(__('stats.waffle.noData'), w / 2, h / 2);
+    ctx.fillText(opts.emptyText || __('stats.waffle.noData'), w / 2, h / 2);
+    const lg = opts.legendId ? document.getElementById(opts.legendId) : null;
+    if (lg) lg.innerHTML = '';
     return;
   }
 
-  // 4. Calculate grid
-  var densityMap = { 1: 600, 2: 300, 3: 150, 4: 60, 5: 24 };
-  var totalCells = densityMap[waffleDensity] || 200;
+  const densityMap = { 1: 24, 2: 60, 3: 200, 4: 400, 5: 600 };
+  var totalCells = densityMap[opts.density] || 200;
+  // Cols follow the canvas aspect, so a narrow card just gets more rows —
+  // unlike the pie, the grid needs no reserved legend column.
   var aspectRatio = w / h;
   var cols = Math.round(Math.sqrt(totalCells * aspectRatio));
   var rows = Math.round(totalCells / cols);
   while (rows * cols < totalCells) cols++;
   var actualCells = rows * cols;
 
-  // 第一遍：估算 cellSize（不含 gap）
   var cellSize = Math.min(w / cols, (h - 30) / rows);
-  // 根据估算值计算 gap
   var gap = Math.max(1, Math.min(3, Math.round(cellSize * 0.1)));
-  // 第二遍：用 gap 重新计算 cellSize，确保不出界
   cellSize = Math.min(
     (w - (cols - 1) * gap) / cols,
     (h - 30 - (rows - 1) * gap) / rows
   );
-  // 安全下限
   cellSize = Math.max(4, Math.floor(cellSize * 10) / 10);
   gap = Math.max(1, Math.min(3, Math.round(cellSize * 0.1)));
   var gridW = cols * cellSize + (cols - 1) * gap;
@@ -2107,53 +2262,28 @@ function drawWaffleChart(canvasId, records) {
   var offsetX = Math.max(0, (w - gridW) / 2);
   var offsetY = Math.max(0, (h - gridH) / 2);
 
-  // 5. Assign cells to tags
   var cellValue = totalAmount / actualCells;
   var cells = [];
   var remainingCells = actualCells;
-
-  tagData.forEach(function(tag, idx) {
-    var tagCells = Math.round(tag.amount / cellValue);
-    var assigned = Math.min(tagCells, remainingCells);
-    for (var i = 0; i < assigned; i++) {
-      cells.push({ tagIndex: idx, color: tag.color });
-    }
+  data.forEach(function(item, idx) {
+    var itemCells = Math.round(item.amount / cellValue);
+    var assigned = Math.min(itemCells, remainingCells);
+    for (var i = 0; i < assigned; i++) cells.push({ tagIndex: idx, color: item.color });
     remainingCells -= assigned;
   });
+  while (cells.length < actualCells) cells.push({ tagIndex: 0, color: data[0].color });
 
-  while (cells.length < actualCells) {
-    cells.push({ tagIndex: 0, color: tagData[0].color });
-  }
-
-  // Order cells by tag grouping
   var orderedCells = [];
-  tagData.forEach(function(tag, idx) {
+  data.forEach(function(item, idx) {
     var count = cells.filter(function(c) { return c.tagIndex === idx; }).length;
-    for (var i = 0; i < count; i++) {
-      orderedCells.push({ tagIndex: idx, color: tag.color });
-    }
+    for (var i = 0; i < count; i++) orderedCells.push({ tagIndex: idx, color: item.color });
   });
   cells = orderedCells;
 
-  // Store for hover
-  waffleCells = cells;
-  waffleTagData = tagData;
-
-  // 6. Animate
-  animateWaffle(ctx, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount);
+  animateWaffle(ctx, canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, data, totalAmount);
 }
 
-function drawCell(ctx, x, y, size, color, scale) {
-  var s = size * (scale || 1);
-  var offset = (size - s) / 2;
-  var r = 2;
-  ctx.beginPath();
-  ctx.roundRect(x + offset, y + offset, s, s, r);
-  ctx.fillStyle = color;
-  ctx.fill();
-}
-
-function animateWaffle(ctx, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount) {
+function animateWaffle(ctx, canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount) {
   var batchSize = Math.max(10, Math.ceil(cells.length / 30));
   var staggerMs = 20;
   var popDuration = 400;
@@ -2171,7 +2301,8 @@ function animateWaffle(ctx, cells, cellSize, gap, offsetX, offsetY, cols, rows, 
 
   function drawFrame(currentTime) {
     var elapsed = currentTime - startTime;
-    ctx.clearRect(0, 0, ctx.canvas.width / (window.devicePixelRatio || 1), 220);
+    const _dpr = window.devicePixelRatio || 1;
+    ctx.clearRect(0, 0, canvas.width / _dpr, canvas.height / _dpr);
 
     var allDone = true;
     positions.forEach(function(pos, i) {
@@ -2212,25 +2343,41 @@ function animateWaffle(ctx, cells, cellSize, gap, offsetX, offsetY, cols, rows, 
     if (!allDone) {
       requestAnimationFrame(drawFrame);
     } else {
-      drawWaffleLegend(tagData, totalAmount);
-      bindWaffleHover(ctx.canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount);
+      drawWaffleLegend(tagData, totalAmount, canvas._waffleOpts);
+      bindWaffleHover(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount);
     }
   }
 
   requestAnimationFrame(drawFrame);
 }
 
-function drawWaffleLegend(tagData, totalAmount) {
-  var container = document.getElementById('waffleLegend');
+function drawWaffleLegend(data, totalAmount, opts) {
+  opts = opts || {};
+  if (!opts.legendId) return;                       // caller supplies its own listing
+  var container = document.getElementById(opts.legendId);
   if (!container) return;
-  container.innerHTML = tagData.map(function(t) {
+  container.innerHTML = data.map(function(t, i) {
     var pct = ((t.amount / totalAmount) * 100).toFixed(1);
-    return '<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;background:var(--bg);border-radius:4px;cursor:pointer" onclick="window.setRecordsTagFilter(\'' + escHtml(t.name) + '\');navigateTo(\'records\')">' +
-      '<span style="width:10px;height:10px;border-radius:3px;background:' + t.color + ';display:inline-block;cursor:pointer" onclick="event.stopPropagation();openWaffleTagColorPicker(\'' + escHtml(t.name) + '\',\'' + t.color + '\')"></span>' +
+    return '<span data-waffle-item="' + i + '" style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;background:var(--bg);border-radius:4px;cursor:' + (opts.onItem ? 'pointer' : 'default') + '">' +
+      '<span data-waffle-swatch="' + i + '" style="width:10px;height:10px;border-radius:3px;background:' + t.color + ';display:inline-block;cursor:' + (opts.onSwatch ? 'pointer' : 'inherit') + '"></span>' +
       '<span>' + escHtml(t.name) + '</span>' +
       '<span style="color:var(--text-muted)">' + formatMoney(t.amount) + ' \u00B7 ' + pct + '%</span>' +
     '</span>';
   }).join('');
+  // Bind through the DOM: category and tag names are user text, never markup
+  container.querySelectorAll('[data-waffle-item]').forEach(function(el) {
+    el.onclick = function() {
+      var item = data[parseInt(el.getAttribute('data-waffle-item'), 10)];
+      if (item && opts.onItem) opts.onItem(item);
+    };
+  });
+  container.querySelectorAll('[data-waffle-swatch]').forEach(function(el) {
+    el.onclick = function(e) {
+      e.stopPropagation();
+      var item = data[parseInt(el.getAttribute('data-waffle-swatch'), 10)];
+      if (item && opts.onSwatch) opts.onSwatch(item);
+    };
+  });
 }
 
 function startHoverAnim(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount, tooltip, event, targetTagIdx) {
@@ -2345,7 +2492,7 @@ function bindWaffleHover(canvas, cells, cellSize, gap, offsetX, offsetY, cols, r
       if (tt + th > window.innerHeight - 8) tt = e.clientY - th - 12;
       tooltip.style.left = tl + 'px';
       tooltip.style.top = tt + 'px';
-      canvas._clickTag = tag.name;
+      canvas._clickItem = tag;
       canvas.style.cursor = 'pointer';
     } else {
       if (currentHoverTag !== -1) {
@@ -2353,6 +2500,7 @@ function bindWaffleHover(canvas, cells, cellSize, gap, offsetX, offsetY, cols, r
         startHoverAnim(canvas, cells, cellSize, gap, offsetX, offsetY, cols, rows, tagData, totalAmount, tooltip, e, -1);
       }
       tooltip.style.display = 'none';
+      canvas._clickItem = null;
       canvas.style.cursor = 'default';
     }
   };
@@ -2364,11 +2512,9 @@ function bindWaffleHover(canvas, cells, cellSize, gap, offsetX, offsetY, cols, r
   };
 
   canvas.onclick = function(e) {
-    var tagName = canvas._clickTag;
-    if (tagName && typeof window.setRecordsTagFilter === 'function') {
-      window.setRecordsTagFilter(tagName);
-      navigateTo('records');
-    }
+    var item = canvas._clickItem;
+    var opts = canvas._waffleOpts || {};
+    if (item && typeof opts.onItem === 'function') opts.onItem(item);
   };
 }
 
@@ -2486,6 +2632,10 @@ addI18nEntries({
   'stats.direct': { zh: '(直接)', en: '(direct)' },
   'stats.categoryDetail': { zh: '分类明细', en: 'Category details' },
   'stats.legendMore': { zh: '+{0} 项 · {1}', en: '+{0} more · {1}' },
+  'stats.waffle.density': { zh: '密度', en: 'Density' },
+  'stats.catView.pie': { zh: '饼图', en: 'Pie' },
+  'stats.catView.waffle': { zh: '格子图', en: 'Waffle' },
+  'stats.catView.hint': { zh: '同一份分类数据的两种看法：饼图看占比，格子图看「一格 = 多少钱」', en: 'Two readings of the same category data: a pie for proportion, a waffle for "one block = this much money"' },
   'stats.category': { zh: '分类', en: 'Category' },
   'stats.amount': { zh: '金额', en: 'Amount' },
   'stats.percentage': { zh: '占比', en: 'Percentage' },
@@ -2580,6 +2730,11 @@ addI18nEntries({
   window.renderExpandPieTable = renderExpandPieTable;
   window.renderPieTables = renderPieTables;
   window.togglePieDetailTable = togglePieDetailTable;
+  window.setStatsCatView = setStatsCatView;
+  window.applyStatsCatView = applyStatsCatView;
+  window.setCatWaffleDensity = setCatWaffleDensity;
+  window.drawCategoryWaffle = drawCategoryWaffle;
+  window.buildCategoryWaffleData = buildCategoryWaffleData;
   window.renderPieDetailTable = renderPieDetailTable;
   window.toggleExpandPieRow = toggleExpandPieRow;
   window.buildPieSliceRows = buildPieSliceRows;
