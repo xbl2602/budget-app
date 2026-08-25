@@ -128,6 +128,11 @@ async function run() {
   const detailTable = window.document.getElementById('pieDetailTable');
   assert('on-page detail table present in pieCard', !!detailTable && !!window.document.getElementById('pieCard').contains(detailTable));
   await new Promise(r => setTimeout(r, 120));
+  // Collapsed by default so the pie card does not stretch past its chart
+  assert('on-page table collapsed by default', detailTable.style.display === 'none' && detailTable.innerHTML === '');
+  assert('on-page table toggle button present', !!window.document.getElementById('pieDetailToggleBtn'));
+  window.togglePieDetailTable();
+  assert('on-page table opens on toggle', detailTable.style.display === 'block');
   const dtHtml = detailTable.innerHTML;
   assert('on-page table shows 1-layer rows', dtHtml.indexOf('餐饮') !== -1 && dtHtml.indexOf('交通') !== -1 && dtHtml.indexOf('外卖') === -1);
   assert('on-page table no expander ▸', dtHtml.indexOf('toggleExpandPieRow') === -1);

@@ -157,6 +157,9 @@ function submitRecord(e) {
       categoryId: splitRes.bill.categoryId || '',
       payer: 'self',
       selfShare: splitRes.bill.selfShare,
+      selfUnknown: !!splitRes.bill.selfUnknown,
+      // Persist the entry mode so the editor reopens showing the same split style
+      mode: splitRes.bill.mode || 'equal',
       participants: active,
       createdAt: new Date().toISOString()
     });

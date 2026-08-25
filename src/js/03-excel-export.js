@@ -508,6 +508,16 @@ function exportToExcel() {
     xml += `    <Cell><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
     xml += '   </Row>\n';
 
+    // My own share can be flagged unknown too — surface it the way participants are
+    if (b.selfUnknown) {
+      xml += '   <Row>\n';
+      xml += `    <Cell><Data ss:Type="String">${esc('  \u21b3 ' + __('excel.split.label.self'))}</Data></Cell>\n`;
+      xml += `    <Cell><Data ss:Type="String">${esc(__('excel.split.label.unknownMark'))}</Data></Cell>\n`;
+      xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(selfShare)}</Data></Cell>\n`;
+      xml += `    <Cell><Data ss:Type="String">${esc(__('excel.split.status.paid'))}</Data></Cell>\n`;
+      xml += '   </Row>\n';
+    }
+
     if (parts.length > 0) {
       parts.forEach((p, pi) => {
         const pAmt = parseFloat(p.share) || 0;
@@ -660,6 +670,7 @@ function exportToExcel() {
     'excel.split.label.unpaid': { zh: '他人待收 (RM)', en: 'Unpaid (RM)' },
     'excel.split.label.paid': { zh: '他人已还 (RM)', en: 'Paid (RM)' },
     'excel.split.label.unknownMark': { zh: '❓ 金额不明', en: '❓ Unknown amount' },
+    'excel.split.label.self': { zh: '我自己', en: 'Me' },
     'excel.split.status.archived': { zh: '已归档', en: 'Archived' },
     'excel.split.status.active': { zh: '进行中', en: 'Active' },
     'excel.split.status.paid': { zh: '✅ 已还', en: '✅ Paid' },

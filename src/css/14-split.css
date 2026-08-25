@@ -58,6 +58,8 @@
   padding: 4px 2px;
   font-size: 0.85rem;
   border-bottom: 1px dashed var(--border);
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .split-person-row:last-child {
@@ -71,8 +73,12 @@
   text-align: right;
 }
 
-.split-person-amount.spec-amount {
-  width: 120px;
+/* An "amount unknown" box stays in place but reads as inert, so unchecking the
+   marker visibly hands the field back instead of making a box appear/disappear. */
+.split-person-amount:disabled,
+.split-form-row input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .split-share-preview {

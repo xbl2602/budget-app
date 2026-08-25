@@ -324,6 +324,7 @@ function confirmAddRootCategory() {
 }
 
 function addChildCategory(parentId) {
+  const parent = DataStore.getCategory(parentId);
   showModal(`
     <div class="modal-title">${__('categories.addChildModal.title')}</div>
     <div class="input-group">
@@ -334,6 +335,14 @@ function addChildCategory(parentId) {
       <label class="input-label">${__('categories.icon')}</label>
       <input type="text" id="newChildIcon" class="input-field" value="📁" placeholder="${__('categories.iconPlaceholder')}">
     </div>
+    ${parent && parent.color ? `
+    <div class="input-group">
+      <label class="input-label">${__('categories.colorLabel')}</label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:22px;height:22px;border-radius:50%;background:${escHtml(parent.color)};display:inline-block;border:1px solid var(--border)"></span>
+        <span class="text-xs text-muted">${__('categories.colorInherited', escHtml(parent.name))}</span>
+      </div>
+    </div>` : ''}
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">${__('categories.cancel')}</button>
       <button class="btn btn-primary" onclick="confirmAddChildCategory('${parentId}')">${__('categories.add')}</button>
@@ -382,10 +391,24 @@ const EMOJI_GRID = ['🍜','🥐','🍱','🍽️','☕','🚗','⛽','🅿️',
 function changeCategoryIcon(id) {
   const cat = DataStore.getCategory(id);
   if (!cat) return;
-  let html = `<div class="modal-title">${__('categories.iconPicker.title', escHtml(cat.name))}</div><div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;max-height:50vh;overflow-y:auto">`;
+  // Custom field first: creation lets you type any emoji, so editing must too —
+  // the preset grid below is a shortcut, not the only choice.
+  let html = `<div class="modal-title">${__('categories.iconPicker.title', escHtml(cat.name))}</div>`;
+  html += `<div class="input-group">
+      <label class="input-label">${__('categories.iconPicker.custom')}</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="customIconInput" class="input-field" maxlength="8" style="flex:1;font-size:1.2rem"
+               placeholder="${__('categories.iconPlaceholder')}" value="${escHtml(cat.icon || '')}"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();confirmCustomIcon('${id}')}">
+        <button class="btn btn-primary btn-sm" onclick="confirmCustomIcon('${id}')">${__('categories.iconPicker.apply')}</button>
+      </div>
+    </div>`;
+  html += `<div class="input-label" style="margin-bottom:4px">${__('categories.iconPicker.presets')}</div>`;
+  html += `<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;max-height:38vh;overflow-y:auto">`;
   EMOJI_GRID.forEach(emoji => {
-    html += `<div style="font-size:1.5rem;padding:8px;text-align:center;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast)" 
-                  onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"
+    const isCurrent = emoji === cat.icon;
+    html += `<div style="font-size:1.5rem;padding:8px;text-align:center;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast);${isCurrent ? 'background:var(--primary);' : ''}"
+                  onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='${isCurrent ? 'var(--primary)' : ''}'"
                   onclick="confirmChangeIcon('${id}','${emoji}')">${emoji}</div>`;
   });
   html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('categories.cancel') + '</button></div>';
@@ -397,6 +420,13 @@ function confirmChangeIcon(id, icon) {
   closeModal();
   showToast(__('categories.iconUpdated'));
   renderCategories();
+}
+
+function confirmCustomIcon(id) {
+  const el = document.getElementById('customIconInput');
+  const icon = el ? el.value.trim() : '';
+  if (!icon) { showToast(__('categories.iconPicker.invalid'), 'error'); return; }
+  confirmChangeIcon(id, icon);
 }
 
 function changeCategoryColor(id) {
@@ -678,6 +708,7 @@ function saveCategoryEdit(catId) {
   window.EMOJI_GRID = EMOJI_GRID;
   window.changeCategoryIcon = changeCategoryIcon;
   window.confirmChangeIcon = confirmChangeIcon;
+  window.confirmCustomIcon = confirmCustomIcon;
   window.changeCategoryColor = changeCategoryColor;
   window.confirmChangeColor = confirmChangeColor;
   window.confirmCustomColor = confirmCustomColor;
@@ -733,6 +764,10 @@ function saveCategoryEdit(catId) {
     'categories.save': { zh: '保存', en: 'Save' },
     'categories.renamed': { zh: '✅ 名称已更新', en: '✅ Name updated' },
     'categories.iconPicker.title': { zh: '选择图标 — {0}', en: 'Select icon — {0}' },
+    'categories.iconPicker.custom': { zh: '自定义图标 (任意 Emoji / 文字)', en: 'Custom icon (any emoji / text)' },
+    'categories.iconPicker.presets': { zh: '或从常用图标中选择', en: 'Or pick a preset' },
+    'categories.iconPicker.apply': { zh: '应用', en: 'Apply' },
+    'categories.iconPicker.invalid': { zh: '请输入图标', en: 'Please enter an icon' },
     'categories.iconUpdated': { zh: '✅ 图标已更新', en: '✅ Icon updated' },
     'categories.colorPicker.title': { zh: '选择颜色 — {0}', en: 'Select color — {0}' },
     'categories.colorPicker.custom': { zh: '自定义颜色 (HEX)', en: 'Custom color (HEX)' },
@@ -762,6 +797,7 @@ function saveCategoryEdit(catId) {
     'categories.iconLabel': { zh: '图标', en: 'Icon' },
     'categories.edit.changeIcon': { zh: '🎨 更改图标', en: '🎨 Change icon' },
     'categories.colorLabel': { zh: '颜色', en: 'Color' },
+    'categories.colorInherited': { zh: '继承自「{0}」，创建后可单独修改', en: 'Inherited from "{0}" — changeable after creation' },
     'categories.edit.changeColor': { zh: '🌈 更改颜色', en: '🌈 Change color' },
     'categories.edit.move': { zh: '📦 移动到…', en: '📦 Move to…' },
     'categories.edit.merge': { zh: '🔀 合并到…', en: '🔀 Merge to…' },
