@@ -198,6 +198,184 @@ assert('E6 hash changes when tags change', h1 !== h4);
 DataStore._data.records[0].tags = ['聚餐'];
 DataStore.save();
 
+// ========== E7: purchase plans — waterfall maths, export, sync, hash ==========
+// Uses months in the past so nothing depends on "today"; monthSurplus is a pure
+// function of stored income/bills/records, with no daysPassed term.
+const planFixture = JSON.parse(DataStore.exportJSON());
+planFixture.monthlyIncome = { '2026-01': 800, '2026-02': 800 };
+planFixture.savingsTarget = { type: 'fixed', fixedAmount: 100, percent: 0 };
+planFixture.billAmounts = {};
+planFixture.billCategories = [];
+planFixture.purchasePlans = [{
+  id: 'pp1', name: 'MacBook', icon: '🏦', totalAmount: 600, mode: 'borrow',
+  startMonth: '2026-01', months: 6, categoryId: '', status: 'active',
+  overrides: {}, note: '', createdAt: '2026-01-01T00:00:00'
+}];
+planFixture.records = [{
+  id: 'x1', amount: 500, categoryId: catId, date: '2026-01-05T10:00',
+  note: '', tags: [], createdAt: '2026-01-05T10:00:00'
+}];
+DataStore.clearAll();
+DataStore.importJSON(JSON.stringify(planFixture), 'replace');
+
+assert('E7 PlanMath exported', typeof window.PlanMath === 'object');
+
+// 收入800 − 消费500 = 结余300；月供 600/6 = 100 全额还上
+const st1 = window.PlanMath.getState('pp1', '2026-01');
+assert('E7 due is total/periods', st1 && Math.abs(st1.byMonth['2026-01'].due - 100) < 0.01,
+  st1 ? 'got ' + st1.byMonth['2026-01'].due : 'no state');
+assert('E7 full repayment when surplus covers it', st1 && Math.abs(st1.byMonth['2026-01'].actual - 100) < 0.01,
+  st1 ? 'got ' + st1.byMonth['2026-01'].actual : 'no state');
+
+// 消费720 → 结余80，只还得起80，欠20 → 下期 (600−80)/5 = 104
+DataStore._data.records[0].amount = 720;
+DataStore.save();
+const st2 = window.PlanMath.getState('pp1', '2026-02');
+assert('E7 partial repayment when surplus is short', st2 && Math.abs(st2.byMonth['2026-01'].actual - 80) < 0.01,
+  st2 ? 'got ' + st2.byMonth['2026-01'].actual : 'no state');
+assert('E7 shortfall recorded', st2 && Math.abs(st2.byMonth['2026-01'].short - 20) < 0.01,
+  st2 ? 'got ' + st2.byMonth['2026-01'].short : 'no state');
+assert('E7 shortfall rolls into remaining periods', st2 && Math.abs(st2.byMonth['2026-02'].due - 104) < 0.01,
+  st2 ? 'got ' + st2.byMonth['2026-02'].due : 'no state');
+
+// 可支配预算被月供占用：800 − 0账单 − 100储蓄目标 − 104月供 = 596
+const sp = window.StatsEngine.getSpendablePlan('2026-02');
+assert('E7 spendable budget reserves the instalment', Math.abs(sp.spendableBudget - 596) < 0.01,
+  'got ' + sp.spendableBudget);
+assert('E7 planDueVirtual surfaced', Math.abs(sp.planDueVirtual - 104) < 0.01, 'got ' + sp.planDueVirtual);
+
+// credit mode must NOT be deducted twice — its real record already squeezes the budget
+DataStore._data.purchasePlans[0].mode = 'credit';
+DataStore.save();
+assert('E7 credit mode excluded from virtual due',
+  window.StatsEngine.getSpendablePlan('2026-02').planDueVirtual === 0);
+DataStore._data.purchasePlans[0].mode = 'borrow';
+DataStore.save();
+
+// hash must react to plan edits, otherwise two devices show a matching fingerprint
+const ph1 = DataStore.getDataHash();
+DataStore._data.purchasePlans[0].overrides['2026-02'] = 200;
+DataStore.save();
+assert('E7 hash changes when an override is added', ph1 !== DataStore.getDataHash());
+delete DataStore._data.purchasePlans[0].overrides['2026-02'];
+DataStore.save();
+assert('E7 hash restores when override removed', ph1 === DataStore.getDataHash());
+
+// merge import must carry plans across
+DataStore.importJSON(JSON.stringify(planFixture), 'merge');
+assert('E7 merge: purchasePlans preserved', Array.isArray(DataStore._data.purchasePlans) &&
+  DataStore._data.purchasePlans.some(p => p.id === 'pp1'));
+
+// LAN sync coverage
+{
+  const lan = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', '23-lan-sync.js'), 'utf8');
+  assert('E7 sync replace: purchasePlans in source', /DataStore\._data\.purchasePlans = data\.purchasePlans/.test(lan));
+  assert('E7 sync merge: purchasePlans in mergeIntoDataStore', /incoming\.purchasePlans && Array\.isArray\(incoming\.purchasePlans\)/.test(lan));
+}
+
+// Excel sheet 7
+{
+  let planXml = '';
+  let cap = null;
+  const oc = window.URL.createObjectURL;
+  window.URL.createObjectURL = (blob) => { cap = blob; return 'blob:test'; };
+  try {
+    window.exportToExcel();
+    planXml = await cap.text();
+  } catch (e) {
+    console.log('excel plan capture error: ' + e.message);
+  }
+  window.URL.createObjectURL = oc;
+  assert('E7 excel sheet7 大额计划 present',
+    planXml.indexOf('大额计划') !== -1 || planXml.indexOf('Purchase Plans') !== -1);
+  assert('E7 excel plan row present', planXml.indexOf('MacBook') !== -1);
+  assert('E7 excel period child rows present', planXml.indexOf('↳ 2026-01') !== -1);
+}
+
+// ========== E8: predicted-total trend vs month-end split (A-1/A-2/A-3) ==========
+// getPredictedTotal is a TREND reading (habit pace, filters excludeFromAvg) and
+// must stay that way for daily-average-style consumers. Anything netted against
+// income needs getPredictedMonthEndTotal (trend + the excluded actual added back
+// in), or a checked "exclude from daily avg" record makes the savings forecast
+// come out systematically inflated. These assertions execute the real functions
+// against real data — no source-text matching — so a regression that removes the
+// filter, the add-back, or the shared getForecast call will actually fail here.
+{
+  const nowD = new Date();
+  const curMonth = nowD.getFullYear() + '-' + String(nowD.getMonth() + 1).padStart(2, '0');
+  const todayStr = nowD.toISOString().slice(0, 16); // 'YYYY-MM-DDTHH:MM', local-parsed like other fixtures
+
+  const predFixture = JSON.parse(DataStore.exportJSON());
+  predFixture.monthlyIncome = { [curMonth]: 3000 };
+  predFixture.billAmounts = {};
+  predFixture.billCategories = [];
+  predFixture.savingsTarget = { type: 'fixed', fixedAmount: 500, percent: 0 };
+  predFixture.splitBills = [];
+  predFixture.contacts = [];
+  predFixture.purchasePlans = [];
+  predFixture.records = [
+    { id: 'pt1', amount: 300, categoryId: catId, date: todayStr, note: '', tags: [], createdAt: todayStr }
+  ];
+  DataStore.clearAll();
+  DataStore.importJSON(JSON.stringify(predFixture), 'replace');
+
+  const trendNoExcl = window.StatsEngine.getPredictedTotal(curMonth);
+  const monthEndNoExcl = window.StatsEngine.getPredictedMonthEndTotal(curMonth);
+  assert('E8 predictedMonthEnd matches the trend when nothing is excluded',
+    Math.abs(monthEndNoExcl - trendNoExcl) < 0.01,
+    'trend=' + trendNoExcl + ' monthEnd=' + monthEndNoExcl);
+
+  // Add a 1200 one-off large purchase flagged "exclude from daily avg"
+  predFixture.records.push({
+    id: 'pt2', amount: 1200, categoryId: catId, date: todayStr, note: '', tags: [],
+    excludeFromAvg: true, createdAt: todayStr
+  });
+  DataStore.clearAll();
+  DataStore.importJSON(JSON.stringify(predFixture), 'replace');
+
+  const trendWithExcl = window.StatsEngine.getPredictedTotal(curMonth);
+  const monthEndWithExcl = window.StatsEngine.getPredictedMonthEndTotal(curMonth);
+  const actualSpent = window.StatsEngine.getMonthTotal(curMonth); // 1500
+  const savingsWithExcl = window.StatsEngine.getSavingsPrediction(curMonth);
+
+  assert('E8 (A-1) trend projection still excludes the excludeFromAvg record',
+    Math.abs(trendWithExcl - trendNoExcl) < 0.01,
+    'trendNoExcl=' + trendNoExcl + ' trendWithExcl=' + trendWithExcl);
+  assert('E8 (A-1) month-end total adds the excluded actual (1200) back on top of the trend',
+    Math.abs(monthEndWithExcl - (trendWithExcl + 1200)) < 0.01,
+    'monthEnd=' + monthEndWithExcl + ' expected=' + (trendWithExcl + 1200));
+  assert('E8 (A-1) month-end total can never sit below money already spent this month',
+    monthEndWithExcl >= actualSpent - 0.01,
+    'monthEnd=' + monthEndWithExcl + ' actualSpent=' + actualSpent);
+  assert('E8 (A-1) savings prediction is no longer inflated by the excluded purchase (gap == 1200)',
+    Math.abs(((3000 - trendWithExcl) - savingsWithExcl) - 1200) < 0.01,
+    'naive trend-only savings vs real getSavingsPrediction gap = ' + ((3000 - trendWithExcl) - savingsWithExcl));
+
+  // ---- A-2: the rolling-30-day twin must apply the same filter / add-back ----
+  const prevStatsRange = window.localStorage.getItem('budgetStatsRange');
+  window.localStorage.setItem('budgetStatsRange', 'rolling30');
+
+  const periodTrend = window.StatsEngine.getPeriodPredictedTotal();
+  const periodMonthEnd = window.StatsEngine.getPeriodPredictedMonthEndTotal();
+
+  assert('E8 (A-2) rolling-period trend excludes the excludeFromAvg record too',
+    Math.abs(periodTrend - 300) < 0.01, 'got ' + periodTrend);
+  assert('E8 (A-2) rolling-period month-end adds the excluded actual back in',
+    Math.abs(periodMonthEnd - 1500) < 0.01, 'got ' + periodMonthEnd);
+  assert('E8 (A-2) month mode and rolling-30 mode treat excludeFromAvg identically',
+    Math.abs((periodMonthEnd - periodTrend) - (monthEndWithExcl - trendWithExcl)) < 0.01,
+    'period gap=' + (periodMonthEnd - periodTrend) + ' month gap=' + (monthEndWithExcl - trendWithExcl));
+
+  if (prevStatsRange === null) window.localStorage.removeItem('budgetStatsRange');
+  else window.localStorage.setItem('budgetStatsRange', prevStatsRange);
+
+  // ---- A-3: overview and plan-center must read the same shared function ----
+  const forecastSpend = window.PlanMath.getForecast(curMonth).predictedSpend;
+  assert('E8 (A-3) PlanMath.getForecast reuses the shared month-end total (no duplicate formula)',
+    Math.abs(forecastSpend - monthEndWithExcl) < 0.01,
+    'forecast=' + forecastSpend + ' shared=' + monthEndWithExcl);
+}
+
 // ========== Regression: existing suite basics still OK ==========
 assert('regression: importJSON replace still works', (() => {
   DataStore.clearAll();

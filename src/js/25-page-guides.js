@@ -30,6 +30,16 @@ const PAGE_GUIDES = {
             'guide.overview.simple.tip3_2',
             'guide.overview.simple.tip3_3'
           ]
+        },
+        {
+          heading: 'guide.plan.heading',
+          isTable: true,
+          rows: [
+            ['guide.plan.row1_label', 'guide.plan.row1_desc'],
+            ['guide.plan.row2_label', 'guide.plan.row2_desc'],
+            ['guide.plan.row3_label', 'guide.plan.row3_desc'],
+            ['guide.plan.row4_label', 'guide.plan.row4_desc']
+          ]
         }
       ]
     },
@@ -874,7 +884,7 @@ addI18nEntries({
   'guide.add.detailed.row4_3_label': { zh: '日期时间', en: 'Date & Time' },
   'guide.add.detailed.row4_4_desc': { zh: '消费说明，最长 200 字。保存时会自动去掉首尾空格', en: 'Expense description, max 200 characters. Leading/trailing spaces are trimmed on save' },
   'guide.add.detailed.row4_4_label': { zh: '备注', en: 'Notes' },
-  'guide.add.detailed.row4_5_desc': { zh: '勾选后此记录不会影响日均支出和预测总支出的计算。适合一次性大额消费', en: 'When checked, this record won’t affect daily average or projected total calculations. Suitable for one-time large purchases' },
+  'guide.add.detailed.row4_5_desc': { zh: '勾选后此记录不计入日均支出的计算，但仍会计入总览页的"预测月总支出"和储蓄预测——这笔钱真的花出去了，只是不参与"照这个花法"的日常趋势外推。适合一次性大额消费', en: 'When checked, this record is excluded from the daily average, but it still counts toward the overview’s “Projected Monthly Total” and savings forecast — the money really was spent, it just doesn’t skew the day-to-day pace projection. Suitable for one-time large purchases' },
   'guide.add.detailed.row4_5_label': { zh: '不计日均', en: 'Exclude from Daily Avg' },
   'guide.add.detailed.text1': { zh: '这里是「记账」页面，你每次花钱后来这里记录一笔支出。填上金额、选个分类、写个备注，保存就完成了。所有后续的统计、分析、报表都依赖你在这里记录的数据。', en: 'This is the “Add Record” page. Every time you spend money, you come here to log it. Enter the amount, pick a category, write a note, and save. All subsequent statistics, analysis, and reports depend on the data you enter here.' },
   'guide.add.detailed.tip5_1': { zh: '保存后表单会自动清空，方便连续记账', en: 'The form clears automatically after saving for consecutive entries' },
@@ -1021,13 +1031,13 @@ addI18nEntries({
   'guide.overview.detailed.row5_0_label': { zh: '本月总支出', en: 'Monthly Total Expenses' },
   'guide.overview.detailed.row5_1_desc': { zh: '总支出 ÷ 已过天数。标注了"不计日均"的大额消费不会拉高这个数', en: 'Total expenses ÷ days elapsed. Large expenses flagged as “exclude from daily avg” won’t affect this number' },
   'guide.overview.detailed.row5_1_label': { zh: '日均支出', en: 'Daily Average' },
-  'guide.overview.detailed.row5_2_desc': { zh: '日均支出 × 当月总天数。这个数字会告诉你月底大概会花多少', en: 'Daily average × total days in the month. This tells you roughly where you’ll end up' },
+  'guide.overview.detailed.row5_2_desc': { zh: '按日均支出速度外推到月底，再加回已发生的"不计日均"大额支出——这笔钱已经花出去了，预测里不能漏掉它', en: 'Extrapolated from your daily spending pace, then adds back any "exclude from daily avg" large purchases that already happened — that money is already spent and the projection can’t leave it out' },
   'guide.overview.detailed.row5_2_label': { zh: '预测月总支出', en: 'Projected Monthly Total' },
   'guide.overview.detailed.row5_3_desc': { zh: '月收入 − 账单总额，即扣除固定账单后真正能花的钱', en: 'Monthly income − total bills — what’s actually available to spend after fixed costs' },
   'guide.overview.detailed.row5_3_label': { zh: '可支配收入', en: 'Disposable Income' },
   'guide.overview.detailed.row5_4_desc': { zh: '月收入 − 账单总额，如果账单超过收入这个值会是 0', en: 'Monthly income − total bills. If bills exceed income, this is 0' },
   'guide.overview.detailed.row5_4_label': { zh: '净收入', en: 'Net Income' },
-  'guide.overview.detailed.row5_5_desc': { zh: '月收入 − 预测总支出 − 未付账单。正数表示预计能存下钱', en: 'Monthly income − projected total expenses − unpaid bills. A positive number means you’re on track to save' },
+  'guide.overview.detailed.row5_5_desc': { zh: '月收入 − 预测月总支出 − 未付账单。正数表示预计能存下钱（"预测月总支出"已把已发生的"不计日均"大额支出算进去）', en: 'Monthly income − Projected Monthly Total − unpaid bills. A positive number means you’re on track to save (the “Projected Monthly Total” already includes any “exclude from daily avg” large purchases that already happened)' },
   'guide.overview.detailed.row5_5_label': { zh: '储蓄预测', en: 'Savings Forecast' },
   'guide.overview.detailed.text1': { zh: '总览是你的记账软件「首页」和「仪表盘」。打开软件第一眼看到的就是它。它的作用是让你在 <strong>10 秒内</strong>了解本月财务状况：花了多少、还剩多少、预算够不够、有没有超支危险。你不需要做任何操作，所有数字和图表自动从你的记账数据生成。\n\n<strong>💡 先了解两个概念：</strong><br>\n• <strong>账单</strong>：房租、水电、网费等每月固定支出。在总览页点击「📋 月账单中心」卡片可以设置月收入和账单金额。<br>\n• <strong>日常消费</strong>：餐饮、交通、购物等非固定支出。页面中的"含账单"复选框控制是否把账单算进统计数据里。', en: 'The overview is your budgeting app’s “homepage” and “dashboard.” It’s the first thing you see when you open the app. Its purpose is to let you understand your monthly finances <strong>within 10 seconds</strong>: how much you’ve spent, how much is left, whether your budget is on track, and whether there’s any risk of overspending. You don’t need to do anything — all numbers and charts are automatically generated from your data.\n\n<strong>💡 Two Key Concepts:</strong><br>\n• <strong>Bills</strong>: Fixed monthly expenses like rent, utilities, and internet. Tap the “📋 Bill Center” card on the overview page to set your monthly income and bill amounts.<br>\n• <strong>Daily Spending</strong>: Variable expenses such as dining, transport, and shopping. The “Include Bills” checkbox on the page controls whether bills are factored into the statistics.' },
   'guide.overview.detailed.text3': { zh: '• 月收入/预算：需在「月账单中心」设置<br>• 储蓄目标：需在「设置」页配置<br>• 分类预算：需在「分类」页面给每个分类设置金额<br>• 记账记录：至少有一笔消费记录，总览才会显示完整数据', en: '• Monthly income/budget: set it in “Bill Center”<br>• Savings goal: configure it on the “Settings” page<br>• Category budgets: set amounts for each category on the “Categories” page<br>• At least one expense record — the overview needs data to display' },
@@ -1045,6 +1055,16 @@ addI18nEntries({
   'guide.overview.simple.tip3_1': { zh: '「含账单」开关控制是否把房租水电等固定支出算进统计', en: 'The “Include Bills” toggle controls whether fixed expenses (rent, utilities) are included in statistics' },
   'guide.overview.simple.tip3_2': { zh: '超支警告显示的是超过整月预算 80% 的分类', en: 'Overspend warnings show categories that have exceeded 80% of their monthly budget' },
   'guide.overview.simple.tip3_3': { zh: '统计范围可在「设置」页切换「本月」/「近30天」，月初数据少时推荐用近30天', en: 'You can switch between “This Month” and “Last 30 Days” in Settings — early in the month, “Last 30 Days” gives more stable data' },
+
+  'guide.plan.heading': { zh: '🎯 大额计划（分期大额消费）', en: '🎯 Purchase Plans (instalments)' },
+  'guide.plan.row1_label': { zh: '先攒后买', en: 'Save First' },
+  'guide.plan.row1_desc': { zh: '每月预留一笔，攒够了再买。钱只是被预留，不算消费，也不会生成流水记录。', en: 'Reserve an amount monthly and buy once it is all there. The money is reserved, not spent — no record is created.' },
+  'guide.plan.row2_label': { zh: '先买后还', en: 'Buy Now, Refill' },
+  'guide.plan.row2_desc': { zh: '已经用储蓄买下了，之后几个月把储蓄补回来。如果你已手动记过那笔购买，记得删掉，否则会重复计算。', en: 'Already bought out of savings; refill the pot over the coming months. If you logged that purchase by hand, delete it or it counts twice.' },
+  'guide.plan.row3_label': { zh: '信用卡分期', en: 'Card Instalment' },
+  'guide.plan.row3_desc': { zh: '每月真实还款给银行，会自动生成流水记录（标记为不计日均）。金额固定，不会因为某月超支而顺延。', en: 'Real monthly payments to the bank; records are generated automatically and flagged out of the daily average. The amount is fixed and never defers.' },
+  'guide.plan.row4_label': { zh: '欠款自动滚动', en: 'Shortfalls roll forward' },
+  'guide.plan.row4_desc': { zh: '本期应付 = 剩余金额 ÷ 剩余期数。某月结余不够还款时，欠下的部分会自动摊到后面几期，月供随之上调。还债优先于储蓄目标。', en: 'Due = remaining ÷ periods left. If a month cannot cover it, the gap spreads across later periods and the monthly amount rises. Debt is settled before the savings target.' },
   'guide.overview.title': { zh: '📊 总览', en: '📊 Overview' },
   'guide.records.detailed.grid2_0_desc': { zh: '按关键词、分类、标签、日期范围、金额范围筛选记录', en: 'Filter records by keyword, category, tag, date range, and amount range' },
   'guide.records.detailed.grid2_0_label': { zh: '搜索筛选', en: 'Search & Filter' },

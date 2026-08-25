@@ -2036,6 +2036,524 @@ body.modal-open {
   height: 16px;
   cursor: pointer;
 }
+/* ============================================================
+   PURCHASE PLANS (大额分期消费计划) — 15-plans.css
+   Styles for the plan center modal, plan cards with progress
+   bars, the mode picker, and the overview entry card.
+   ============================================================ */
+
+/* ---- Center modal body ---- */
+.plan-center-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px 0 8px;
+}
+
+.plan-summary {
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.plan-section-title {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 16px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- Plan card ---- */
+.plan-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+
+.plan-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.plan-card-icon { font-size: 1.25rem; }
+
+.plan-card-name {
+  font-weight: 700;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-mode-chip {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.plan-badge {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.plan-badge-done { background: var(--success); }
+.plan-badge-late { background: var(--danger); }
+.plan-badge-behind { background: var(--warning); }
+
+/* ---- Legend explaining the rolling-due model ---- */
+.plan-legend {
+  font-size: 0.72rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 12px;
+}
+
+/* ---- Headline "how far along" line ---- */
+.plan-headline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.plan-headline-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-right: 6px;
+}
+
+.plan-headline-num {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.plan-headline-total {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.plan-headline-pct {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.plan-timeline {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.plan-timeline span:nth-child(2) {
+  flex: 1;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+/* ---- "This month" spelled-out block ---- */
+.plan-month-box {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.plan-month-title {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.plan-stat-row {
+  display: flex;
+  gap: 8px;
+}
+
+.plan-stat {
+  flex: 1;
+  min-width: 0;
+}
+
+.plan-stat span {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.plan-stat b {
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+.plan-stat-ok { color: var(--success); }
+.plan-stat-warn { color: var(--warning); }
+
+.plan-why {
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  border-left: 2px solid var(--warning);
+  padding: 2px 0 2px 8px;
+  margin-bottom: 8px;
+}
+
+/* ---- Per-period ledger ---- */
+.plan-detail-toggle {
+  width: 100%;
+  text-align: left;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 8px 0 4px;
+  cursor: pointer;
+}
+
+.plan-detail-toggle:hover { color: var(--primary); }
+
+.plan-ledger {
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.plan-ledger-row {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 0.9fr;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  font-size: 0.76rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.plan-ledger-row:last-child { border-bottom: none; }
+
+.plan-ledger-row span:not(:first-child) { text-align: right; }
+
+.plan-ledger-row i {
+  display: block;
+  font-style: normal;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+.plan-ledger-head {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+}
+
+.plan-ledger-current {
+  background: var(--bg-hover);
+  font-weight: 600;
+}
+
+.plan-ledger-future {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+}
+
+/* ---- Progress bar ---- */
+.plan-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.plan-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width var(--transition);
+}
+
+/* Dual layer: settled solid + this month's forecast as a hatched overlay */
+.plan-bar-dual {
+  position: relative;
+  margin-bottom: 4px;
+}
+
+.plan-bar-dual .plan-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 999px 0 0 999px;
+}
+
+.plan-bar-forecast {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--fc) 0 4px,
+    transparent 4px 8px
+  );
+  background-color: color-mix(in srgb, var(--fc) 22%, transparent);
+  transition: width var(--transition), left var(--transition);
+}
+
+.plan-bar-key {
+  display: flex;
+  gap: 12px;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.plan-bar-key i {
+  display: inline-block;
+  width: 10px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+
+.plan-bar-key .k-hatch {
+  background-image: repeating-linear-gradient(45deg, var(--fc) 0 3px, transparent 3px 6px);
+  background-color: color-mix(in srgb, var(--fc) 22%, transparent);
+}
+
+/* ---- Forecast panel ---- */
+.plan-forecast-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.plan-forecast-title {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.plan-forecast-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.plan-forecast-grid span {
+  display: block;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+.plan-forecast-grid b {
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.plan-forecast-grid em {
+  font-style: normal;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.plan-verdict {
+  font-size: 0.74rem;
+  line-height: 1.6;
+  margin-top: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.plan-verdict-ok { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
+.plan-verdict-warn { background: color-mix(in srgb, var(--warning) 14%, transparent); color: var(--warning); }
+.plan-verdict-bad { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+
+.plan-forecast {
+  font-size: 0.72rem;
+  line-height: 1.5;
+  padding: 4px 0;
+  margin-bottom: 6px;
+}
+
+.plan-forecast-ok { color: var(--text-muted); }
+.plan-forecast-bad { color: var(--warning); }
+
+@media (max-width: 480px) {
+  .plan-forecast-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.plan-card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8rem;
+  margin-bottom: 4px;
+}
+
+.plan-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  margin: 6px 0 2px;
+}
+
+.plan-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ---- Editor ---- */
+.plan-editor {
+  max-height: 62vh;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+
+.plan-mode-group {
+  display: flex;
+  gap: 6px;
+}
+
+.plan-mode-btn {
+  flex: 1;
+  padding: 8px 4px;
+  font-size: 0.78rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.plan-mode-btn:hover { background: var(--bg-hover); }
+
+.plan-mode-btn.active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+.plan-mode-desc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* ---- Inline emoji picker ---- */
+.plan-icon-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.plan-icon-input {
+  width: 84px;
+  flex: 0 0 auto;
+  text-align: center;
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+
+.plan-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  max-height: 168px;
+  overflow-y: auto;
+  margin-top: 8px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
+.plan-emoji {
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 6px 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.plan-emoji:hover { background: var(--bg-hover); }
+
+@media (max-width: 480px) {
+  .plan-emoji-grid { grid-template-columns: repeat(6, 1fr); }
+}
+
+.plan-preview {
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-top: 4px;
+}
+
+.plan-preview:empty { display: none; }
+
+.plan-preview-main {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.plan-preview-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.plan-preview-warn {
+  font-size: 0.72rem;
+  color: var(--warning);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* Native select needs explicit dark-mode colors outside .input-field defaults */
+[data-theme="dark"] #planCategory {
+  background: var(--card-bg);
+  color: var(--text-primary);
+}
+
+/* ---- Overview entry card ---- */
+.plan-entry-card { cursor: pointer; }
+.plan-entry-card:hover { background: var(--bg-hover); }
+
+@media (max-width: 480px) {
+  .plan-mode-group { flex-direction: column; }
+  .plan-card-meta { flex-direction: column; gap: 2px; }
+}
 
 </style>
 </head>
@@ -2449,7 +2967,8 @@ const DataStore = {
       lastActiveMonth: '',
       whatIfParams: null,
       contacts: [],
-      splitBills: []
+      splitBills: [],
+      purchasePlans: []
     };
   },
 
@@ -2525,6 +3044,25 @@ const DataStore = {
         if (!Array.isArray(this._data.contacts)) {
           this._data.contacts = [];
         }
+        if (!this._data.purchasePlans) {
+          this._data.purchasePlans = [];
+        }
+        // Sanitize purchasePlans (forward-compat with older/partial exports)
+        if (Array.isArray(this._data.purchasePlans)) {
+          const seenPlans = new Set();
+          this._data.purchasePlans = this._data.purchasePlans.filter(p => {
+            if (!p || !p.id || seenPlans.has(p.id)) return false;
+            if (typeof p.totalAmount !== 'number' || !isFinite(p.totalAmount) || p.totalAmount <= 0) return false;
+            if (typeof p.months !== 'number' || !isFinite(p.months) || p.months < 1) return false;
+            if (p.mode !== 'save' && p.mode !== 'borrow' && p.mode !== 'credit') return false;
+            if (!p.overrides || typeof p.overrides !== 'object') p.overrides = {};
+            if (!p.status) p.status = 'active';
+            seenPlans.add(p.id);
+            return true;
+          });
+        } else {
+          this._data.purchasePlans = [];
+        }
         // Split-bill storage refactor (B): split records now carry the bill's REAL
         // categoryId instead of the '__split__' pseudo-category. Migrate legacy data.
         this._migrateSplitRecordCategories(this._data);
@@ -2570,6 +3108,9 @@ const DataStore = {
 
   save() {
     try {
+      // Monotonic revision — cheap cache-invalidation signal for derived computations
+      // (PlanMath memoizes its month-by-month waterfall against this)
+      this._rev = (this._rev || 0) + 1;
       localStorage.setItem('budgetAppData', JSON.stringify(this._data));
       this._log('save', 'records=' + this._data.records.length);
     } catch(e) {
@@ -2749,6 +3290,7 @@ const DataStore = {
     if (raw) {
       try {
         this._data = JSON.parse(raw);
+        this._rev = (this._rev || 0) + 1;
         this._log('reload', 'OK records=' + this._data.records.length);
         return true;
       } catch(e) {
@@ -2983,6 +3525,62 @@ const DataStore = {
     this.save();
   },
 
+  // Purchase Plans (大额分期消费计划)
+  // Ledger is NOT stored — actual repayment per month is derived by PlanMath from
+  // that month's income/bills/records. Only manual interventions live in `overrides`.
+  getPurchasePlans() {
+    return Array.isArray(this._data.purchasePlans) ? this._data.purchasePlans : [];
+  },
+  getPurchasePlan(id) {
+    return this.getPurchasePlans().find(p => p.id === id) || null;
+  },
+  addPurchasePlan(plan) {
+    if (!Array.isArray(this._data.purchasePlans)) this._data.purchasePlans = [];
+    if (!plan.id) plan.id = uuid();
+    if (!plan.overrides) plan.overrides = {};
+    if (!plan.status) plan.status = 'active';
+    plan.createdAt = plan.createdAt || new Date().toISOString();
+    plan.updatedAt = plan.createdAt;
+    this._data.purchasePlans.unshift(plan);
+    this.save();
+    this._log('addPurchasePlan', 'id=' + plan.id + ' mode=' + plan.mode);
+    return plan;
+  },
+  updatePurchasePlan(id, updates) {
+    const list = this._data.purchasePlans || [];
+    const idx = list.findIndex(p => p.id === id);
+    if (idx === -1) return null;
+    updates.updatedAt = new Date().toISOString();
+    Object.assign(list[idx], updates);
+    this.save();
+    this._log('updatePurchasePlan', 'id=' + id);
+    return list[idx];
+  },
+  // Deleting a plan cascades to the credit-mode installment records it generated,
+  // so no orphan records keep inflating month totals (mirrors _splitCascade intent)
+  deletePurchasePlan(id) {
+    if (!Array.isArray(this._data.purchasePlans)) return false;
+    const before = this._data.purchasePlans.length;
+    this._data.purchasePlans = this._data.purchasePlans.filter(p => p.id !== id);
+    if (this._data.purchasePlans.length === before) return false;
+    const killed = (this._data.records || []).filter(r => r && r.planId === id).length;
+    this._data.records = (this._data.records || []).filter(r => !r || r.planId !== id);
+    this.save();
+    this._log('deletePurchasePlan', 'id=' + id + ' cascadedRecords=' + killed);
+    return true;
+  },
+  setPlanOverride(id, month, amount) {
+    const plan = this.getPurchasePlan(id);
+    if (!plan) return null;
+    if (!plan.overrides) plan.overrides = {};
+    if (amount === null || amount === undefined) delete plan.overrides[month];
+    else plan.overrides[month] = amount;
+    plan.updatedAt = new Date().toISOString();
+    this.save();
+    this._log('setPlanOverride', 'id=' + id + ' month=' + month + ' amount=' + amount);
+    return plan;
+  },
+
   // Export / Import
   exportJSON() {
     return JSON.stringify(this._data, null, 2);
@@ -3039,6 +3637,16 @@ const DataStore = {
             if (b && b.id && !billIds.has(b.id)) {
               this._data.splitBills.push(b);
               billIds.add(b.id);
+            }
+          });
+        }
+        if (Array.isArray(data.purchasePlans)) {
+          if (!this._data.purchasePlans) this._data.purchasePlans = [];
+          const planIds = new Set(this._data.purchasePlans.map(p => p.id));
+          data.purchasePlans.forEach(p => {
+            if (p && p.id && !planIds.has(p.id)) {
+              this._data.purchasePlans.push(p);
+              planIds.add(p.id);
             }
           });
         }
@@ -3119,7 +3727,7 @@ const DataStore = {
     // Generate a simple hash from all data to detect sync mismatches
     const data = this._data;
     const fingerprint = JSON.stringify({
-      records: data.records.map(r => ({ id: r.id, amount: r.amount, categoryId: r.categoryId, date: r.date, note: r.note, tags: r.tags, splitBillId: r.splitBillId, excludeFromAvg: r.excludeFromAvg, _deleted: r._deleted, updatedAt: r.updatedAt })),
+      records: data.records.map(r => ({ id: r.id, amount: r.amount, categoryId: r.categoryId, date: r.date, note: r.note, tags: r.tags, splitBillId: r.splitBillId, excludeFromAvg: r.excludeFromAvg, planId: r.planId, planMonth: r.planMonth, _deleted: r._deleted, updatedAt: r.updatedAt })),
       categories: data.categories.map(c => ({ id: c.id, name: c.name, parentId: c.parentId })),
       budgets: data.budgets,
       categoryBudgets: data.categoryBudgets,
@@ -3130,7 +3738,8 @@ const DataStore = {
       percentBase: data.percentBase,
       contacts: data.contacts,
       allTags: data.allTags,
-      splitBills: (data.splitBills || []).map(b => ({ id: b.id, amount: b.amount, date: b.date, categoryId: b.categoryId, selfShare: b.selfShare, mode: b.mode, note: b.note, archived: b.archived, participants: (b.participants || []).map(p => ({ contactId: p.contactId, name: p.name, share: p.share, paid: p.paid, unknown: p.unknown })) }))
+      splitBills: (data.splitBills || []).map(b => ({ id: b.id, amount: b.amount, date: b.date, categoryId: b.categoryId, selfShare: b.selfShare, mode: b.mode, note: b.note, archived: b.archived, participants: (b.participants || []).map(p => ({ contactId: p.contactId, name: p.name, share: p.share, paid: p.paid, unknown: p.unknown })) })),
+      purchasePlans: (data.purchasePlans || []).map(p => ({ id: p.id, name: p.name, icon: p.icon, totalAmount: p.totalAmount, mode: p.mode, startMonth: p.startMonth, months: p.months, categoryId: p.categoryId, status: p.status, overrides: p.overrides, note: p.note }))
     });
     // DJB2 hash
     let hash = 5381;
@@ -3908,6 +4517,65 @@ function exportToExcel() {
   xml += '  </Table>\n';
   xml += ' </Worksheet>\n';
 
+  // ===== SHEET 7: 大额计划 (Purchase Plans) =====
+  // Plan row: A=目标物, B=模式, C=总额, D=已还/已存, E=剩余, F=起始月, G=期数, H=状态
+  // Period row: A=↳ YYYY-MM, C=应付, D=实付, E=缺口
+  const plans = (DataStore.getPurchasePlans && DataStore.getPurchasePlans()) || [];
+  const planNowMonth = getMonthKey(new Date().toISOString());
+  const planState = (typeof PlanMath !== 'undefined') ? PlanMath.computeUpTo(planNowMonth) : {};
+
+  xml += ' <Worksheet ss:Name="' + __('excel.sheet.plans') + '">\n';
+  xml += '  <Table>\n';
+  xml += '   <Column ss:Width="140"/>\n';  // A
+  xml += '   <Column ss:Width="100"/>\n';  // B
+  xml += '   <Column ss:Width="90"/>\n';   // C
+  xml += '   <Column ss:Width="90"/>\n';   // D
+  xml += '   <Column ss:Width="90"/>\n';   // E
+  xml += '   <Column ss:Width="80"/>\n';   // F
+  xml += '   <Column ss:Width="70"/>\n';   // G
+  xml += '   <Column ss:Width="90"/>\n';   // H
+  xml += '   <Row>\n';
+  [__('excel.plan.label.item'),__('excel.plan.label.mode'),__('excel.plan.label.total'),__('excel.plan.label.paid'),__('excel.plan.label.remaining'),__('excel.plan.label.start'),__('excel.plan.label.periods'),__('excel.header.status')].forEach(h => {
+    xml += `    <Cell ss:StyleID="header"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
+  });
+  xml += '   </Row>\n';
+
+  plans.forEach(p => {
+    const st = planState[p.id];
+    const paid = st ? st.paid : 0;
+    const remaining = st ? st.remaining : p.totalAmount;
+    const status = st && st.isComplete
+      ? __('excel.plan.status.done')
+      : (st && st.isOverdue ? __('excel.plan.status.overdue') : __('excel.plan.status.' + (p.status || 'active')));
+
+    xml += '   <Row>\n';
+    xml += `    <Cell><Data ss:Type="String">${esc((p.icon || '') + ' ' + (p.name || ''))}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(__('plan.mode.' + p.mode))}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(p.totalAmount || 0)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(paid)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(remaining)}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(p.startMonth || '')}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="Number">${fmtNum(p.months || 0)}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
+    xml += '   </Row>\n';
+
+    if (st && st.byMonth) {
+      Object.keys(st.byMonth).sort().forEach(m => {
+        const per = st.byMonth[m];
+        xml += '   <Row>\n';
+        xml += `    <Cell><Data ss:Type="String">${esc('  ↳ ' + m)}</Data></Cell>\n`;
+        xml += `    <Cell><Data ss:Type="String"></Data></Cell>\n`;
+        xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(per.due)}</Data></Cell>\n`;
+        xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(per.actual)}</Data></Cell>\n`;
+        xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(per.short)}</Data></Cell>\n`;
+        xml += '   </Row>\n';
+      });
+    }
+  });
+
+  xml += '  </Table>\n';
+  xml += ' </Worksheet>\n';
+
   xml += '</Workbook>';
 
   // Trigger download as .xlsx (the XML Spreadsheet format — Excel opens it fine)
@@ -3937,6 +4605,19 @@ function exportToExcel() {
     'excel.sheet.budgetTracking': { zh: '预算跟踪', en: 'Budget Tracking' },
     'excel.sheet.savingsStats': { zh: '储蓄统计', en: 'Savings Stats' },
     'excel.sheet.splitBills': { zh: '分摊账单', en: 'Split Bills' },
+    'excel.sheet.plans': { zh: '大额计划', en: 'Purchase Plans' },
+    'excel.plan.label.item': { zh: '目标物', en: 'Item' },
+    'excel.plan.label.mode': { zh: '模式', en: 'Mode' },
+    'excel.plan.label.total': { zh: '总额', en: 'Total' },
+    'excel.plan.label.paid': { zh: '已存/已还', en: 'Saved / Repaid' },
+    'excel.plan.label.remaining': { zh: '剩余', en: 'Remaining' },
+    'excel.plan.label.start': { zh: '起始月', en: 'Start' },
+    'excel.plan.label.periods': { zh: '期数', en: 'Periods' },
+    'excel.plan.status.active': { zh: '进行中', en: 'Active' },
+    'excel.plan.status.completed': { zh: '已完成', en: 'Completed' },
+    'excel.plan.status.cancelled': { zh: '已放弃', en: 'Cancelled' },
+    'excel.plan.status.done': { zh: '已完成', en: 'Completed' },
+    'excel.plan.status.overdue': { zh: '逾期', en: 'Overdue' },
     'excel.header.seq': { zh: '序号', en: '#' },
     'excel.header.date': { zh: '日期', en: 'Date' },
     'excel.header.amount': { zh: '金额 (RM)', en: 'Amount (RM)' },
@@ -4060,8 +4741,14 @@ const StatsEngine = {
     return daysPassed ? (records.reduce((s, r) => s + r.amount, 0) - this.getSplitOthers(month)) / daysPassed : 0;
   },
 
+  // TREND projection: "at this pace, how much will I spend by month-end". One-off
+  // large purchases are excluded, same as getDailyAverage — these two must always
+  // agree, or the daily-average card and the projection built from it would
+  // contradict each other. This is the right number for habit-tracking (daily
+  // average, heatmap, "at this rate"), and the WRONG number for anything that
+  // gets subtracted from income — use getPredictedMonthEndTotal for that (A-1).
   getPredictedTotal(month) {
-    const records = this.getRecordsInMonth(month);
+    const records = this.getRecordsInMonth(month).filter(r => !r.excludeFromAvg);
     if (!records.length) return 0;
     const daysInMonth = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
     const now = new Date();
@@ -4075,9 +4762,23 @@ const StatsEngine = {
     return ((total - this.getSplitOthers(month)) / daysPassed) * daysInMonth;
   },
 
+  // CASH-FLOW projection: "how much will actually have left my wallet by
+  // month-end". Same trend as getPredictedTotal, but the one-off large purchases
+  // it excludes already really happened, so their actual amount is added back in.
+  // Anything that nets against income — savings prediction, budget ring, report,
+  // What-If baseline, simulator — needs this version, or a checked "exclude from
+  // daily avg" record makes the projected total dip below money already spent
+  // and the savings forecast comes out systematically inflated (A-1).
+  getPredictedMonthEndTotal(month) {
+    const excludedActual = this.getRecordsInMonth(month)
+      .filter(r => r && r.excludeFromAvg)
+      .reduce((s, r) => s + (r.amount || 0), 0);
+    return round2(this.getPredictedTotal(month) + excludedActual);
+  },
+
   getSavingsPrediction(month) {
     const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
-    const predicted = this.getPredictedTotal(month);
+    const predicted = this.getPredictedMonthEndTotal(month);
     return budget - predicted;
   },
 
@@ -4368,6 +5069,29 @@ const StatsEngine = {
     return { income, billPlanned, billActual, variableSpending, netDisposable, netDailyAvg };
   },
 
+  // Single source of truth for the "how much can I actually spend" chain.
+  // This arithmetic used to be copy-pasted across six render sites (overview x2,
+  // stats x2, report, simulation); every one of them now calls this instead.
+  // planDueVirtual is the new term: self-imposed instalments carve their monthly
+  // amount out of the spendable budget, which is what makes those months pinch.
+  // `opts` lets What-If feed hypothetical income/bills/target through the same
+  // chain instead of keeping its own divergent copy.
+  getSpendablePlan(month, opts) {
+    opts = opts || {};
+    const income = opts.income != null ? opts.income : (DataStore.getMonthlyIncome(month) || DataStore.getBudget(month) || 0);
+    const totalBills = opts.bills != null ? opts.bills : DataStore.getBillTotal(month);
+    const netDisposable = Math.max(0, income - totalBills);
+    const percentBase = DataStore.getPercentBase();
+    const baseAmount = percentBase === 'net' ? netDisposable : income;
+    const t = opts.savingsTarget || DataStore.getSavingsTarget() || {};
+    let targetAmount = 0;
+    if (t.type === 'fixed') targetAmount = t.fixedAmount || 0;
+    else if (t.type === 'percent') targetAmount = baseAmount * (t.percent || 0) / 100;
+    const planDueVirtual = (typeof PlanMath !== 'undefined') ? PlanMath.getVirtualDue(month) : 0;
+    const spendableBudget = Math.max(0, netDisposable - targetAmount - planDueVirtual);
+    return { income, totalBills, netDisposable, baseAmount, targetAmount, planDueVirtual, spendableBudget };
+  },
+
   getMonthlyTotals(numMonths = 6) {
     const result = [];
     const now = new Date();
@@ -4397,12 +5121,28 @@ const StatsEngine = {
     const realSpent = this.getPeriodTotal() - this.getPeriodSplitUnpaid();
     return daysPassed > 0 ? realSpent / daysPassed : 0;
   },
+  // TREND twin of getPredictedTotal for the rolling-30-day range. Must filter
+  // excludeFromAvg the same way the month version does — otherwise switching the
+  // Stats Range setting alone changes what "exclude from daily avg" means, and
+  // the same data shows two different predicted totals depending on which
+  // range happens to be selected (A-2).
   getPeriodPredictedTotal() {
     const { daysPassed, daysInPeriod } = getPeriodDateRange();
     if (daysPassed === 0) return 0;
-    const realSpent = this.getPeriodTotal() - this.getPeriodSplitUnpaid();
+    const records = this.getPeriodRecords().filter(r => !r.excludeFromAvg);
+    const realSpent = records.reduce((s, r) => s + r.amount, 0) - this.getPeriodSplitOthers();
     const avg = realSpent / daysPassed;
     return Math.round(avg * daysInPeriod * 100) / 100;
+  },
+
+  // CASH-FLOW twin of getPredictedMonthEndTotal for the rolling-30-day range —
+  // see that function for why the excluded amount has to be added back in for
+  // anything netted against income (A-1, A-2).
+  getPeriodPredictedMonthEndTotal() {
+    const excludedActual = this.getPeriodRecords()
+      .filter(r => r && r.excludeFromAvg)
+      .reduce((s, r) => s + (r.amount || 0), 0);
+    return round2(this.getPeriodPredictedTotal() + excludedActual);
   },
   getPeriodCategoryTotals() {
     const records = this.getPeriodRecords();
@@ -4449,8 +5189,317 @@ const StatsEngine = {
   }
 };
 
+/* ============================================================
+   PURCHASE PLAN MATH (大额分期消费计划)
+
+   Design note: the repayment ledger is NOT stored. How much a plan actually
+   repaid in month M is a pure function of that month's income, bills and
+   records — all of which are already persisted. We replay the waterfall from
+   the earliest startMonth up to the requested month.
+
+   Why derive instead of store:
+     - checkMonthRollover() only runs on app open and fires once even if the
+       user skipped two months, so a stored counter would drift
+     - editing a record from three months ago correctly re-flows every later
+       instalment
+     - no ledger/reality mismatch is possible
+
+   Only manual interventions (lump catch-up, hand-edited period) are stored,
+   in plan.overrides[month].
+   ============================================================ */
+
+function round2(n) {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function monthToIndex(m) {
+  const parts = String(m || '').split('-');
+  const y = parseInt(parts[0], 10);
+  const mo = parseInt(parts[1], 10);
+  if (!isFinite(y) || !isFinite(mo)) return NaN;
+  return y * 12 + (mo - 1);
+}
+
+function indexToMonth(idx) {
+  const y = Math.floor(idx / 12);
+  const mo = (idx % 12) + 1;
+  return y + '-' + String(mo).padStart(2, '0');
+}
+
+// Money left over in month M after real spending and still-unpaid planned bills.
+// Returns null when the month has no income on record — that is "unknown", not
+// "nothing was repaid", and the two must not be conflated or a plan whose owner
+// never set an income would stall forever.
+function monthSurplus(m) {
+  const income = DataStore.getMonthlyIncome(m) || DataStore.getBudget(m) || 0;
+  if (income <= 0) return null;
+  const monthTotal = StatsEngine.getMonthTotal(m);
+  const billPlanned = DataStore.getBillTotal(m);
+  const billActual = StatsEngine.getBillSpendingActual(m);
+  const unpaidPlannedBills = Math.max(0, billPlanned - billActual);
+  return Math.max(0, income - (monthTotal + unpaidPlannedBills));
+}
+
+const PlanMath = {
+  _cache: null,
+
+  // Replay every plan month-by-month up to `upToMonth`.
+  // Memoized against DataStore._rev so repeated renders in one frame are free.
+  computeUpTo(upToMonth) {
+    const key = upToMonth + '|' + (DataStore._rev || 0);
+    if (this._cache && this._cache.key === key) return this._cache.value;
+    const value = this._compute(upToMonth);
+    this._cache = { key: key, value: value };
+    return value;
+  },
+
+  _compute(upToMonth) {
+    const result = {};
+    const plans = DataStore.getPurchasePlans().filter(p => p && p.status !== 'cancelled');
+    if (!plans.length) return result;
+
+    let startIdx = Infinity;
+    plans.forEach(p => {
+      const s = monthToIndex(p.startMonth);
+      if (isFinite(s)) startIdx = Math.min(startIdx, s);
+      result[p.id] = { plan: p, paid: 0, remaining: p.totalAmount, byMonth: {}, completedMonth: null };
+    });
+
+    const endIdx = monthToIndex(upToMonth);
+    if (!isFinite(startIdx) || !isFinite(endIdx) || endIdx < startIdx) {
+      this._finalize(result, endIdx, upToMonth);
+      return result;
+    }
+
+    const MAX_MONTHS = 600; // hard bound so corrupt dates can't hang the render
+    for (let idx = startIdx; idx <= endIdx && (idx - startIdx) < MAX_MONTHS; idx++) {
+      const m = indexToMonth(idx);
+      const raw = monthSurplus(m);
+      const incomeKnown = raw !== null;
+      let surplus = incomeKnown ? raw : 0;
+
+      // Earliest deadline first, so a plan about to expire gets paid before one
+      // with months of runway left. Ties break on creation order.
+      const active = this._byDeadline(plans.filter(p => {
+        const st = result[p.id];
+        if (!st || st.remaining <= 0.005) return false;
+        const s = monthToIndex(p.startMonth);
+        return isFinite(s) && idx >= s;
+      }));
+
+      active.forEach(p => {
+        const st = result[p.id];
+        const elapsed = idx - monthToIndex(p.startMonth);
+        const periodsLeft = Math.max(1, p.months - elapsed);
+        let due, actual;
+
+        if (p.mode === 'credit') {
+          // Bank instalment: the amount is fixed and non-negotiable, and a real
+          // record backs it — that record already consumed `surplus` via
+          // getMonthTotal, so do NOT deduct it again here.
+          due = Math.min(p.totalAmount / p.months, st.remaining);
+          actual = due;
+        } else {
+          // Self-imposed: shortfalls roll into the remaining periods, so the due
+          // amount climbs until the debt clears.
+          due = st.remaining / periodsLeft;
+          const ov = p.overrides ? p.overrides[m] : undefined;
+          if (typeof ov === 'number' && isFinite(ov)) {
+            actual = Math.max(0, Math.min(ov, st.remaining));
+          } else if (!incomeKnown) {
+            actual = due; // assume on schedule rather than stalling the plan
+          } else {
+            actual = Math.max(0, Math.min(due, surplus)); // debt before savings
+          }
+          surplus -= actual;
+        }
+
+        st.paid += actual;
+        st.remaining = Math.max(0, p.totalAmount - st.paid);
+        st.byMonth[m] = {
+          due: round2(due),
+          actual: round2(actual),
+          short: round2(Math.max(0, due - actual)),
+          incomeKnown: incomeKnown
+        };
+        if (st.remaining <= 0.005 && !st.completedMonth) st.completedMonth = m;
+      });
+    }
+
+    this._finalize(result, endIdx, upToMonth);
+    return result;
+  },
+
+  _finalize(result, endIdx, upToMonth) {
+    Object.keys(result).forEach(id => {
+      const st = result[id];
+      const p = st.plan;
+      const sIdx = monthToIndex(p.startMonth);
+      st.paid = round2(st.paid);
+      st.remaining = round2(st.remaining);
+      st.endMonth = isFinite(sIdx) ? indexToMonth(sIdx + p.months - 1) : p.startMonth;
+      st.isComplete = st.remaining <= 0.005;
+      st.isOverdue = !st.isComplete && isFinite(endIdx) && endIdx > monthToIndex(st.endMonth);
+      st.periodsLeft = isFinite(sIdx) && isFinite(endIdx)
+        ? Math.max(0, p.months - (endIdx - sIdx) - 1)
+        : p.months;
+      st.progressPct = p.totalAmount > 0 ? Math.min(100, (st.paid / p.totalAmount) * 100) : 0;
+      const cur = st.byMonth[upToMonth];
+      st.dueThisMonth = cur ? cur.due : 0;
+      st.paidThisMonth = cur ? cur.actual : 0;
+      st.shortThisMonth = cur ? cur.short : 0;
+      st.onTrack = !cur || cur.short <= 0.005;
+    });
+  },
+
+  // Total that must be carved out of the spendable budget this month.
+  // credit-mode plans are excluded: their real record already squeezes the
+  // budget through monthTotal, and subtracting twice would double-count.
+  getVirtualDue(month) {
+    const state = this.computeUpTo(month);
+    let sum = 0;
+    Object.keys(state).forEach(id => {
+      const st = state[id];
+      if (st.plan.mode === 'credit') return;
+      if (st.plan.status !== 'active') return;
+      const cur = st.byMonth[month];
+      if (cur) sum += cur.due;
+    });
+    return round2(sum);
+  },
+
+  // Earliest deadline first, ties on creation order — the allocation order used
+  // by both the settled waterfall and the forecast, so they never disagree.
+  _byDeadline(plans) {
+    return plans.slice().sort((a, b) => {
+      const ea = monthToIndex(a.startMonth) + a.months;
+      const eb = monthToIndex(b.startMonth) + b.months;
+      if (ea !== eb) return ea - eb;
+      return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+    });
+  },
+
+  /* --------------------------------------------------------
+     FORECAST — "at your current pace, how does this month end?"
+
+     The settled waterfall uses money already spent, so early in the month it
+     flatters you: surplus looks large simply because the month is young. This
+     projects month-end spending from the daily pace instead, then runs the same
+     debt-before-savings waterfall on those numbers.
+     -------------------------------------------------------- */
+  getForecast(month) {
+    const now = new Date();
+    const isCurrent = month === getMonthKey(now.toISOString());
+    // A daily-pace projection is wild in the first few days — RM100 on the 1st
+    // extrapolates to RM3100. Don't hand the user a verdict off that little data.
+    const daysPassed = isCurrent
+      ? now.getDate()
+      : new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
+    const reliable = daysPassed >= 4;
+
+    const income = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month) || 0;
+    const billPlanned = DataStore.getBillTotal(month);
+    const billActual = StatsEngine.getBillSpendingActual(month);
+    const unpaidPlannedBills = Math.max(0, billPlanned - billActual);
+
+    // Cash-flow projection: getPredictedTotal excludes one-off large purchases
+    // (incl. credit-mode instalment records) from the daily-pace trend, but that
+    // money really did leave — getPredictedMonthEndTotal adds the committed
+    // amounts back in. This used to be reimplemented here; now it's the same
+    // shared function every other "predicted month-end spend" consumer uses (A-1).
+    const predictedSpend = StatsEngine.getPredictedMonthEndTotal(month);
+    let surplus = Math.max(0, income - (predictedSpend + unpaidPlannedBills));
+    const predictedSurplus = round2(surplus);
+
+    const t = DataStore.getSavingsTarget() || {};
+    const percentBase = DataStore.getPercentBase();
+    const netDisposable = Math.max(0, income - billPlanned);
+    const baseAmount = percentBase === 'net' ? netDisposable : income;
+    let targetAmount = 0;
+    if (t.type === 'fixed') targetAmount = t.fixedAmount || 0;
+    else if (t.type === 'percent') targetAmount = baseAmount * (t.percent || 0) / 100;
+
+    const state = this.computeUpTo(month);
+    const active = this._byDeadline(
+      DataStore.getPurchasePlans().filter(p => p && p.status === 'active' && state[p.id] && state[p.id].byMonth[month])
+    );
+
+    const plans = {};
+    let totalDue = 0, totalPay = 0;
+    active.forEach(p => {
+      const cur = state[p.id].byMonth[month];
+      let pay;
+      if (p.mode === 'credit') {
+        // Fixed and non-negotiable; its record is already inside predictedSpend
+        pay = cur.due;
+      } else {
+        pay = Math.max(0, Math.min(cur.due, surplus));
+        surplus -= pay;
+      }
+      totalDue += cur.due;
+      totalPay += pay;
+      plans[p.id] = {
+        due: round2(cur.due),
+        predictedPay: round2(pay),
+        shortfall: round2(Math.max(0, cur.due - pay))
+      };
+    });
+
+    const predictedSavings = round2(Math.max(0, surplus));
+    return {
+      month: month,
+      income: income,
+      predictedSpend: predictedSpend,
+      predictedSurplus: predictedSurplus,
+      plans: plans,
+      totalDue: round2(totalDue),
+      totalPredictedPay: round2(totalPay),
+      totalShortfall: round2(Math.max(0, totalDue - totalPay)),
+      targetAmount: round2(targetAmount),
+      predictedSavings: predictedSavings,
+      targetMet: predictedSavings >= targetAmount - 0.005,
+      savingsShortfall: round2(Math.max(0, targetAmount - predictedSavings)),
+      hasData: income > 0,
+      daysPassed: daysPassed,
+      reliable: reliable
+    };
+  },
+
+  // What self-imposed plans actually consumed this month (may be less than the
+  // due amount when the month came up short). Subtracting this from the app's
+  // "累计已存" gives the part of the surplus that is genuinely free.
+  getVirtualPaid(month) {
+    const state = this.computeUpTo(month);
+    let sum = 0;
+    Object.keys(state).forEach(id => {
+      const st = state[id];
+      if (st.plan.mode === 'credit') return;
+      if (st.plan.status !== 'active') return;
+      const cur = st.byMonth[month];
+      if (cur) sum += cur.actual;
+    });
+    return round2(sum);
+  },
+
+  // All plans with something still owed in this month, for UI listing
+  getActiveStates(month) {
+    const state = this.computeUpTo(month);
+    return Object.keys(state)
+      .map(id => state[id])
+      .filter(st => st.plan.status === 'active');
+  },
+
+  getState(planId, month) {
+    return this.computeUpTo(month)[planId] || null;
+  },
+
+  monthToIndex: monthToIndex,
+  indexToMonth: indexToMonth
+};
+
   // === EXPORTS ===
   window.StatsEngine = StatsEngine;
+  window.PlanMath = PlanMath;
 })();
 
 }catch(e){console.error('[04-stats-engine.js] failed:', e)}
@@ -4483,16 +5532,17 @@ const SimulationEngine = {
     const remainingDays = Math.max(0, daysInMonth - daysPassed);
 
     // Override params with actuals if not specified
-    const income = params.income != null ? params.income : (DataStore.getMonthlyIncome(month) || DataStore.getBudget(month) || 0);
-    const bills = params.bills != null ? params.bills : DataStore.getBillTotal(month);
-    const netDisposable = Math.max(0, income - bills);
-    const savingsTarget = params.savingsTarget || DataStore.getSavingsTarget();
-    const percentBase = DataStore.getPercentBase();
-    const baseAmount = percentBase === 'net' ? netDisposable : income;
-    let targetAmount = 0;
-    if (savingsTarget.type === 'fixed') targetAmount = savingsTarget.fixedAmount || 0;
-    else if (savingsTarget.type === 'percent') targetAmount = (savingsTarget.percent || 0) / 100 * baseAmount;
-    const spendable = Math.max(0, netDisposable - targetAmount);
+    const sp = StatsEngine.getSpendablePlan(month, {
+      income: params.income,
+      bills: params.bills,
+      savingsTarget: params.savingsTarget
+    });
+    const income = sp.income;
+    const bills = sp.totalBills;
+    const netDisposable = sp.netDisposable;
+    const targetAmount = sp.targetAmount;
+    const planDueVirtual = sp.planDueVirtual;
+    const spendable = sp.spendableBudget;
 
     // Get actual spending to date (variable categories only)
     const allRecords = isRolling
@@ -4671,8 +5721,11 @@ const SimulationEngine = {
     const projectedDailyAvg = totalProjected / daysInMonth;
     const savingsAttained = projectedSavings >= targetAmount;
 
-    // Current trend (for comparison) — use StatsEngine to match Overview exactly
-    const trendTotal = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month);
+    // Current trend (for comparison) — use StatsEngine to match Overview exactly.
+    // trendSavings nets against income, so it needs the cash-flow total (money
+    // already spent on excludeFromAvg records must count), not the daily-average
+    // trend total (A-1). trendDailyAvg stays a pure pace reading on purpose.
+    const trendTotal = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
     const trendDailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month);
     const unpaidBills = Math.max(0, DataStore.getBillTotal(month) - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month)));
     const trendSavings = isRolling ? (income - trendTotal - unpaidBills) : (StatsEngine.getSavingsPrediction(month) - unpaidBills);
@@ -4684,7 +5737,7 @@ const SimulationEngine = {
       daysPassed, remainingDays, daysInMonth,
       netDisposable, targetAmount, spendable,
       actualBills: StatsEngine.getBillSpendingActual(month),
-      overviewPredicted: StatsEngine.getPredictedTotal(month),
+      overviewPredicted: StatsEngine.getPredictedMonthEndTotal(month),
       simTotalPlusBills: totalProjected + StatsEngine.getBillSpendingActual(month)
     });
 
@@ -4696,6 +5749,11 @@ const SimulationEngine = {
       netDisposable: netDisposable,
       targetAmount: targetAmount,
       spendable: spendable,
+      // Self-imposed instalments reserved out of `spendable`. Deliberately NOT
+      // added to totalProjected: for save/borrow the money is retained, not
+      // spent, so projectedSavings must keep counting it as saved. credit-mode
+      // plans are already in actualSpent via their real records.
+      planDueVirtual: planDueVirtual,
 
       // Actuals
       daysPassed: daysPassed,
@@ -5878,13 +6936,14 @@ function renderOverview() {
     ? (isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month))
     : (isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month));
   const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
-  const savingsTarget = DataStore.getSavingsTarget();
   const dailyAvg = includeBills
     ? (isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month))
     : (isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(month));
+  // Cash-flow reading ("预测月总支出" can never sit below what's already been
+  // spent) — use the month-end total, not the daily-average trend (A-1/A-3).
   const predicted = includeBills
-    ? (isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month))
-    : (isRolling ? StatsEngine.getPeriodPredictedTotal() : (StatsEngine.getDailyAverageVariable(month) * new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()));
+    ? (isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month))
+    : (isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : (StatsEngine.getDailyAverageVariable(month) * new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()));
   const remainingLimit = isRolling ? StatsEngine.getPeriodRemainingDailyLimit() : StatsEngine.getRemainingDailyLimit(month);
   const last7 = StatsEngine.getLast7Days();
   const overspent = StatsEngine.getOverspentCategories(month);
@@ -5900,24 +6959,21 @@ function renderOverview() {
   const todayTotal = DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === todayKey).reduce((s, r) => s + r.amount, 0);
   const yesterdayTotal = DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === yesterdayKey).reduce((s, r) => s + r.amount, 0);
 
-  // Compute savings target monetary value
-  const percentBase = DataStore.getPercentBase();
-  const totalBills = DataStore.getBillTotal(month);
+  // Savings / spendable chain — single source of truth in StatsEngine.getSpendablePlan.
+  // spendableBudget now also has active instalment plans carved out of it, which is
+  // what makes those months actually pinch.
+  const sp = StatsEngine.getSpendablePlan(month);
+  const totalBills = sp.totalBills;
   const paidBills = StatsEngine.getBillSpendingActual(month);
   const unpaidPlannedBills = Math.max(0, totalBills - paidBills);
   const effectiveTotal = monthTotal + unpaidPlannedBills;
   const savingsPred = StatsEngine.getSavingsPrediction(month) - unpaidPlannedBills;
-  const netDisposable = Math.max(0, budget - totalBills);
-  const baseAmount = percentBase === 'net' ? netDisposable : budget;
-  const targetAmount = (() => {
-    const t = savingsTarget;
-    if (t.type === 'fixed') return t.fixedAmount || 0;
-    if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    return 0;
-  })();
-
-  // Daily spendable = net income (after bills) minus savings
-  const spendableBudget = Math.max(0, netDisposable - targetAmount);
+  const netDisposable = sp.netDisposable;
+  const targetAmount = sp.targetAmount;
+  const planDueVirtual = sp.planDueVirtual;
+  const spendableBudget = sp.spendableBudget;
+  // What plans really took this month — less than the due amount if money ran short
+  const planPaidThisMonth = (typeof PlanMath !== 'undefined') ? PlanMath.getVirtualPaid(month) : 0;
   const budgetPct = includeBills
     ? (budget > 0 ? (monthTotal / budget) * 100 : 0)
     : (spendableBudget > 0 ? (monthTotal / spendableBudget) * 100 : 0);
@@ -6056,6 +7112,9 @@ function renderOverview() {
       </div>
     </div>
 
+    <!-- Purchase plans — only rendered when at least one plan is active -->
+    ${typeof renderPlanOverviewCard === 'function' ? renderPlanOverviewCard(month) : ''}
+
     <div class="grid-2 mb-16">
       <!-- Budget progress ring -->
       <div class="card" style="text-align:center">
@@ -6087,6 +7146,7 @@ function renderOverview() {
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('overview.currentSaved')}</div>
           <div class="text-lg font-bold" style="color:${actualSavings > 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(actualSavings)}</div>
+          ${planPaidThisMonth > 0 ? `<div class="text-xs text-muted" style="margin-top:2px">${__('plan.freeSavings')} ${formatMoney(Math.max(0, actualSavings - planPaidThisMonth))}</div>` : ''}
         </div>
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('overview.monthlyIncome')}</div>
@@ -6101,6 +7161,11 @@ function renderOverview() {
           <div class="text-xs text-secondary">${__('overview.targetAchievement')}</div>
           <div class="text-lg font-bold">${targetAmount > 0 ? Math.min(100, (savingsPred/targetAmount)*100).toFixed(0) + '%' : '—'}</div>
         </div>
+        ${planDueVirtual > 0 ? `
+        <div style="padding:4px">
+          <div class="text-xs text-secondary">${__('plan.occupiedRow')}</div>
+          <div class="text-lg font-bold" style="color:var(--warning)">${formatMoney(planDueVirtual)}</div>
+        </div>` : ''}
       </div>
       <div class="text-sm text-secondary mb-8">
         ${savingsPred >= 0
@@ -6216,18 +7281,11 @@ function refreshOverviewBudget() {
   const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
   if (!budget) return;
 
-  const totalBills = DataStore.getBillTotal(month);
-  const savingsTarget = DataStore.getSavingsTarget();
-  const percentBase = DataStore.getPercentBase();
-  const netDisposable = Math.max(0, budget - totalBills);
-  const baseAmount = percentBase === 'net' ? netDisposable : budget;
-  const targetAmount = (() => {
-    const t = savingsTarget;
-    if (t.type === 'fixed') return t.fixedAmount || 0;
-    if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    return 0;
-  })();
-  const spendableBudget = Math.max(0, netDisposable - targetAmount);
+  const sp = StatsEngine.getSpendablePlan(month);
+  const totalBills = sp.totalBills;
+  const targetAmount = sp.targetAmount;
+  const netDisposable = sp.netDisposable;
+  const spendableBudget = sp.spendableBudget;
   const budgetPct = includeBills
     ? (budget > 0 ? (monthTotal / budget) * 100 : 0)
     : (spendableBudget > 0 ? (monthTotal / spendableBudget) * 100 : 0);
@@ -9153,18 +10211,7 @@ function getHeatmapColor(ratio) {
 function getDailySavingsTarget(month) {
   const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
   if (!budget) return 0;
-  const savingsTarget = DataStore.getSavingsTarget();
-  const percentBase = DataStore.getPercentBase();
-  const totalBills = DataStore.getBillTotal(month);
-  const netDisposable = Math.max(0, budget - totalBills);
-  const baseAmount = percentBase === 'net' ? netDisposable : budget;
-  const targetAmount = (() => {
-    const t = savingsTarget;
-    if (t.type === 'fixed') return t.fixedAmount || 0;
-    if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    return 0;
-  })();
-  const spendable = Math.max(0, netDisposable - targetAmount);
+  const spendable = StatsEngine.getSpendablePlan(month).spendableBudget;
   const parts = month.split('-');
   const daysInMonth = new Date(parseInt(parts[0]), parseInt(parts[1]), 0).getDate();
   return daysInMonth > 0 ? spendable / daysInMonth : 0;
@@ -9756,27 +10803,21 @@ function renderStats() {
   const isRolling = getStatsRange() === 'rolling30' && statsMonth === getMonthKey(now.toISOString()) && !useCustomRange();
   const monthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(statsMonth);
   const dailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(statsMonth);
-  const predicted = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(statsMonth);
+  // Cash-flow reading, not the daily-average trend — matches the overview card (A-1).
+  const predicted = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(statsMonth);
   const budget = DataStore.getMonthlyIncome(statsMonth) || DataStore.getBudget(statsMonth);
   const remainingLimit = isRolling ? StatsEngine.getPeriodRemainingDailyLimit() : StatsEngine.getRemainingDailyLimit(statsMonth);
 
-  // Spendable budget for stats page
-  const savingsTargetStats = DataStore.getSavingsTarget();
-  const percentBaseStats = DataStore.getPercentBase();
-  const totalBillsStats = DataStore.getBillTotal(statsMonth);
+  // Spendable budget for stats page — shared chain, instalment plans included
+  const spStats = StatsEngine.getSpendablePlan(statsMonth);
+  const totalBillsStats = spStats.totalBills;
   const paidBillsStats = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth);
   const unpaidPlannedBillsStats = Math.max(0, totalBillsStats - paidBillsStats);
   const effectiveTotalStats = monthTotal + unpaidPlannedBillsStats;
   const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(statsMonth) - unpaidPlannedBillsStats);
-  const netDisposableStats = Math.max(0, budget - totalBillsStats);
-  const baseAmountStats = percentBaseStats === 'net' ? netDisposableStats : budget;
-  const targetAmountStats = (() => {
-    const t = savingsTargetStats;
-    if (t.type === 'fixed') return t.fixedAmount || 0;
-    if (t.type === 'percent') return baseAmountStats * (t.percent || 0) / 100;
-    return 0;
-  })();
-  const spendableBudgetStats = Math.max(0, netDisposableStats - targetAmountStats);
+  const netDisposableStats = spStats.netDisposable;
+  const targetAmountStats = spStats.targetAmount;
+  const spendableBudgetStats = spStats.spendableBudget;
   const remainingLimitSpendableStats = (() => {
     const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
     const remainingDays = daysInMonth - now.getDate();
@@ -12219,8 +13260,31 @@ function repairData() {
         }
       }
     });
+    // Purchase-plan invariants
+    const plans = DataStore._data.purchasePlans || [];
+    const planIds = new Set(plans.map(p => p && p.id).filter(Boolean));
+    plans.forEach(p => {
+      if (!p) return;
+      if (typeof p.months !== 'number' || !isFinite(p.months) || p.months < 1) { p.months = 1; fixed++; }
+      if (typeof p.totalAmount === 'number' && p.totalAmount < 0) { p.totalAmount = Math.abs(p.totalAmount); fixed++; }
+      if (!p.overrides || typeof p.overrides !== 'object') { p.overrides = {}; fixed++; }
+      // An override may never exceed the plan total
+      Object.keys(p.overrides).forEach(m => {
+        const v = p.overrides[m];
+        if (typeof v !== 'number' || !isFinite(v) || v < 0) { delete p.overrides[m]; fixed++; }
+        else if (v > p.totalAmount) { p.overrides[m] = p.totalAmount; fixed++; }
+      });
+      if (p.mode !== 'credit' && p.categoryId) { p.categoryId = ''; fixed++; }
+    });
+    // Instalment records whose plan is gone would keep inflating month totals
+    const orphans = (DataStore._data.records || []).filter(r => r && r.planId && !planIds.has(r.planId));
+    if (orphans.length) {
+      DataStore._data.records = (DataStore._data.records || []).filter(r => !r || !r.planId || planIds.has(r.planId));
+      fixed += orphans.length;
+    }
+
     if (fixed > 0) DataStore.save();
-    
+
     if (success) {
       // Also clear any pending delete state which might be stale
       const pending = DataStore.getPendingDelete();
@@ -12498,29 +13562,24 @@ function renderReport() {
 
   const monthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month);
   const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
-  const savingsTarget = DataStore.getSavingsTarget();
   const dailyTotals = isRolling ? StatsEngine.getPeriodDailyTotals({ excludeBills: false }) : StatsEngine.getDailyTotals(month);
   const catTotals = isRolling ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month);
   const splitContrib = isRolling ? StatsEngine.getPeriodSplitContrib() : StatsEngine.getSplitContrib(month);
 
-  // Savings target amount
-  const percentBase = DataStore.getPercentBase();
-  const totalBills = DataStore.getBillTotal(month);
+  // Savings target amount — shared chain, instalment plans included
+  const spRep = StatsEngine.getSpendablePlan(month);
+  const totalBills = spRep.totalBills;
   const paidBillsRep = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
   const unpaidPlannedBillsRep = Math.max(0, totalBills - paidBillsRep);
-  const netDisposable = Math.max(0, budget - totalBills);
-  const baseAmount = percentBase === 'net' ? netDisposable : budget;
-  const targetAmount = (() => {
-    const t = savingsTarget;
-    if (t.type === 'fixed') return t.fixedAmount || 0;
-    if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    return 0;
-  })();
-  const spendableBudget = Math.max(0, netDisposable - targetAmount);
+  const netDisposable = spRep.netDisposable;
+  const targetAmount = spRep.targetAmount;
+  const planDueVirtual = spRep.planDueVirtual;
+  const spendableBudget = spRep.spendableBudget;
   const variableSpending = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month);
   const actualSavings = Math.max(0, budget - (monthTotal + unpaidPlannedBillsRep));
   const savingsRate = budget > 0 ? (actualSavings / budget * 100) : 0;
-  const predicted = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month);
+  // Cash-flow reading, not the daily-average trend — matches the overview card (A-1).
+  const predicted = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
   const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(month) - unpaidPlannedBillsRep);
 
   // Aggregate to root categories for table
@@ -12595,6 +13654,7 @@ function renderReport() {
           <div class="text-sm text-secondary">
             ${budget > 0 ? formatMoney(monthTotal) + ' / ' + formatMoney(budget) : __('report.notSetIncome')}
             ${totalBills > 0 ? `<div class="text-xs text-muted mt-4">${__('report.netIncome')} ${formatMoney(netDisposable)} · ${__('report.dailySpendable')} ${formatMoney(spendableBudget)}</div>` : ''}
+            ${planDueVirtual > 0 ? `<div class="text-xs text-muted mt-4">${__('plan.occupiedRow')} ${formatMoney(planDueVirtual)}</div>` : ''}
           </div>
         </div>
         <div class="card" style="text-align:center">
@@ -12791,8 +13851,9 @@ function renderWhatIf() {
   const savedParams = DataStore.getWhatIfParams();
   console.log('[WhatIf] render, month:', month, 'savedParams:', savedParams);
 
-  // Log Overview baseline for comparison
-  const overviewPredicted = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month);
+  // Log Overview baseline for comparison — cash-flow reading, since that's what
+  // the overview card now shows (A-1).
+  const overviewPredicted = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
   const overviewDailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month);
   const overviewMonthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month);
   const overviewBillsActual = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
@@ -13118,6 +14179,10 @@ function renderWhatIfResults(result) {
         <div>${formatMoney(adjustedDailyAvg)}</div>
       </div>
     </div>
+    ${result.planDueVirtual > 0 ? `
+    <div class="text-xs text-muted" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+      ${__('whatif.planReserved', formatMoney(result.planDueVirtual))}
+    </div>` : ''}
   </div>`;
 
   // === 储蓄对比 (horizontal bar, baseline = trend savings) ===
@@ -13612,6 +14677,7 @@ function attachWhatIfListeners(month) {
     'whatif.vsTrend': { zh: '较趋势差额', en: 'vs Trend' },
     'whatif.dailyTrend': { zh: '日均支出（趋势）', en: 'Daily Avg (Trend)' },
     'whatif.savingsGoal': { zh: '储蓄目标', en: 'Savings Target' },
+    'whatif.planReserved': { zh: '🎯 大额计划已从日常可用额度中预留 {0}（这笔钱是存下的，不算消费，所以不影响上面的储蓄预测）', en: '🎯 Purchase plans reserve {0} out of the daily allowance. That money is retained rather than spent, so it does not reduce the savings projection above.' },
     'whatif.dailyHypo': { zh: '日均支出（假设）', en: 'Daily Avg (Adjusted)' },
     'whatif.trend': { zh: '趋势', en: 'Trend' },
     'whatif.hypothetical': { zh: '假设', en: 'Hypothetical' },
@@ -13744,6 +14810,8 @@ function initApp() {
   applyTheme();
   handleHash();
   applyI18nToDOM();
+  // Purchase plans wait for unlock before syncing records / raising due dialogs
+  if (typeof planBootstrap === 'function') setTimeout(planBootstrap, 800);
   console.log('[INIT] initApp() complete');
 }
 
@@ -14034,6 +15102,12 @@ try{
           });
           return b;
         });
+      if (data.purchasePlans && Array.isArray(data.purchasePlans))
+        DataStore._data.purchasePlans = data.purchasePlans.map(function (p) {
+          if (p && typeof p.name === 'string') p.name = sanitizeHtml(p.name);
+          if (p && typeof p.note === 'string') p.note = sanitizeHtml(p.note);
+          return p;
+        });
     } else {
       mergeIntoDataStore(data);
     }
@@ -14111,6 +15185,18 @@ try{
           });
           cur.splitBills.push(b);
           sIds[b.id] = true;
+        }
+      });
+    }
+    if (incoming.purchasePlans && Array.isArray(incoming.purchasePlans)) {
+      if (!Array.isArray(cur.purchasePlans)) cur.purchasePlans = [];
+      var pIds = {}; cur.purchasePlans.forEach(function (p) { if (p && p.id) pIds[p.id] = true; });
+      incoming.purchasePlans.forEach(function (p) {
+        if (p && p.id && !pIds[p.id]) {
+          if (typeof p.name === 'string') p.name = sanitizeHtml(p.name);
+          if (typeof p.note === 'string') p.note = sanitizeHtml(p.note);
+          cur.purchasePlans.push(p);
+          pIds[p.id] = true;
         }
       });
     }
@@ -14873,6 +15959,16 @@ const PAGE_GUIDES = {
             'guide.overview.simple.tip3_1',
             'guide.overview.simple.tip3_2',
             'guide.overview.simple.tip3_3'
+          ]
+        },
+        {
+          heading: 'guide.plan.heading',
+          isTable: true,
+          rows: [
+            ['guide.plan.row1_label', 'guide.plan.row1_desc'],
+            ['guide.plan.row2_label', 'guide.plan.row2_desc'],
+            ['guide.plan.row3_label', 'guide.plan.row3_desc'],
+            ['guide.plan.row4_label', 'guide.plan.row4_desc']
           ]
         }
       ]
@@ -15718,7 +16814,7 @@ addI18nEntries({
   'guide.add.detailed.row4_3_label': { zh: '日期时间', en: 'Date & Time' },
   'guide.add.detailed.row4_4_desc': { zh: '消费说明，最长 200 字。保存时会自动去掉首尾空格', en: 'Expense description, max 200 characters. Leading/trailing spaces are trimmed on save' },
   'guide.add.detailed.row4_4_label': { zh: '备注', en: 'Notes' },
-  'guide.add.detailed.row4_5_desc': { zh: '勾选后此记录不会影响日均支出和预测总支出的计算。适合一次性大额消费', en: 'When checked, this record won’t affect daily average or projected total calculations. Suitable for one-time large purchases' },
+  'guide.add.detailed.row4_5_desc': { zh: '勾选后此记录不计入日均支出的计算，但仍会计入总览页的"预测月总支出"和储蓄预测——这笔钱真的花出去了，只是不参与"照这个花法"的日常趋势外推。适合一次性大额消费', en: 'When checked, this record is excluded from the daily average, but it still counts toward the overview’s “Projected Monthly Total” and savings forecast — the money really was spent, it just doesn’t skew the day-to-day pace projection. Suitable for one-time large purchases' },
   'guide.add.detailed.row4_5_label': { zh: '不计日均', en: 'Exclude from Daily Avg' },
   'guide.add.detailed.text1': { zh: '这里是「记账」页面，你每次花钱后来这里记录一笔支出。填上金额、选个分类、写个备注，保存就完成了。所有后续的统计、分析、报表都依赖你在这里记录的数据。', en: 'This is the “Add Record” page. Every time you spend money, you come here to log it. Enter the amount, pick a category, write a note, and save. All subsequent statistics, analysis, and reports depend on the data you enter here.' },
   'guide.add.detailed.tip5_1': { zh: '保存后表单会自动清空，方便连续记账', en: 'The form clears automatically after saving for consecutive entries' },
@@ -15865,13 +16961,13 @@ addI18nEntries({
   'guide.overview.detailed.row5_0_label': { zh: '本月总支出', en: 'Monthly Total Expenses' },
   'guide.overview.detailed.row5_1_desc': { zh: '总支出 ÷ 已过天数。标注了"不计日均"的大额消费不会拉高这个数', en: 'Total expenses ÷ days elapsed. Large expenses flagged as “exclude from daily avg” won’t affect this number' },
   'guide.overview.detailed.row5_1_label': { zh: '日均支出', en: 'Daily Average' },
-  'guide.overview.detailed.row5_2_desc': { zh: '日均支出 × 当月总天数。这个数字会告诉你月底大概会花多少', en: 'Daily average × total days in the month. This tells you roughly where you’ll end up' },
+  'guide.overview.detailed.row5_2_desc': { zh: '按日均支出速度外推到月底，再加回已发生的"不计日均"大额支出——这笔钱已经花出去了，预测里不能漏掉它', en: 'Extrapolated from your daily spending pace, then adds back any "exclude from daily avg" large purchases that already happened — that money is already spent and the projection can’t leave it out' },
   'guide.overview.detailed.row5_2_label': { zh: '预测月总支出', en: 'Projected Monthly Total' },
   'guide.overview.detailed.row5_3_desc': { zh: '月收入 − 账单总额，即扣除固定账单后真正能花的钱', en: 'Monthly income − total bills — what’s actually available to spend after fixed costs' },
   'guide.overview.detailed.row5_3_label': { zh: '可支配收入', en: 'Disposable Income' },
   'guide.overview.detailed.row5_4_desc': { zh: '月收入 − 账单总额，如果账单超过收入这个值会是 0', en: 'Monthly income − total bills. If bills exceed income, this is 0' },
   'guide.overview.detailed.row5_4_label': { zh: '净收入', en: 'Net Income' },
-  'guide.overview.detailed.row5_5_desc': { zh: '月收入 − 预测总支出 − 未付账单。正数表示预计能存下钱', en: 'Monthly income − projected total expenses − unpaid bills. A positive number means you’re on track to save' },
+  'guide.overview.detailed.row5_5_desc': { zh: '月收入 − 预测月总支出 − 未付账单。正数表示预计能存下钱（"预测月总支出"已把已发生的"不计日均"大额支出算进去）', en: 'Monthly income − Projected Monthly Total − unpaid bills. A positive number means you’re on track to save (the “Projected Monthly Total” already includes any “exclude from daily avg” large purchases that already happened)' },
   'guide.overview.detailed.row5_5_label': { zh: '储蓄预测', en: 'Savings Forecast' },
   'guide.overview.detailed.text1': { zh: '总览是你的记账软件「首页」和「仪表盘」。打开软件第一眼看到的就是它。它的作用是让你在 <strong>10 秒内</strong>了解本月财务状况：花了多少、还剩多少、预算够不够、有没有超支危险。你不需要做任何操作，所有数字和图表自动从你的记账数据生成。\n\n<strong>💡 先了解两个概念：</strong><br>\n• <strong>账单</strong>：房租、水电、网费等每月固定支出。在总览页点击「📋 月账单中心」卡片可以设置月收入和账单金额。<br>\n• <strong>日常消费</strong>：餐饮、交通、购物等非固定支出。页面中的"含账单"复选框控制是否把账单算进统计数据里。', en: 'The overview is your budgeting app’s “homepage” and “dashboard.” It’s the first thing you see when you open the app. Its purpose is to let you understand your monthly finances <strong>within 10 seconds</strong>: how much you’ve spent, how much is left, whether your budget is on track, and whether there’s any risk of overspending. You don’t need to do anything — all numbers and charts are automatically generated from your data.\n\n<strong>💡 Two Key Concepts:</strong><br>\n• <strong>Bills</strong>: Fixed monthly expenses like rent, utilities, and internet. Tap the “📋 Bill Center” card on the overview page to set your monthly income and bill amounts.<br>\n• <strong>Daily Spending</strong>: Variable expenses such as dining, transport, and shopping. The “Include Bills” checkbox on the page controls whether bills are factored into the statistics.' },
   'guide.overview.detailed.text3': { zh: '• 月收入/预算：需在「月账单中心」设置<br>• 储蓄目标：需在「设置」页配置<br>• 分类预算：需在「分类」页面给每个分类设置金额<br>• 记账记录：至少有一笔消费记录，总览才会显示完整数据', en: '• Monthly income/budget: set it in “Bill Center”<br>• Savings goal: configure it on the “Settings” page<br>• Category budgets: set amounts for each category on the “Categories” page<br>• At least one expense record — the overview needs data to display' },
@@ -15889,6 +16985,16 @@ addI18nEntries({
   'guide.overview.simple.tip3_1': { zh: '「含账单」开关控制是否把房租水电等固定支出算进统计', en: 'The “Include Bills” toggle controls whether fixed expenses (rent, utilities) are included in statistics' },
   'guide.overview.simple.tip3_2': { zh: '超支警告显示的是超过整月预算 80% 的分类', en: 'Overspend warnings show categories that have exceeded 80% of their monthly budget' },
   'guide.overview.simple.tip3_3': { zh: '统计范围可在「设置」页切换「本月」/「近30天」，月初数据少时推荐用近30天', en: 'You can switch between “This Month” and “Last 30 Days” in Settings — early in the month, “Last 30 Days” gives more stable data' },
+
+  'guide.plan.heading': { zh: '🎯 大额计划（分期大额消费）', en: '🎯 Purchase Plans (instalments)' },
+  'guide.plan.row1_label': { zh: '先攒后买', en: 'Save First' },
+  'guide.plan.row1_desc': { zh: '每月预留一笔，攒够了再买。钱只是被预留，不算消费，也不会生成流水记录。', en: 'Reserve an amount monthly and buy once it is all there. The money is reserved, not spent — no record is created.' },
+  'guide.plan.row2_label': { zh: '先买后还', en: 'Buy Now, Refill' },
+  'guide.plan.row2_desc': { zh: '已经用储蓄买下了，之后几个月把储蓄补回来。如果你已手动记过那笔购买，记得删掉，否则会重复计算。', en: 'Already bought out of savings; refill the pot over the coming months. If you logged that purchase by hand, delete it or it counts twice.' },
+  'guide.plan.row3_label': { zh: '信用卡分期', en: 'Card Instalment' },
+  'guide.plan.row3_desc': { zh: '每月真实还款给银行，会自动生成流水记录（标记为不计日均）。金额固定，不会因为某月超支而顺延。', en: 'Real monthly payments to the bank; records are generated automatically and flagged out of the daily average. The amount is fixed and never defers.' },
+  'guide.plan.row4_label': { zh: '欠款自动滚动', en: 'Shortfalls roll forward' },
+  'guide.plan.row4_desc': { zh: '本期应付 = 剩余金额 ÷ 剩余期数。某月结余不够还款时，欠下的部分会自动摊到后面几期，月供随之上调。还债优先于储蓄目标。', en: 'Due = remaining ÷ periods left. If a month cannot cover it, the gap spreads across later periods and the monthly amount rises. Debt is settled before the savings target.' },
   'guide.overview.title': { zh: '📊 总览', en: '📊 Overview' },
   'guide.records.detailed.grid2_0_desc': { zh: '按关键词、分类、标签、日期范围、金额范围筛选记录', en: 'Filter records by keyword, category, tag, date range, and amount range' },
   'guide.records.detailed.grid2_0_label': { zh: '搜索筛选', en: 'Search & Filter' },
@@ -17805,6 +18911,868 @@ addI18nEntries({
   window.doDeleteContact = doDeleteContact;
 })();
 }catch(e){console.error('[26-split-bills.js] failed:', e)}
+try{
+// === 27-purchase-plans.js ===
+/* ============================================================
+   PURCHASE PLANS (大额分期消费计划)
+
+   Three ways people actually pay for a big-ticket item:
+     save   先攒后买     — set money aside for N months, then buy
+     borrow 先买后还     — buy now out of savings, then refill the pot for N months
+     credit 信用卡分期   — take the item now, the bank gets paid monthly
+
+   All three squeeze the same N months of living budget; they differ only in
+   whether the money really leaves your pocket each month. save/borrow are
+   virtual (nothing is spent, the money is just reserved), credit generates a
+   real record because the bank really is paid.
+
+   The repayment maths lives in PlanMath (04-stats-engine.js) — this file is
+   CRUD plus UI. No purchase record is ever generated: a plan's cost is
+   expressed entirely through its monthly instalments, so recording the lump
+   sum as well would double-count it.
+   ============================================================ */
+(function() {
+'use strict';
+
+const PLAN_MODES = ['save', 'borrow', 'credit'];
+const MODE_ICON = { save: '🐖', borrow: '🏦', credit: '💳' };
+
+// Which plans have their per-period ledger expanded in the center modal
+const _planExpanded = {};
+
+function round2(n) {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function currentMonth() {
+  return getMonthKey(new Date().toISOString());
+}
+
+function modeLabel(mode) {
+  return __('plan.mode.' + mode);
+}
+
+// save = building a pot ("saved"); borrow/credit = clearing a debt ("repaid")
+function paidLabel(mode) {
+  return mode === 'save' ? __('plan.saved') : __('plan.repaid');
+}
+
+function remainLabel(mode) {
+  return mode === 'save' ? __('plan.stillNeeded') : __('plan.stillOwed');
+}
+
+// Inline emoji grid — reuses the 88 presets from 16-render-categories.js.
+// Deliberately NOT the category picker's modal: swapping modals would wipe the
+// half-filled editor form behind it.
+function emojiGridHtml() {
+  const presets = (typeof EMOJI_GRID !== 'undefined' && Array.isArray(EMOJI_GRID)) ? EMOJI_GRID : [];
+  const list = PLAN_MODES.map(m => MODE_ICON[m]).concat(['🎯'], presets);
+  const seen = {};
+  return list.filter(e => { if (seen[e]) return false; seen[e] = 1; return true; })
+    .map(e => '<button type="button" class="plan-emoji" data-emoji="' + escHtml(e) + '">' + e + '</button>')
+    .join('');
+}
+
+function leafCategoryOptions(selectedId) {
+  const cats = DataStore.getCategories() || [];
+  const hasChild = new Set();
+  cats.forEach(c => { if (c && c.parentId) hasChild.add(c.parentId); });
+  return cats
+    .filter(c => c && !hasChild.has(c.id))
+    .map(c => '<option value="' + escHtml(c.id) + '"' + (c.id === selectedId ? ' selected' : '') + '>' +
+      escHtml(typeof getCategoryFullPath === 'function' ? getCategoryFullPath(c.id) : c.name) + '</option>')
+    .join('');
+}
+
+/* ============================================================
+   CREDIT-MODE RECORD SYNC
+
+   Backfills the real instalment records a credit plan owes. Loops from
+   startMonth rather than incrementing a counter, so skipping two months (or
+   creating a plan that started in the past) still lands every period exactly
+   once. Idempotent on planId + planMonth.
+   ============================================================ */
+function syncPlanRecords() {
+  const nowMonth = currentMonth();
+  const plans = DataStore.getPurchasePlans().filter(p => p && p.mode === 'credit' && p.status === 'active');
+  if (!plans.length) return 0;
+  const records = DataStore.getRecords(); // live reference — newly added rows are visible
+  let created = 0;
+
+  plans.forEach(p => {
+    const sIdx = PlanMath.monthToIndex(p.startMonth);
+    const nIdx = PlanMath.monthToIndex(nowMonth);
+    if (!isFinite(sIdx) || !isFinite(nIdx)) return;
+    const monthly = round2(p.totalAmount / p.months);
+    for (let i = 0; i < p.months; i++) {
+      const idx = sIdx + i;
+      if (idx > nIdx) break;
+      const m = PlanMath.indexToMonth(idx);
+      if (records.some(r => r && r.planId === p.id && r.planMonth === m)) continue;
+      // Final period absorbs the rounding remainder so the sum is exact
+      const amt = (i === p.months - 1) ? round2(p.totalAmount - monthly * (p.months - 1)) : monthly;
+      DataStore.addRecord({
+        amount: amt,
+        categoryId: p.categoryId || 'uncategorized',
+        date: m + '-01T09:00',
+        note: __('plan.recordNote', p.name, i + 1, p.months),
+        tags: [],
+        excludeFromAvg: true, // a fixed obligation, not daily spending behaviour
+        planId: p.id,
+        planMonth: m,
+        createdAt: new Date().toISOString()
+      });
+      created++;
+    }
+  });
+  if (created) logEvent('syncPlanRecords', 'created=' + created);
+  return created;
+}
+
+/* ============================================================
+   LIFECYCLE EVENTS (completion / overdue)
+   ============================================================ */
+function checkPlanEvents() {
+  const month = currentMonth();
+  const active = DataStore.getPurchasePlans().filter(p => p && p.status === 'active');
+  if (!active.length) return;
+  const state = PlanMath.computeUpTo(month);
+
+  // One dialog at a time — showModal replaces content, so stacking would hide all but the last
+  const done = active.filter(p => state[p.id] && state[p.id].isComplete && !p.notifiedComplete);
+  if (done.length) {
+    const p = done[0];
+    DataStore.updatePurchasePlan(p.id, { notifiedComplete: true, status: 'completed' });
+    showPlanCompleteDialog(p);
+    return;
+  }
+
+  const late = active.filter(p => state[p.id] && state[p.id].isOverdue && !p.overdueAsked);
+  if (late.length) showPlanOverdueDialog(late[0].id);
+}
+
+function showPlanCompleteDialog(plan) {
+  const msgKey = plan.mode === 'save' ? 'plan.doneSave' : 'plan.doneDebt';
+  showModal(
+    '<div class="modal-title">' + __('plan.doneTitle') + '</div>' +
+    '<div style="padding:8px 0 16px">' +
+      '<p style="margin-bottom:12px">' + __(msgKey, escHtml(plan.name), formatMoney(plan.totalAmount)) + '</p>' +
+      '<div class="flex flex-col gap-8">' +
+        '<button class="btn btn-primary" data-plan-action="close">' + __('plan.gotIt') + '</button>' +
+      '</div>' +
+    '</div>'
+  );
+  bindPlanEvents();
+}
+
+function showPlanOverdueDialog(planId) {
+  const plan = DataStore.getPurchasePlan(planId);
+  if (!plan) return;
+  const st = PlanMath.getState(planId, currentMonth());
+  if (!st) return;
+  showModal(
+    '<div class="modal-title">' + __('plan.overdueTitle') + '</div>' +
+    '<div style="padding:8px 0 16px">' +
+      '<p style="margin-bottom:12px">' + __('plan.overdueMsg', escHtml(plan.name), formatMoney(st.remaining), escHtml(st.endMonth)) + '</p>' +
+      '<div class="input-group">' +
+        '<label class="input-label">' + __('plan.extendBy') + '</label>' +
+        '<input type="number" class="input-field" id="planExtendMonths" min="1" max="120" value="3">' +
+      '</div>' +
+      '<div class="flex flex-col gap-8">' +
+        '<button class="btn btn-primary" data-plan-action="extend" data-plan-id="' + escHtml(planId) + '">' + __('plan.extendBtn') + '</button>' +
+        '<button class="btn btn-outline" data-plan-action="payoff" data-plan-id="' + escHtml(planId) + '">' + __('plan.payoffBtn') + '</button>' +
+        '<button class="btn btn-ghost" data-plan-action="abandon" data-plan-id="' + escHtml(planId) + '">' + __('plan.abandonBtn') + '</button>' +
+      '</div>' +
+    '</div>'
+  );
+  bindPlanEvents();
+}
+
+function extendPlan(planId) {
+  const el = document.getElementById('planExtendMonths');
+  const add = Math.floor(parseFloat(el ? el.value : '3'));
+  if (!isFinite(add) || add < 1) { showToast(__('plan.err.months'), 'error'); return; }
+  const plan = DataStore.getPurchasePlan(planId);
+  if (!plan) return;
+  DataStore.updatePurchasePlan(planId, { months: plan.months + add, overdueAsked: false });
+  showToast(__('plan.extended', add));
+  closeModal();
+  refreshCurrentPage();
+}
+
+// Writes a manual override for this month covering the whole outstanding balance
+function payoffPlanNow(planId) {
+  const m = currentMonth();
+  const st = PlanMath.getState(planId, m);
+  if (!st) return;
+  DataStore.setPlanOverride(planId, m, st.remaining);
+  DataStore.updatePurchasePlan(planId, { overdueAsked: false });
+  showToast(__('plan.paidOff', formatMoney(st.remaining)));
+  closeModal();
+  refreshCurrentPage();
+}
+
+function abandonPlan(planId) {
+  DataStore.updatePurchasePlan(planId, { status: 'cancelled', overdueAsked: true });
+  showToast(__('plan.abandoned'));
+  closeModal();
+  refreshCurrentPage();
+}
+
+/* ============================================================
+   PLAN CENTER MODAL
+   ============================================================ */
+/* Two-layer progress bar.
+   Solid  = repaid through the end of last month; settled, cannot move.
+   Hatch  = what THIS month is forecast to add at the current spending pace.
+   The forecast layer can sit short of the solid one's provisional position —
+   that is the point: spending the rest of the month eats into it. */
+function barHtml(st, month, pct, barColor, forecast) {
+  const p = st.plan;
+  const total = p.totalAmount || 1;
+  const cur = st.byMonth[month];
+  const fc = (forecast && forecast.reliable && forecast.plans) ? forecast.plans[p.id] : null;
+
+  if (!fc || !cur || st.isComplete) {
+    return '<div class="plan-bar"><div class="plan-bar-fill" style="width:' + pct +
+      '%;background:' + barColor + '"></div></div>';
+  }
+  const settled = Math.max(0, st.paid - cur.actual);       // through last month
+  const settledPct = Math.min(100, (settled / total) * 100);
+  const forecastPct = Math.min(100 - settledPct, (fc.predictedPay / total) * 100);
+  const fcColor = fc.shortfall > 0.005 ? 'var(--warning)' : 'var(--success)';
+  return '<div class="plan-bar plan-bar-dual">' +
+    '<div class="plan-bar-fill" style="width:' + settledPct + '%;background:' + barColor + '"></div>' +
+    '<div class="plan-bar-forecast" style="left:' + settledPct + '%;width:' + forecastPct +
+      '%;--fc:' + fcColor + '"></div>' +
+  '</div>' +
+  '<div class="plan-bar-key">' +
+    '<span><i class="k-solid" style="background:' + barColor + '"></i>' + __('plan.keySettled') + '</span>' +
+    '<span><i class="k-hatch" style="--fc:' + fcColor + '"></i>' + __('plan.keyForecast') + '</span>' +
+  '</div>';
+}
+
+function planCardHtml(st, month, forecast) {
+  const p = st.plan;
+  const pct = Math.round(st.progressPct);
+  const barColor = st.isOverdue ? 'var(--danger)' : (st.onTrack ? 'var(--success)' : 'var(--warning)');
+  const cur = st.byMonth[month];
+  const isCredit = p.mode === 'credit';
+  const badge = st.isComplete
+    ? '<span class="plan-badge plan-badge-done">' + __('plan.badgeDone') + '</span>'
+    : (st.isOverdue
+      ? '<span class="plan-badge plan-badge-late">' + __('plan.badgeLate') + '</span>'
+      : (st.onTrack ? '' : '<span class="plan-badge plan-badge-behind">' + __('plan.badgeBehind') + '</span>'));
+
+  // --- headline: one big "how far along am I" line ---
+  let html = '<div class="plan-card">' +
+    '<div class="plan-card-head">' +
+      '<span class="plan-card-icon">' + escHtml(p.icon || MODE_ICON[p.mode] || '🎯') + '</span>' +
+      '<span class="plan-card-name">' + escHtml(p.name) + '</span>' +
+      '<span class="plan-mode-chip">' + escHtml(modeLabel(p.mode)) + '</span>' +
+      badge +
+    '</div>' +
+    '<div class="plan-headline">' +
+      '<div><span class="plan-headline-label">' + escHtml(paidLabel(p.mode)) + '</span>' +
+        '<span class="plan-headline-num">' + formatMoney(st.paid) + '</span>' +
+        '<span class="plan-headline-total"> / ' + formatMoney(p.totalAmount) + '</span></div>' +
+      '<div class="plan-headline-pct">' + pct + '%</div>' +
+    '</div>' +
+    barHtml(st, month, pct, barColor, forecast) +
+    '<div class="plan-timeline">' +
+      '<span>' + escHtml(p.startMonth) + '</span>' +
+      '<span>' + (st.isComplete
+        ? __('plan.finishedOn', escHtml(st.completedMonth || st.endMonth))
+        : __('plan.remainLine', escHtml(remainLabel(p.mode)), formatMoney(st.remaining), st.periodsLeft + 1)) + '</span>' +
+      '<span>' + escHtml(st.endMonth) + '</span>' +
+    '</div>';
+
+  // --- this month: the single most useful block, spelled out ---
+  if (!st.isComplete && cur) {
+    const statusText = cur.short > 0.005
+      ? '<span class="plan-stat-warn">' + __('plan.thisMonthShort', formatMoney(cur.short)) + '</span>'
+      : '<span class="plan-stat-ok">' + __('plan.thisMonthOk') + '</span>';
+    html +=
+      '<div class="plan-month-box">' +
+        '<div class="plan-month-title">' + __('plan.thisMonth', escHtml(month)) + '</div>' +
+        '<div class="plan-stat-row">' +
+          '<div class="plan-stat"><span>' + __('plan.shouldPay') + '</span><b>' + formatMoney(cur.due) + '</b></div>' +
+          '<div class="plan-stat"><span>' + __('plan.actuallyPaid') + '</span><b>' + formatMoney(cur.actual) + '</b></div>' +
+          '<div class="plan-stat"><span>' + __('plan.statusLabel') + '</span><b>' + statusText + '</b></div>' +
+        '</div>' +
+      '</div>';
+
+    // Forecast: at the current pace, does this month's instalment get met?
+    const fc = (forecast && forecast.reliable && forecast.plans) ? forecast.plans[p.id] : null;
+    if (fc && !isCredit) {
+      html += fc.shortfall > 0.005
+        ? '<div class="plan-forecast plan-forecast-bad">' +
+            __('plan.forecastShort', formatMoney(fc.predictedPay), formatMoney(fc.due), formatMoney(fc.shortfall)) +
+          '</div>'
+        : '<div class="plan-forecast plan-forecast-ok">' +
+            __('plan.forecastOk', formatMoney(fc.due)) +
+          '</div>';
+    }
+
+    // Explain why the due amount drifted from the original even split
+    const originalPer = p.totalAmount / p.months;
+    if (!isCredit && cur.due > originalPer + 0.01) {
+      html += '<div class="plan-why">' +
+        __('plan.whyHigher', formatMoney(originalPer), formatMoney(cur.due)) + '</div>';
+    }
+    if (!cur.incomeKnown) {
+      html += '<div class="plan-hint">' + __('plan.noIncomeHint') + '</div>';
+    }
+  }
+
+  // --- per-period ledger (the actual repayment history) ---
+  const months = Object.keys(st.byMonth).sort();
+  if (months.length) {
+    const open = !!_planExpanded[p.id];
+    html += '<button class="plan-detail-toggle" data-plan-action="toggle" data-plan-id="' + escHtml(p.id) + '">' +
+      __('plan.detailToggle', months.length) + ' ' + (open ? '▴' : '▾') + '</button>';
+    if (open) {
+      html += '<div class="plan-ledger">' +
+        '<div class="plan-ledger-row plan-ledger-head">' +
+          '<span>' + __('plan.colPeriod') + '</span>' +
+          '<span>' + __('plan.colShould') + '</span>' +
+          '<span>' + __('plan.colActual') + '</span>' +
+          '<span>' + __('plan.colState') + '</span>' +
+        '</div>';
+      months.forEach((m, i) => {
+        const e = st.byMonth[m];
+        const mark = e.short > 0.005
+          ? '<span class="plan-stat-warn">−' + formatMoney(e.short) + '</span>'
+          : '<span class="plan-stat-ok">✓</span>';
+        html += '<div class="plan-ledger-row' + (m === month ? ' plan-ledger-current' : '') + '">' +
+          '<span>' + (i + 1) + '/' + p.months + '<i>' + escHtml(m) + '</i></span>' +
+          '<span>' + formatMoney(e.due) + '</span>' +
+          '<span>' + formatMoney(e.actual) + '</span>' +
+          '<span>' + mark + '</span>' +
+        '</div>';
+      });
+      if (!st.isComplete && st.periodsLeft > 0) {
+        html += '<div class="plan-ledger-future">' +
+          __('plan.futureProjection', st.periodsLeft, formatMoney(st.remaining / st.periodsLeft)) + '</div>';
+      }
+      html += '</div>';
+    }
+  }
+
+  html +=
+    '<div class="plan-card-actions">' +
+      '<button class="btn btn-sm btn-outline" data-plan-action="edit" data-plan-id="' + escHtml(p.id) + '">' + __('plan.edit') + '</button>' +
+      '<button class="btn btn-sm btn-ghost" data-plan-action="delete" data-plan-id="' + escHtml(p.id) + '">' + __('plan.delete') + '</button>' +
+    '</div>' +
+  '</div>';
+  return html;
+}
+
+/* The "will I make it" panel — the answer to 是否储蓄足够, and if not, how much
+   will actually be saved. All of it derives from the projected month-end spend
+   rather than what has been spent so far. */
+function forecastSummaryHtml(month) {
+  const f = PlanMath.getForecast(month);
+  if (!f.hasData) {
+    return '<div class="plan-forecast-panel"><div class="plan-hint">' + __('plan.forecastNoIncome') + '</div></div>';
+  }
+  // Too early in the month for the daily pace to mean anything — say so plainly
+  // rather than extrapolating a scary verdict from three days of data.
+  const verdictClass = !f.reliable ? 'warn' : (f.totalShortfall > 0.005 ? 'bad' : (f.targetMet ? 'ok' : 'warn'));
+  const verdict = !f.reliable
+    ? __('plan.verdictTooEarly', f.daysPassed)
+    : (f.totalShortfall > 0.005
+      ? __('plan.verdictPlanShort', formatMoney(f.totalShortfall))
+      : (f.targetMet
+        ? __('plan.verdictAllGood')
+        : __('plan.verdictSavingsShort', formatMoney(f.savingsShortfall))));
+
+  return '<div class="plan-forecast-panel">' +
+    '<div class="plan-forecast-title">' + __('plan.forecastTitle', escHtml(month)) + '</div>' +
+    '<div class="plan-forecast-grid">' +
+      '<div><span>' + __('plan.fcSpend') + '</span><b>' + formatMoney(f.predictedSpend) + '</b></div>' +
+      '<div><span>' + __('plan.fcSurplus') + '</span><b>' + formatMoney(f.predictedSurplus) + '</b></div>' +
+      '<div><span>' + __('plan.fcRepay') + '</span><b>' + formatMoney(f.totalPredictedPay) +
+        (f.totalShortfall > 0.005 ? ' <em class="plan-stat-warn">/ ' + formatMoney(f.totalDue) + '</em>' : '') + '</b></div>' +
+      '<div><span>' + __('plan.fcSavings') + '</span><b class="' + (f.targetMet ? 'plan-stat-ok' : 'plan-stat-warn') + '">' +
+        formatMoney(f.predictedSavings) +
+        (f.targetAmount > 0 ? ' <em>/ ' + formatMoney(f.targetAmount) + '</em>' : '') + '</b></div>' +
+    '</div>' +
+    '<div class="plan-verdict plan-verdict-' + verdictClass + '">' + verdict + '</div>' +
+  '</div>';
+}
+
+function openPlanCenter() {
+  const month = currentMonth();
+  const state = PlanMath.computeUpTo(month);
+  const forecast = PlanMath.getForecast(month);
+  const all = DataStore.getPurchasePlans();
+  const active = all.filter(p => p.status === 'active' && state[p.id]);
+  const closed = all.filter(p => p.status !== 'active' && state[p.id]);
+  const virtualDue = PlanMath.getVirtualDue(month);
+  const creditDue = active
+    .filter(p => p.mode === 'credit')
+    .reduce((s, p) => s + (state[p.id].byMonth[month] ? state[p.id].byMonth[month].due : 0), 0);
+
+  let body = '';
+  if (!all.length) {
+    body = '<div class="empty-state"><div class="empty-icon">🎯</div><div class="empty-text">' + __('plan.empty') + '</div></div>';
+  } else {
+    body += '<div class="plan-summary">' +
+      '<div><span class="text-muted text-sm">' + __('plan.monthOccupied') + '</span>' +
+      '<div class="text-lg font-bold">' + formatMoney(virtualDue + creditDue) + '</div></div>' +
+      (creditDue > 0 ? '<div class="text-xs text-muted">' + __('plan.creditPortion', formatMoney(creditDue)) + '</div>' : '') +
+      '</div>';
+    body += forecastSummaryHtml(month);
+    body += '<div class="plan-legend">' + __('plan.legend') + '</div>';
+    body += active.map(p => planCardHtml(state[p.id], month, forecast)).join('');
+    if (closed.length) {
+      body += '<div class="plan-section-title">' + __('plan.closedSection') + '</div>';
+      body += closed.map(p => planCardHtml(state[p.id], month, null)).join('');
+    }
+  }
+
+  showModal(
+    '<div class="modal-title">' + __('plan.centerTitle') + '</div>' +
+    '<div class="plan-center-body">' + body + '</div>' +
+    '<div class="modal-actions">' +
+      '<button class="btn btn-ghost" data-plan-action="close">' + __('plan.close') + '</button>' +
+      '<button class="btn btn-primary" data-plan-action="new">' + __('plan.newBtn') + '</button>' +
+    '</div>'
+  );
+  bindPlanEvents();
+}
+
+/* ============================================================
+   EDITOR
+   ============================================================ */
+function openPlanEditor(planId) {
+  const plan = planId ? DataStore.getPurchasePlan(planId) : null;
+  const mode = plan ? plan.mode : 'save';
+  const modeBtns = PLAN_MODES.map(md =>
+    '<button type="button" class="plan-mode-btn' + (md === mode ? ' active' : '') + '" data-plan-mode="' + md + '">' +
+      MODE_ICON[md] + ' ' + escHtml(modeLabel(md)) +
+    '</button>').join('');
+
+  showModal(
+    '<div class="modal-title">' + (plan ? __('plan.editTitle') : __('plan.newTitle')) + '</div>' +
+    '<div class="plan-editor">' +
+      '<div class="input-group">' +
+        '<label class="input-label">' + __('plan.fieldName') + '</label>' +
+        '<input type="text" class="input-field" id="planName" maxlength="40" value="' + escHtml(plan ? plan.name : '') + '">' +
+      '</div>' +
+      '<div class="input-group">' +
+        '<label class="input-label">' + __('plan.fieldIcon') + '</label>' +
+        '<div class="plan-icon-row">' +
+          '<input type="text" class="input-field plan-icon-input" id="planIcon" maxlength="8" value="' +
+            escHtml(plan ? (plan.icon || MODE_ICON[mode]) : MODE_ICON[mode]) + '">' +
+          '<button type="button" class="btn btn-sm btn-outline" id="planIconToggle">' + __('plan.pickIcon') + '</button>' +
+        '</div>' +
+        '<div class="plan-emoji-grid" id="planEmojiGrid" style="display:none">' + emojiGridHtml() + '</div>' +
+      '</div>' +
+      '<div class="input-group">' +
+        '<label class="input-label">' + __('plan.fieldAmount') + '</label>' +
+        '<input type="text" inputmode="decimal" class="input-field" id="planAmount" value="' + (plan ? plan.totalAmount : '') + '">' +
+      '</div>' +
+      '<div class="input-group">' +
+        '<label class="input-label">' + __('plan.fieldMode') + '</label>' +
+        '<div class="plan-mode-group" id="planModeGroup">' + modeBtns + '</div>' +
+        '<div class="plan-mode-desc" id="planModeDesc"></div>' +
+      '</div>' +
+      '<div class="flex gap-8">' +
+        '<div class="input-group" style="flex:1">' +
+          '<label class="input-label">' + __('plan.fieldStart') + '</label>' +
+          '<input type="month" class="input-field" id="planStart" value="' + escHtml(plan ? plan.startMonth : currentMonth()) + '">' +
+        '</div>' +
+        '<div class="input-group" style="flex:1">' +
+          '<label class="input-label">' + __('plan.fieldMonths') + '</label>' +
+          '<input type="number" class="input-field" id="planMonths" min="1" max="120" value="' + (plan ? plan.months : 6) + '">' +
+        '</div>' +
+      '</div>' +
+      '<div class="input-group" id="planCategoryGroup" style="display:none">' +
+        '<label class="input-label">' + __('plan.fieldCategory') + '</label>' +
+        '<select class="input-field" id="planCategory">' + leafCategoryOptions(plan ? plan.categoryId : null) + '</select>' +
+      '</div>' +
+      '<div class="input-group">' +
+        '<label class="input-label">' + __('plan.fieldNote') + '</label>' +
+        '<input type="text" class="input-field" id="planNote" maxlength="100" value="' + escHtml(plan ? (plan.note || '') : '') + '">' +
+      '</div>' +
+      '<div class="plan-preview" id="planPreview"></div>' +
+    '</div>' +
+    '<div class="modal-actions">' +
+      '<button class="btn btn-ghost" data-plan-action="center">' + __('plan.cancel') + '</button>' +
+      '<button class="btn btn-primary" data-plan-action="save" data-plan-id="' + escHtml(planId || '') + '">' + __('plan.save') + '</button>' +
+    '</div>'
+  );
+
+  const group = document.getElementById('planModeGroup');
+  if (group) {
+    group.querySelectorAll('[data-plan-mode]').forEach(btn => {
+      btn.onclick = function() {
+        group.querySelectorAll('[data-plan-mode]').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        updateEditorMode();
+      };
+    });
+  }
+  ['planAmount', 'planMonths'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.oninput = updateEditorPreview;
+  });
+
+  // Inline emoji picker
+  const iconToggle = document.getElementById('planIconToggle');
+  const emojiGrid = document.getElementById('planEmojiGrid');
+  if (iconToggle && emojiGrid) {
+    iconToggle.onclick = function() {
+      emojiGrid.style.display = emojiGrid.style.display === 'none' ? '' : 'none';
+    };
+    emojiGrid.querySelectorAll('[data-emoji]').forEach(btn => {
+      btn.onclick = function() {
+        const input = document.getElementById('planIcon');
+        if (input) input.value = this.getAttribute('data-emoji');
+        emojiGrid.style.display = 'none';
+      };
+    });
+  }
+
+  updateEditorMode();
+  bindPlanEvents();
+}
+
+function selectedEditorMode() {
+  const active = document.querySelector('#planModeGroup .plan-mode-btn.active');
+  return active ? active.getAttribute('data-plan-mode') : 'save';
+}
+
+function updateEditorMode() {
+  const mode = selectedEditorMode();
+  const catGroup = document.getElementById('planCategoryGroup');
+  if (catGroup) catGroup.style.display = mode === 'credit' ? '' : 'none';
+  const desc = document.getElementById('planModeDesc');
+  if (desc) desc.innerHTML = __('plan.modeDesc.' + mode);
+  // The icon tracks the mode only while it is still one of the mode defaults.
+  // Once the user picks their own, switching mode must not overwrite it.
+  const iconEl = document.getElementById('planIcon');
+  if (iconEl && PLAN_MODES.some(m => MODE_ICON[m] === iconEl.value)) {
+    iconEl.value = MODE_ICON[mode];
+  }
+  updateEditorPreview();
+}
+
+function updateEditorPreview() {
+  const box = document.getElementById('planPreview');
+  if (!box) return;
+  const amount = parseFloat((document.getElementById('planAmount') || {}).value);
+  const months = Math.floor(parseFloat((document.getElementById('planMonths') || {}).value));
+  if (!isFinite(amount) || amount <= 0 || !isFinite(months) || months < 1) { box.innerHTML = ''; return; }
+  const mode = selectedEditorMode();
+  const per = round2(amount / months);
+  let html = '<div class="plan-preview-main">' + __('plan.previewPer', formatMoney(per), months) + '</div>';
+  if (mode !== 'credit') {
+    html += '<div class="plan-preview-sub">' + __('plan.previewRolling') + '</div>';
+  }
+  if (mode === 'borrow') {
+    html += '<div class="plan-preview-warn">' + __('plan.borrowWarn') + '</div>';
+  }
+  box.innerHTML = html;
+}
+
+function savePlanEditor(planId) {
+  const name = (document.getElementById('planName') || {}).value || '';
+  const amount = parseFloat((document.getElementById('planAmount') || {}).value);
+  const months = Math.floor(parseFloat((document.getElementById('planMonths') || {}).value));
+  const startMonth = (document.getElementById('planStart') || {}).value || '';
+  const note = (document.getElementById('planNote') || {}).value || '';
+  const mode = selectedEditorMode();
+  const categoryId = (document.getElementById('planCategory') || {}).value || '';
+
+  if (!name.trim()) { showToast(__('plan.err.name'), 'error'); return; }
+  if (!isFinite(amount) || amount <= 0) { showToast(__('plan.err.amount'), 'error'); return; }
+  if (!isFinite(months) || months < 1 || months > 120) { showToast(__('plan.err.months'), 'error'); return; }
+  if (!/^\d{4}-\d{2}$/.test(startMonth)) { showToast(__('plan.err.start'), 'error'); return; }
+  if (mode === 'credit' && !categoryId) { showToast(__('plan.err.category'), 'error'); return; }
+
+  const iconRaw = ((document.getElementById('planIcon') || {}).value || '').trim();
+  const payload = {
+    name: name.trim(),
+    icon: iconRaw ? iconRaw.slice(0, 8) : MODE_ICON[mode],
+    totalAmount: round2(amount),
+    mode: mode,
+    startMonth: startMonth,
+    months: months,
+    categoryId: mode === 'credit' ? categoryId : '',
+    note: note.trim()
+  };
+
+  if (planId) {
+    const prev = DataStore.getPurchasePlan(planId);
+    // Switching away from credit leaves its generated records orphaned — clear them
+    if (prev && prev.mode === 'credit' && mode !== 'credit') {
+      DataStore._data.records = DataStore.getRecords().filter(r => !r || r.planId !== planId);
+    }
+    DataStore.updatePurchasePlan(planId, payload);
+    showToast(__('plan.updated'));
+  } else {
+    payload.status = 'active';
+    payload.overrides = {};
+    DataStore.addPurchasePlan(payload);
+    showToast(__('plan.created'));
+  }
+  syncPlanRecords();
+  openPlanCenter();
+  refreshCurrentPage();
+}
+
+function confirmDeletePlan(planId) {
+  const plan = DataStore.getPurchasePlan(planId);
+  if (!plan) return;
+  const linked = DataStore.getRecords().filter(r => r && r.planId === planId).length;
+  showModal(
+    '<div class="modal-title">' + __('plan.deleteTitle') + '</div>' +
+    '<div style="padding:8px 0 16px">' +
+      '<p style="margin-bottom:12px">' + __('plan.deleteMsg', escHtml(plan.name)) + '</p>' +
+      (linked ? '<p class="text-sm text-warning">' + __('plan.deleteCascade', linked) + '</p>' : '') +
+    '</div>' +
+    '<div class="modal-actions">' +
+      '<button class="btn btn-ghost" data-plan-action="center">' + __('plan.cancel') + '</button>' +
+      '<button class="btn btn-danger" data-plan-action="delete-confirm" data-plan-id="' + escHtml(planId) + '">' + __('plan.delete') + '</button>' +
+    '</div>'
+  );
+  bindPlanEvents();
+}
+
+function doDeletePlan(planId) {
+  DataStore.deletePurchasePlan(planId);
+  showToast(__('plan.deleted'));
+  openPlanCenter();
+  refreshCurrentPage();
+}
+
+/* ============================================================
+   EVENT BINDING
+   User-supplied names never enter inline onclick — actions travel as data-*
+   attributes and are wired up here after each render.
+   ============================================================ */
+function bindPlanEvents() {
+  const root = document.getElementById('modalContent');
+  if (!root) return;
+  root.querySelectorAll('[data-plan-action]').forEach(el => {
+    el.onclick = function() {
+      const act = this.getAttribute('data-plan-action');
+      const id = this.getAttribute('data-plan-id');
+      switch (act) {
+        case 'toggle': _planExpanded[id] = !_planExpanded[id]; openPlanCenter(); break;
+        case 'new': openPlanEditor(null); break;
+        case 'edit': openPlanEditor(id); break;
+        case 'save': savePlanEditor(id || null); break;
+        case 'delete': confirmDeletePlan(id); break;
+        case 'delete-confirm': doDeletePlan(id); break;
+        case 'center': openPlanCenter(); break;
+        case 'extend': extendPlan(id); break;
+        case 'payoff': payoffPlanNow(id); break;
+        case 'abandon': abandonPlan(id); break;
+        case 'close': closeModal(); refreshCurrentPage(); break;
+      }
+    };
+  });
+}
+
+/* ============================================================
+   OVERVIEW ENTRY CARD
+   ============================================================ */
+// Always rendered, like the Bills Center card. An empty state that hides itself
+// would leave a first-time user with no way to create their first plan.
+function renderPlanOverviewCard(month) {
+  const all = DataStore.getPurchasePlans();
+  const active = all.filter(p => p && p.status === 'active');
+  let due = 0, late = 0, only = null;
+  if (active.length) {
+    const state = PlanMath.computeUpTo(month);
+    active.forEach(p => {
+      const st = state[p.id];
+      if (!st) return;
+      if (st.byMonth[month]) due += st.byMonth[month].due;
+      if (st.isOverdue) late++;
+      if (active.length === 1) only = st;
+    });
+  }
+  // With a single plan there is room to show its actual progress rather than a count
+  const sub = !active.length
+    ? __('plan.cardNone')
+    : (late
+      ? __('plan.cardOverdue', late)
+      : (only
+        ? __('plan.cardOne', escHtml(only.plan.name), Math.round(only.progressPct), formatMoney(due))
+        : __('plan.cardSummary', active.length, formatMoney(due))));
+
+  return '' +
+    '<div class="card plan-entry-card" style="border-left:4px solid ' + (late ? 'var(--danger)' : 'var(--primary)') + '" onclick="openPlanCenter()">' +
+      '<div class="flex items-center justify-between">' +
+        '<div class="flex items-center gap-8">' +
+          '<span style="font-size:1.5rem">🎯</span>' +
+          '<div>' +
+            '<div class="font-bold">' + __('plan.cardTitle') + '</div>' +
+            '<div class="text-xs text-muted">' + sub + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<button class="btn btn-sm btn-outline">' + (active.length ? __('plan.cardOpen') : __('plan.cardCreate')) + '</button>' +
+      '</div>' +
+    '</div>';
+}
+
+  // i18n translations
+  addI18nEntries({
+    'plan.centerTitle': { zh: '🎯 大额计划中心', en: '🎯 Purchase Plans' },
+    'plan.newTitle': { zh: '新建大额计划', en: 'New Purchase Plan' },
+    'plan.editTitle': { zh: '编辑大额计划', en: 'Edit Purchase Plan' },
+    'plan.empty': { zh: '还没有大额计划。攒钱买台电脑？分期换手机？建一个试试。', en: 'No purchase plans yet. Saving for a laptop? Paying off a phone? Create one.' },
+    'plan.newBtn': { zh: '+ 新建计划', en: '+ New Plan' },
+    'plan.close': { zh: '关闭', en: 'Close' },
+    'plan.cancel': { zh: '取消', en: 'Cancel' },
+    'plan.save': { zh: '保存', en: 'Save' },
+    'plan.edit': { zh: '编辑', en: 'Edit' },
+    'plan.delete': { zh: '删除', en: 'Delete' },
+    'plan.gotIt': { zh: '知道了', en: 'Got it' },
+
+    'plan.mode.save': { zh: '先攒后买', en: 'Save First' },
+    'plan.mode.borrow': { zh: '先买后还', en: 'Buy Now, Refill' },
+    'plan.mode.credit': { zh: '信用卡分期', en: 'Card Instalment' },
+    'plan.modeDesc.save': { zh: '每月存一笔，攒够了再买。这笔钱只是被预留，不会记成消费。', en: 'Set money aside each month, buy when it is all there. Reserved, not spent — no record is created.' },
+    'plan.modeDesc.borrow': { zh: '已经用储蓄买下了，接下来几个月把储蓄补回来。同样只占额度，不记成消费。', en: 'Already bought it out of savings; now refill the pot over the coming months. Reserves budget, creates no record.' },
+    'plan.modeDesc.credit': { zh: '东西当场拿走，每月真实还款给银行。会自动生成流水记录，金额固定不滚动。', en: 'Item taken now, real monthly payments to the bank. Generates real records; the amount is fixed and never rolls over.' },
+
+    'plan.fieldName': { zh: '目标物', en: 'Item' },
+    'plan.fieldIcon': { zh: '图标', en: 'Icon' },
+    'plan.pickIcon': { zh: '选择', en: 'Pick' },
+    'plan.fieldAmount': { zh: '总金额 (RM)', en: 'Total Amount (RM)' },
+    'plan.fieldMode': { zh: '模式', en: 'Mode' },
+    'plan.fieldStart': { zh: '起始月份', en: 'Start Month' },
+    'plan.fieldMonths': { zh: '期数', en: 'Periods' },
+    'plan.fieldCategory': { zh: '记账分类', en: 'Category' },
+    'plan.fieldNote': { zh: '备注', en: 'Note' },
+
+    'plan.previewPer': { zh: '每期约 {0}，共 {1} 期', en: 'About {0} per period, {1} periods' },
+    'plan.previewRolling': { zh: '某个月钱不够时，欠下的部分会自动摊到剩余月份，月供随之调高。', en: 'If a month falls short, the gap rolls into the remaining periods and the monthly amount rises.' },
+    'plan.borrowWarn': { zh: '⚠️ 如果你已经手动记过这笔购买，建议删掉那条记录，否则会重复计算。', en: '⚠️ If you already logged this purchase by hand, delete that record — otherwise it is counted twice.' },
+
+    'plan.saved': { zh: '已存', en: 'Saved' },
+    'plan.repaid': { zh: '已还', en: 'Repaid' },
+    'plan.stillNeeded': { zh: '还差', en: 'To go' },
+    'plan.stillOwed': { zh: '欠款', en: 'Owed' },
+    'plan.periodsLeft': { zh: '剩 {0} 期', en: '{0} periods left' },
+    'plan.dueThisMonth': { zh: '本期应付', en: 'Due now' },
+    'plan.remainLine': { zh: '{0} {1} · 还剩 {2} 期（含本期）', en: '{0} {1} · {2} periods to go (incl. this one)' },
+    'plan.thisMonth': { zh: '本月 {0}', en: 'This month · {0}' },
+    'plan.shouldPay': { zh: '应付', en: 'Due' },
+    'plan.actuallyPaid': { zh: '实付', en: 'Paid' },
+    'plan.statusLabel': { zh: '状态', en: 'Status' },
+    'plan.thisMonthOk': { zh: '✅ 已足额', en: '✅ On track' },
+    'plan.thisMonthShort': { zh: '⚠️ 差 {0}', en: '⚠️ Short {0}' },
+    'plan.whyHigher': { zh: '原定每期 {0}，因前几期没还够，本期已上调到 {1}', en: 'Originally {0} per period; earlier shortfalls raised this one to {1}' },
+    'plan.detailToggle': { zh: '📋 每期明细（{0} 期）', en: '📋 Period breakdown ({0})' },
+    'plan.colPeriod': { zh: '期数', en: 'Period' },
+    'plan.colShould': { zh: '应付', en: 'Due' },
+    'plan.colActual': { zh: '实付', en: 'Paid' },
+    'plan.colState': { zh: '差额', en: 'Gap' },
+    'plan.futureProjection': { zh: '本期之后还有 {0} 期，按目前进度每期约 {1}', en: '{0} period(s) after this one, about {1} each at the current pace' },
+    'plan.legend': { zh: '每期应付 = 剩余金额 ÷ 剩余期数。某个月结余不够时，欠的部分会自动摊到后面几期，应付金额随之上调。', en: 'Due = remaining ÷ periods left. If a month comes up short, the gap spreads across later periods and the due amount rises.' },
+
+    'plan.keySettled': { zh: '往期已还', en: 'Settled' },
+    'plan.keyForecast': { zh: '本月预计', en: 'Forecast' },
+    'plan.forecastTitle': { zh: '📉 按当前消费速度预测（{0} 月末）', en: '📉 Forecast at your current pace (end of {0})' },
+    'plan.forecastNoIncome': { zh: '设置本月收入后，这里会按你的消费速度预测月末能还多少、能存多少。', en: 'Set this month\'s income and this panel will project how much you can repay and save at your current pace.' },
+    'plan.fcSpend': { zh: '预计月末支出', en: 'Projected spend' },
+    'plan.fcSurplus': { zh: '预计结余', en: 'Projected surplus' },
+    'plan.fcRepay': { zh: '预计还款', en: 'Projected repayment' },
+    'plan.fcSavings': { zh: '预计储蓄', en: 'Projected savings' },
+    'plan.verdictTooEarly': { zh: '📅 本月才过 {0} 天，按日均推算还不作数。等几天数据多了再看这里。', en: '📅 Only {0} day(s) into the month — a daily-pace projection is not meaningful yet. Check back in a few days.' },
+    'plan.verdictAllGood': { zh: '✅ 照这个花法，月供还得上，储蓄目标也够。', en: '✅ At this pace the instalment is covered and the savings target is met.' },
+    'plan.verdictSavingsShort': { zh: '⚠️ 月供还得上，但储蓄目标会差 {0}。想补上就得再省这么多。', en: '⚠️ The instalment is covered, but savings will fall {0} short. Spend that much less to close the gap.' },
+    'plan.verdictPlanShort': { zh: '❌ 照这个花法，本月月供会差 {0}，储蓄目标也达不成。欠的部分会自动摊到后面几期，之后月供会更高。', en: '❌ At this pace the instalment falls {0} short and the savings target is missed. The gap rolls into later periods, raising future dues.' },
+    'plan.forecastOk': { zh: '📉 按当前消费速度，本月 {0} 还得上', en: '📉 At the current pace this month\'s {0} is covered' },
+    'plan.forecastShort': { zh: '📉 按当前消费速度，本月预计只还得起 {0}（应付 {1}，差 {2}）', en: '📉 At the current pace only {0} will be repaid this month (due {1}, short {2})' },
+    'plan.finishedOn': { zh: '{0} 完成', en: 'Completed {0}' },
+    'plan.monthOccupied': { zh: '本月合计占用', en: 'Reserved this month' },
+    'plan.creditPortion': { zh: '其中 {0} 为信用卡分期，已计入流水', en: 'Of which {0} is card instalments, already in records' },
+    'plan.closedSection': { zh: '已结束', en: 'Closed' },
+    'plan.noIncomeHint': { zh: '该月未设置收入，按计划全额推进', en: 'No income set for this month — assumed on schedule' },
+
+    'plan.badgeDone': { zh: '已完成', en: 'Done' },
+    'plan.badgeLate': { zh: '逾期', en: 'Overdue' },
+    'plan.badgeBehind': { zh: '本期未足额', en: 'Behind' },
+
+    'plan.cardTitle': { zh: '大额计划', en: 'Purchase Plans' },
+    'plan.cardSummary': { zh: '{0} 个进行中 · 本月占用 {1}', en: '{0} active · {1} reserved this month' },
+    'plan.cardOne': { zh: '{0} · 已完成 {1}% · 本月应付 {2}', en: '{0} · {1}% done · {2} due this month' },
+    'plan.cardOverdue': { zh: '⚠️ {0} 个计划已逾期，需要处理', en: '⚠️ {0} plan(s) overdue — needs attention' },
+    'plan.cardNone': { zh: '攒钱买台电脑？分期换手机？点这里建一个', en: 'Saving for a laptop? Paying off a phone? Tap to create one' },
+    'plan.cardOpen': { zh: '查看', en: 'Open' },
+    'plan.cardCreate': { zh: '新建', en: 'Create' },
+    'plan.occupiedRow': { zh: '大额计划占用', en: 'Plans reserved' },
+    'plan.freeSavings': { zh: '可自由支配', en: 'Free to use' },
+
+    'plan.doneTitle': { zh: '🎉 计划完成', en: '🎉 Plan Complete' },
+    'plan.doneSave': { zh: '「{0}」已经攒够 {1}，可以去买了！', en: 'You have saved the full {1} for "{0}" — go get it!' },
+    'plan.doneDebt': { zh: '「{0}」的 {1} 已经还清了。', en: '"{0}" is fully repaid — {1} cleared.' },
+
+    'plan.overdueTitle': { zh: '⏰ 计划已到期但未还清', en: '⏰ Plan Past Due' },
+    'plan.overdueMsg': { zh: '「{0}」原定 {2} 结束，但还剩 {1} 没有完成。你想怎么处理？', en: '"{0}" was due to finish in {2} but {1} is still outstanding. What would you like to do?' },
+    'plan.extendBy': { zh: '延长期数', en: 'Extend by (periods)' },
+    'plan.extendBtn': { zh: '延期继续', en: 'Extend' },
+    'plan.payoffBtn': { zh: '本月一次性补齐', en: 'Clear it this month' },
+    'plan.abandonBtn': { zh: '放弃这个计划', en: 'Abandon plan' },
+    'plan.extended': { zh: '已延长 {0} 期', en: 'Extended by {0} periods' },
+    'plan.paidOff': { zh: '已补齐 {0}', en: 'Cleared {0}' },
+    'plan.abandoned': { zh: '计划已放弃', en: 'Plan abandoned' },
+
+    'plan.deleteTitle': { zh: '删除计划', en: 'Delete Plan' },
+    'plan.deleteMsg': { zh: '确定要删除「{0}」吗？此操作无法撤销。', en: 'Delete "{0}"? This cannot be undone.' },
+    'plan.deleteCascade': { zh: '⚠️ 同时会删除该计划自动生成的 {0} 条还款流水。', en: '⚠️ This also deletes {0} auto-generated instalment record(s).' },
+    'plan.created': { zh: '计划已创建', en: 'Plan created' },
+    'plan.updated': { zh: '计划已更新', en: 'Plan updated' },
+    'plan.deleted': { zh: '计划已删除', en: 'Plan deleted' },
+    'plan.recordNote': { zh: '{0} 分期 第{1}/{2}期', en: '{0} instalment {1}/{2}' },
+
+    'plan.err.name': { zh: '请填写目标物名称', en: 'Please enter an item name' },
+    'plan.err.amount': { zh: '请输入有效的总金额', en: 'Please enter a valid amount' },
+    'plan.err.months': { zh: '期数需在 1–120 之间', en: 'Periods must be between 1 and 120' },
+    'plan.err.start': { zh: '请选择起始月份', en: 'Please pick a start month' },
+    'plan.err.category': { zh: '信用卡分期需要选择记账分类', en: 'Card instalments need a category' }
+  });
+
+/* ============================================================
+   BOOTSTRAP
+
+   Self-registering rather than called from 22-init.js: build.sh concatenates
+   by filename, so 22 executes before this file exists and a direct call there
+   would hit an undefined function whenever readyState !== 'loading'.
+   ============================================================ */
+function planBootstrap() {
+  if (window._pinRequired) return; // data still locked; initApp() re-triggers us
+  try { syncPlanRecords(); } catch (e) { console.error('[plan] record sync failed', e); }
+  // Never stomp a dialog someone else already opened (e.g. the month-rollover reminder)
+  const overlay = document.getElementById('modalOverlay');
+  if (overlay && overlay.classList.contains('open')) return;
+  try { checkPlanEvents(); } catch (e) { console.error('[plan] event check failed', e); }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function() { setTimeout(planBootstrap, 800); });
+} else {
+  setTimeout(planBootstrap, 800);
+}
+
+  // === EXPORTS ===
+  window.planBootstrap = planBootstrap;
+  window.openPlanCenter = openPlanCenter;
+  window.openPlanEditor = openPlanEditor;
+  window.syncPlanRecords = syncPlanRecords;
+  window.checkPlanEvents = checkPlanEvents;
+  window.renderPlanOverviewCard = renderPlanOverviewCard;
+})();
+
+}catch(e){console.error('[27-purchase-plans.js] failed:', e)}
 
 </script>
 </body>

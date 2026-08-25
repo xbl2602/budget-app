@@ -587,8 +587,31 @@ function repairData() {
         }
       }
     });
+    // Purchase-plan invariants
+    const plans = DataStore._data.purchasePlans || [];
+    const planIds = new Set(plans.map(p => p && p.id).filter(Boolean));
+    plans.forEach(p => {
+      if (!p) return;
+      if (typeof p.months !== 'number' || !isFinite(p.months) || p.months < 1) { p.months = 1; fixed++; }
+      if (typeof p.totalAmount === 'number' && p.totalAmount < 0) { p.totalAmount = Math.abs(p.totalAmount); fixed++; }
+      if (!p.overrides || typeof p.overrides !== 'object') { p.overrides = {}; fixed++; }
+      // An override may never exceed the plan total
+      Object.keys(p.overrides).forEach(m => {
+        const v = p.overrides[m];
+        if (typeof v !== 'number' || !isFinite(v) || v < 0) { delete p.overrides[m]; fixed++; }
+        else if (v > p.totalAmount) { p.overrides[m] = p.totalAmount; fixed++; }
+      });
+      if (p.mode !== 'credit' && p.categoryId) { p.categoryId = ''; fixed++; }
+    });
+    // Instalment records whose plan is gone would keep inflating month totals
+    const orphans = (DataStore._data.records || []).filter(r => r && r.planId && !planIds.has(r.planId));
+    if (orphans.length) {
+      DataStore._data.records = (DataStore._data.records || []).filter(r => !r || !r.planId || planIds.has(r.planId));
+      fixed += orphans.length;
+    }
+
     if (fixed > 0) DataStore.save();
-    
+
     if (success) {
       // Also clear any pending delete state which might be stale
       const pending = DataStore.getPendingDelete();

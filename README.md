@@ -225,7 +225,8 @@ budget-app/
 │       ├── 23-lan-sync.js        # WebRTC 局域网同步
 │       ├── 24-diagnostics.js    # 数据诊断工具（一致性检查、存储用量、审计日志）
 │       ├── 25-page-guides.js    # 页面引导系统（8 页简明/详尽双模式引导文案）
-│       └── 26-split-bills.js    # 分摊收款系统（追账中心/分摊编辑器/归档与转普通记账）
+│       ├── 26-split-bills.js    # 分摊收款系统（追账中心/分摊编辑器/归档与转普通记账）
+│       └── 27-purchase-plans.js # 大额分期消费计划（先攒后买/先买后还/信用卡分期）
 ├── money-wise-mobile.html   # 手机版：轻量记账，支持导入导出JSON (~1,384 lines)
 ├── STRUCTURE.md             # 完整函数地图（供 AI Agent 使用）
 ├── features/                # Feature documentation

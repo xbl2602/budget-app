@@ -88,18 +88,7 @@ function getHeatmapColor(ratio) {
 function getDailySavingsTarget(month) {
   const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
   if (!budget) return 0;
-  const savingsTarget = DataStore.getSavingsTarget();
-  const percentBase = DataStore.getPercentBase();
-  const totalBills = DataStore.getBillTotal(month);
-  const netDisposable = Math.max(0, budget - totalBills);
-  const baseAmount = percentBase === 'net' ? netDisposable : budget;
-  const targetAmount = (() => {
-    const t = savingsTarget;
-    if (t.type === 'fixed') return t.fixedAmount || 0;
-    if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    return 0;
-  })();
-  const spendable = Math.max(0, netDisposable - targetAmount);
+  const spendable = StatsEngine.getSpendablePlan(month).spendableBudget;
   const parts = month.split('-');
   const daysInMonth = new Date(parseInt(parts[0]), parseInt(parts[1]), 0).getDate();
   return daysInMonth > 0 ? spendable / daysInMonth : 0;
@@ -691,27 +680,21 @@ function renderStats() {
   const isRolling = getStatsRange() === 'rolling30' && statsMonth === getMonthKey(now.toISOString()) && !useCustomRange();
   const monthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(statsMonth);
   const dailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(statsMonth);
-  const predicted = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(statsMonth);
+  // Cash-flow reading, not the daily-average trend — matches the overview card (A-1).
+  const predicted = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(statsMonth);
   const budget = DataStore.getMonthlyIncome(statsMonth) || DataStore.getBudget(statsMonth);
   const remainingLimit = isRolling ? StatsEngine.getPeriodRemainingDailyLimit() : StatsEngine.getRemainingDailyLimit(statsMonth);
 
-  // Spendable budget for stats page
-  const savingsTargetStats = DataStore.getSavingsTarget();
-  const percentBaseStats = DataStore.getPercentBase();
-  const totalBillsStats = DataStore.getBillTotal(statsMonth);
+  // Spendable budget for stats page — shared chain, instalment plans included
+  const spStats = StatsEngine.getSpendablePlan(statsMonth);
+  const totalBillsStats = spStats.totalBills;
   const paidBillsStats = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth);
   const unpaidPlannedBillsStats = Math.max(0, totalBillsStats - paidBillsStats);
   const effectiveTotalStats = monthTotal + unpaidPlannedBillsStats;
   const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(statsMonth) - unpaidPlannedBillsStats);
-  const netDisposableStats = Math.max(0, budget - totalBillsStats);
-  const baseAmountStats = percentBaseStats === 'net' ? netDisposableStats : budget;
-  const targetAmountStats = (() => {
-    const t = savingsTargetStats;
-    if (t.type === 'fixed') return t.fixedAmount || 0;
-    if (t.type === 'percent') return baseAmountStats * (t.percent || 0) / 100;
-    return 0;
-  })();
-  const spendableBudgetStats = Math.max(0, netDisposableStats - targetAmountStats);
+  const netDisposableStats = spStats.netDisposable;
+  const targetAmountStats = spStats.targetAmount;
+  const spendableBudgetStats = spStats.spendableBudget;
   const remainingLimitSpendableStats = (() => {
     const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
     const remainingDays = daysInMonth - now.getDate();

@@ -527,6 +527,65 @@ function exportToExcel() {
   xml += '  </Table>\n';
   xml += ' </Worksheet>\n';
 
+  // ===== SHEET 7: 大额计划 (Purchase Plans) =====
+  // Plan row: A=目标物, B=模式, C=总额, D=已还/已存, E=剩余, F=起始月, G=期数, H=状态
+  // Period row: A=↳ YYYY-MM, C=应付, D=实付, E=缺口
+  const plans = (DataStore.getPurchasePlans && DataStore.getPurchasePlans()) || [];
+  const planNowMonth = getMonthKey(new Date().toISOString());
+  const planState = (typeof PlanMath !== 'undefined') ? PlanMath.computeUpTo(planNowMonth) : {};
+
+  xml += ' <Worksheet ss:Name="' + __('excel.sheet.plans') + '">\n';
+  xml += '  <Table>\n';
+  xml += '   <Column ss:Width="140"/>\n';  // A
+  xml += '   <Column ss:Width="100"/>\n';  // B
+  xml += '   <Column ss:Width="90"/>\n';   // C
+  xml += '   <Column ss:Width="90"/>\n';   // D
+  xml += '   <Column ss:Width="90"/>\n';   // E
+  xml += '   <Column ss:Width="80"/>\n';   // F
+  xml += '   <Column ss:Width="70"/>\n';   // G
+  xml += '   <Column ss:Width="90"/>\n';   // H
+  xml += '   <Row>\n';
+  [__('excel.plan.label.item'),__('excel.plan.label.mode'),__('excel.plan.label.total'),__('excel.plan.label.paid'),__('excel.plan.label.remaining'),__('excel.plan.label.start'),__('excel.plan.label.periods'),__('excel.header.status')].forEach(h => {
+    xml += `    <Cell ss:StyleID="header"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
+  });
+  xml += '   </Row>\n';
+
+  plans.forEach(p => {
+    const st = planState[p.id];
+    const paid = st ? st.paid : 0;
+    const remaining = st ? st.remaining : p.totalAmount;
+    const status = st && st.isComplete
+      ? __('excel.plan.status.done')
+      : (st && st.isOverdue ? __('excel.plan.status.overdue') : __('excel.plan.status.' + (p.status || 'active')));
+
+    xml += '   <Row>\n';
+    xml += `    <Cell><Data ss:Type="String">${esc((p.icon || '') + ' ' + (p.name || ''))}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(__('plan.mode.' + p.mode))}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(p.totalAmount || 0)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(paid)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(remaining)}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(p.startMonth || '')}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="Number">${fmtNum(p.months || 0)}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
+    xml += '   </Row>\n';
+
+    if (st && st.byMonth) {
+      Object.keys(st.byMonth).sort().forEach(m => {
+        const per = st.byMonth[m];
+        xml += '   <Row>\n';
+        xml += `    <Cell><Data ss:Type="String">${esc('  ↳ ' + m)}</Data></Cell>\n`;
+        xml += `    <Cell><Data ss:Type="String"></Data></Cell>\n`;
+        xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(per.due)}</Data></Cell>\n`;
+        xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(per.actual)}</Data></Cell>\n`;
+        xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(per.short)}</Data></Cell>\n`;
+        xml += '   </Row>\n';
+      });
+    }
+  });
+
+  xml += '  </Table>\n';
+  xml += ' </Worksheet>\n';
+
   xml += '</Workbook>';
 
   // Trigger download as .xlsx (the XML Spreadsheet format — Excel opens it fine)
@@ -556,6 +615,19 @@ function exportToExcel() {
     'excel.sheet.budgetTracking': { zh: '预算跟踪', en: 'Budget Tracking' },
     'excel.sheet.savingsStats': { zh: '储蓄统计', en: 'Savings Stats' },
     'excel.sheet.splitBills': { zh: '分摊账单', en: 'Split Bills' },
+    'excel.sheet.plans': { zh: '大额计划', en: 'Purchase Plans' },
+    'excel.plan.label.item': { zh: '目标物', en: 'Item' },
+    'excel.plan.label.mode': { zh: '模式', en: 'Mode' },
+    'excel.plan.label.total': { zh: '总额', en: 'Total' },
+    'excel.plan.label.paid': { zh: '已存/已还', en: 'Saved / Repaid' },
+    'excel.plan.label.remaining': { zh: '剩余', en: 'Remaining' },
+    'excel.plan.label.start': { zh: '起始月', en: 'Start' },
+    'excel.plan.label.periods': { zh: '期数', en: 'Periods' },
+    'excel.plan.status.active': { zh: '进行中', en: 'Active' },
+    'excel.plan.status.completed': { zh: '已完成', en: 'Completed' },
+    'excel.plan.status.cancelled': { zh: '已放弃', en: 'Cancelled' },
+    'excel.plan.status.done': { zh: '已完成', en: 'Completed' },
+    'excel.plan.status.overdue': { zh: '逾期', en: 'Overdue' },
     'excel.header.seq': { zh: '序号', en: '#' },
     'excel.header.date': { zh: '日期', en: 'Date' },
     'excel.header.amount': { zh: '金额 (RM)', en: 'Amount (RM)' },
