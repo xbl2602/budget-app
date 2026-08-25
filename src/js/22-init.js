@@ -37,6 +37,8 @@ function initApp() {
   applyTheme();
   handleHash();
   applyI18nToDOM();
+  // Purchase plans wait for unlock before syncing records / raising due dialogs
+  if (typeof planBootstrap === 'function') setTimeout(planBootstrap, 800);
   console.log('[INIT] initApp() complete');
 }
 

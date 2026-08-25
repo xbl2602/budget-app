@@ -15,8 +15,9 @@ function renderWhatIf() {
   const savedParams = DataStore.getWhatIfParams();
   console.log('[WhatIf] render, month:', month, 'savedParams:', savedParams);
 
-  // Log Overview baseline for comparison
-  const overviewPredicted = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month);
+  // Log Overview baseline for comparison — cash-flow reading, since that's what
+  // the overview card now shows (A-1).
+  const overviewPredicted = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
   const overviewDailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month);
   const overviewMonthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month);
   const overviewBillsActual = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
@@ -342,6 +343,10 @@ function renderWhatIfResults(result) {
         <div>${formatMoney(adjustedDailyAvg)}</div>
       </div>
     </div>
+    ${result.planDueVirtual > 0 ? `
+    <div class="text-xs text-muted" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+      ${__('whatif.planReserved', formatMoney(result.planDueVirtual))}
+    </div>` : ''}
   </div>`;
 
   // === 储蓄对比 (horizontal bar, baseline = trend savings) ===
@@ -836,6 +841,7 @@ function attachWhatIfListeners(month) {
     'whatif.vsTrend': { zh: '较趋势差额', en: 'vs Trend' },
     'whatif.dailyTrend': { zh: '日均支出（趋势）', en: 'Daily Avg (Trend)' },
     'whatif.savingsGoal': { zh: '储蓄目标', en: 'Savings Target' },
+    'whatif.planReserved': { zh: '🎯 大额计划已从日常可用额度中预留 {0}（这笔钱是存下的，不算消费，所以不影响上面的储蓄预测）', en: '🎯 Purchase plans reserve {0} out of the daily allowance. That money is retained rather than spent, so it does not reduce the savings projection above.' },
     'whatif.dailyHypo': { zh: '日均支出（假设）', en: 'Daily Avg (Adjusted)' },
     'whatif.trend': { zh: '趋势', en: 'Trend' },
     'whatif.hypothetical': { zh: '假设', en: 'Hypothetical' },

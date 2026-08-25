@@ -22,29 +22,24 @@ function renderReport() {
 
   const monthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month);
   const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
-  const savingsTarget = DataStore.getSavingsTarget();
   const dailyTotals = isRolling ? StatsEngine.getPeriodDailyTotals({ excludeBills: false }) : StatsEngine.getDailyTotals(month);
   const catTotals = isRolling ? StatsEngine.getPeriodCategoryTotals() : StatsEngine.getCategoryTotals(month);
   const splitContrib = isRolling ? StatsEngine.getPeriodSplitContrib() : StatsEngine.getSplitContrib(month);
 
-  // Savings target amount
-  const percentBase = DataStore.getPercentBase();
-  const totalBills = DataStore.getBillTotal(month);
+  // Savings target amount — shared chain, instalment plans included
+  const spRep = StatsEngine.getSpendablePlan(month);
+  const totalBills = spRep.totalBills;
   const paidBillsRep = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
   const unpaidPlannedBillsRep = Math.max(0, totalBills - paidBillsRep);
-  const netDisposable = Math.max(0, budget - totalBills);
-  const baseAmount = percentBase === 'net' ? netDisposable : budget;
-  const targetAmount = (() => {
-    const t = savingsTarget;
-    if (t.type === 'fixed') return t.fixedAmount || 0;
-    if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    return 0;
-  })();
-  const spendableBudget = Math.max(0, netDisposable - targetAmount);
+  const netDisposable = spRep.netDisposable;
+  const targetAmount = spRep.targetAmount;
+  const planDueVirtual = spRep.planDueVirtual;
+  const spendableBudget = spRep.spendableBudget;
   const variableSpending = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month);
   const actualSavings = Math.max(0, budget - (monthTotal + unpaidPlannedBillsRep));
   const savingsRate = budget > 0 ? (actualSavings / budget * 100) : 0;
-  const predicted = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month);
+  // Cash-flow reading, not the daily-average trend — matches the overview card (A-1).
+  const predicted = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
   const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(month) - unpaidPlannedBillsRep);
 
   // Aggregate to root categories for table
@@ -119,6 +114,7 @@ function renderReport() {
           <div class="text-sm text-secondary">
             ${budget > 0 ? formatMoney(monthTotal) + ' / ' + formatMoney(budget) : __('report.notSetIncome')}
             ${totalBills > 0 ? `<div class="text-xs text-muted mt-4">${__('report.netIncome')} ${formatMoney(netDisposable)} · ${__('report.dailySpendable')} ${formatMoney(spendableBudget)}</div>` : ''}
+            ${planDueVirtual > 0 ? `<div class="text-xs text-muted mt-4">${__('plan.occupiedRow')} ${formatMoney(planDueVirtual)}</div>` : ''}
           </div>
         </div>
         <div class="card" style="text-align:center">

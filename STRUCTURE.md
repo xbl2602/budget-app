@@ -704,6 +704,30 @@ IIFE 自执行，暴露 `window.SyncUI` 和 `window.LANSync`。
 
 ---
 
+### 27. `27-purchase-plans.js` — 大额分期消费计划
+
+| 符号 | 说明 |
+|------|------|
+| `openPlanCenter` / `openPlanEditor` | 大额计划中心（列表+进度条+本月占用汇总）/ 新建与编辑表单（三模式切换、月供预览） |
+| `syncPlanRecords()` | `credit` 模式的真实还款流水回填。从 `startMonth` 循环而非递增计数，跳月/补建历史计划也能逐期补齐；靠 `planId`+`planMonth` 幂等 |
+| `checkPlanEvents()` | 完成提示与逾期弹窗（延期 / 一次性补齐 / 放弃）。一次只弹一个，且不覆盖已打开的其他弹窗 |
+| `renderPlanOverviewCard(month)` | 总览页入口卡片，无活跃计划时返回空串 |
+| `planBootstrap()` | 自注册启动钩子。**不能从 `22-init.js` 直接调用**——`build.sh` 按文件名拼接，22 先于 27 执行 |
+| 配套样式 | `src/css/15-plans.css`（计划卡片/进度条/模式选择器/编辑器） |
+
+计算部分不在本文件，见 `04-stats-engine.js` 的 `PlanMath`：
+
+| 符号 | 说明 |
+|------|------|
+| `PlanMath.computeUpTo(month)` | **台账不存储，逐月重放推导**。实际还款额是当月收入/账单/流水的纯函数，因此跳月不漏、改旧账自动重算。按 `DataStore._rev` 记忆化 |
+| `PlanMath.getVirtualDue(month)` | 本月应从可支配预算中扣除的月供（**不含 `credit`**——它的真实流水已在 `monthTotal` 里起作用，再扣一次是双重计算） |
+| `PlanMath.getVirtualPaid(month)` | 本月实际被计划消耗的金额（钱不够时小于应付），用于算「可自由支配储蓄」 |
+| `StatsEngine.getSpendablePlan(month, opts)` | 可支配额度链的唯一出口，原先在 6 处复制粘贴。`opts` 供 What-If 传入假设收入/账单/储蓄目标 |
+
+结算瀑布（**还债优先**）：`结余 = max(0, 收入 − (当月支出 + 未付计划账单))` → 按结束月升序还债，`本期应还 = 剩余 ÷ 剩余期数` → 余下的才算储蓄。欠款自动摊入剩余期数。
+
+---
+
 ## 数据流
 
 ```

@@ -230,6 +230,12 @@
           });
           return b;
         });
+      if (data.purchasePlans && Array.isArray(data.purchasePlans))
+        DataStore._data.purchasePlans = data.purchasePlans.map(function (p) {
+          if (p && typeof p.name === 'string') p.name = sanitizeHtml(p.name);
+          if (p && typeof p.note === 'string') p.note = sanitizeHtml(p.note);
+          return p;
+        });
     } else {
       mergeIntoDataStore(data);
     }
@@ -307,6 +313,18 @@
           });
           cur.splitBills.push(b);
           sIds[b.id] = true;
+        }
+      });
+    }
+    if (incoming.purchasePlans && Array.isArray(incoming.purchasePlans)) {
+      if (!Array.isArray(cur.purchasePlans)) cur.purchasePlans = [];
+      var pIds = {}; cur.purchasePlans.forEach(function (p) { if (p && p.id) pIds[p.id] = true; });
+      incoming.purchasePlans.forEach(function (p) {
+        if (p && p.id && !pIds[p.id]) {
+          if (typeof p.name === 'string') p.name = sanitizeHtml(p.name);
+          if (typeof p.note === 'string') p.note = sanitizeHtml(p.note);
+          cur.purchasePlans.push(p);
+          pIds[p.id] = true;
         }
       });
     }

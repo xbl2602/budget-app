@@ -25,16 +25,17 @@ const SimulationEngine = {
     const remainingDays = Math.max(0, daysInMonth - daysPassed);
 
     // Override params with actuals if not specified
-    const income = params.income != null ? params.income : (DataStore.getMonthlyIncome(month) || DataStore.getBudget(month) || 0);
-    const bills = params.bills != null ? params.bills : DataStore.getBillTotal(month);
-    const netDisposable = Math.max(0, income - bills);
-    const savingsTarget = params.savingsTarget || DataStore.getSavingsTarget();
-    const percentBase = DataStore.getPercentBase();
-    const baseAmount = percentBase === 'net' ? netDisposable : income;
-    let targetAmount = 0;
-    if (savingsTarget.type === 'fixed') targetAmount = savingsTarget.fixedAmount || 0;
-    else if (savingsTarget.type === 'percent') targetAmount = (savingsTarget.percent || 0) / 100 * baseAmount;
-    const spendable = Math.max(0, netDisposable - targetAmount);
+    const sp = StatsEngine.getSpendablePlan(month, {
+      income: params.income,
+      bills: params.bills,
+      savingsTarget: params.savingsTarget
+    });
+    const income = sp.income;
+    const bills = sp.totalBills;
+    const netDisposable = sp.netDisposable;
+    const targetAmount = sp.targetAmount;
+    const planDueVirtual = sp.planDueVirtual;
+    const spendable = sp.spendableBudget;
 
     // Get actual spending to date (variable categories only)
     const allRecords = isRolling
@@ -213,8 +214,11 @@ const SimulationEngine = {
     const projectedDailyAvg = totalProjected / daysInMonth;
     const savingsAttained = projectedSavings >= targetAmount;
 
-    // Current trend (for comparison) — use StatsEngine to match Overview exactly
-    const trendTotal = isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month);
+    // Current trend (for comparison) — use StatsEngine to match Overview exactly.
+    // trendSavings nets against income, so it needs the cash-flow total (money
+    // already spent on excludeFromAvg records must count), not the daily-average
+    // trend total (A-1). trendDailyAvg stays a pure pace reading on purpose.
+    const trendTotal = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
     const trendDailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month);
     const unpaidBills = Math.max(0, DataStore.getBillTotal(month) - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month)));
     const trendSavings = isRolling ? (income - trendTotal - unpaidBills) : (StatsEngine.getSavingsPrediction(month) - unpaidBills);
@@ -226,7 +230,7 @@ const SimulationEngine = {
       daysPassed, remainingDays, daysInMonth,
       netDisposable, targetAmount, spendable,
       actualBills: StatsEngine.getBillSpendingActual(month),
-      overviewPredicted: StatsEngine.getPredictedTotal(month),
+      overviewPredicted: StatsEngine.getPredictedMonthEndTotal(month),
       simTotalPlusBills: totalProjected + StatsEngine.getBillSpendingActual(month)
     });
 
@@ -238,6 +242,11 @@ const SimulationEngine = {
       netDisposable: netDisposable,
       targetAmount: targetAmount,
       spendable: spendable,
+      // Self-imposed instalments reserved out of `spendable`. Deliberately NOT
+      // added to totalProjected: for save/borrow the money is retained, not
+      // spent, so projectedSavings must keep counting it as saved. credit-mode
+      // plans are already in actualSpent via their real records.
+      planDueVirtual: planDueVirtual,
 
       // Actuals
       daysPassed: daysPassed,

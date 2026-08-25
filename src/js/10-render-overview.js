@@ -17,13 +17,14 @@ function renderOverview() {
     ? (isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month))
     : (isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month));
   const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
-  const savingsTarget = DataStore.getSavingsTarget();
   const dailyAvg = includeBills
     ? (isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month))
     : (isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(month));
+  // Cash-flow reading ("预测月总支出" can never sit below what's already been
+  // spent) — use the month-end total, not the daily-average trend (A-1/A-3).
   const predicted = includeBills
-    ? (isRolling ? StatsEngine.getPeriodPredictedTotal() : StatsEngine.getPredictedTotal(month))
-    : (isRolling ? StatsEngine.getPeriodPredictedTotal() : (StatsEngine.getDailyAverageVariable(month) * new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()));
+    ? (isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month))
+    : (isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : (StatsEngine.getDailyAverageVariable(month) * new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()));
   const remainingLimit = isRolling ? StatsEngine.getPeriodRemainingDailyLimit() : StatsEngine.getRemainingDailyLimit(month);
   const last7 = StatsEngine.getLast7Days();
   const overspent = StatsEngine.getOverspentCategories(month);
@@ -39,24 +40,21 @@ function renderOverview() {
   const todayTotal = DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === todayKey).reduce((s, r) => s + r.amount, 0);
   const yesterdayTotal = DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === yesterdayKey).reduce((s, r) => s + r.amount, 0);
 
-  // Compute savings target monetary value
-  const percentBase = DataStore.getPercentBase();
-  const totalBills = DataStore.getBillTotal(month);
+  // Savings / spendable chain — single source of truth in StatsEngine.getSpendablePlan.
+  // spendableBudget now also has active instalment plans carved out of it, which is
+  // what makes those months actually pinch.
+  const sp = StatsEngine.getSpendablePlan(month);
+  const totalBills = sp.totalBills;
   const paidBills = StatsEngine.getBillSpendingActual(month);
   const unpaidPlannedBills = Math.max(0, totalBills - paidBills);
   const effectiveTotal = monthTotal + unpaidPlannedBills;
   const savingsPred = StatsEngine.getSavingsPrediction(month) - unpaidPlannedBills;
-  const netDisposable = Math.max(0, budget - totalBills);
-  const baseAmount = percentBase === 'net' ? netDisposable : budget;
-  const targetAmount = (() => {
-    const t = savingsTarget;
-    if (t.type === 'fixed') return t.fixedAmount || 0;
-    if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    return 0;
-  })();
-
-  // Daily spendable = net income (after bills) minus savings
-  const spendableBudget = Math.max(0, netDisposable - targetAmount);
+  const netDisposable = sp.netDisposable;
+  const targetAmount = sp.targetAmount;
+  const planDueVirtual = sp.planDueVirtual;
+  const spendableBudget = sp.spendableBudget;
+  // What plans really took this month — less than the due amount if money ran short
+  const planPaidThisMonth = (typeof PlanMath !== 'undefined') ? PlanMath.getVirtualPaid(month) : 0;
   const budgetPct = includeBills
     ? (budget > 0 ? (monthTotal / budget) * 100 : 0)
     : (spendableBudget > 0 ? (monthTotal / spendableBudget) * 100 : 0);
@@ -195,6 +193,9 @@ function renderOverview() {
       </div>
     </div>
 
+    <!-- Purchase plans — only rendered when at least one plan is active -->
+    ${typeof renderPlanOverviewCard === 'function' ? renderPlanOverviewCard(month) : ''}
+
     <div class="grid-2 mb-16">
       <!-- Budget progress ring -->
       <div class="card" style="text-align:center">
@@ -226,6 +227,7 @@ function renderOverview() {
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('overview.currentSaved')}</div>
           <div class="text-lg font-bold" style="color:${actualSavings > 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(actualSavings)}</div>
+          ${planPaidThisMonth > 0 ? `<div class="text-xs text-muted" style="margin-top:2px">${__('plan.freeSavings')} ${formatMoney(Math.max(0, actualSavings - planPaidThisMonth))}</div>` : ''}
         </div>
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('overview.monthlyIncome')}</div>
@@ -240,6 +242,11 @@ function renderOverview() {
           <div class="text-xs text-secondary">${__('overview.targetAchievement')}</div>
           <div class="text-lg font-bold">${targetAmount > 0 ? Math.min(100, (savingsPred/targetAmount)*100).toFixed(0) + '%' : '—'}</div>
         </div>
+        ${planDueVirtual > 0 ? `
+        <div style="padding:4px">
+          <div class="text-xs text-secondary">${__('plan.occupiedRow')}</div>
+          <div class="text-lg font-bold" style="color:var(--warning)">${formatMoney(planDueVirtual)}</div>
+        </div>` : ''}
       </div>
       <div class="text-sm text-secondary mb-8">
         ${savingsPred >= 0
@@ -355,18 +362,11 @@ function refreshOverviewBudget() {
   const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
   if (!budget) return;
 
-  const totalBills = DataStore.getBillTotal(month);
-  const savingsTarget = DataStore.getSavingsTarget();
-  const percentBase = DataStore.getPercentBase();
-  const netDisposable = Math.max(0, budget - totalBills);
-  const baseAmount = percentBase === 'net' ? netDisposable : budget;
-  const targetAmount = (() => {
-    const t = savingsTarget;
-    if (t.type === 'fixed') return t.fixedAmount || 0;
-    if (t.type === 'percent') return baseAmount * (t.percent || 0) / 100;
-    return 0;
-  })();
-  const spendableBudget = Math.max(0, netDisposable - targetAmount);
+  const sp = StatsEngine.getSpendablePlan(month);
+  const totalBills = sp.totalBills;
+  const targetAmount = sp.targetAmount;
+  const netDisposable = sp.netDisposable;
+  const spendableBudget = sp.spendableBudget;
   const budgetPct = includeBills
     ? (budget > 0 ? (monthTotal / budget) * 100 : 0)
     : (spendableBudget > 0 ? (monthTotal / spendableBudget) * 100 : 0);

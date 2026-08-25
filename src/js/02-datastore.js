@@ -46,7 +46,8 @@ const DataStore = {
       lastActiveMonth: '',
       whatIfParams: null,
       contacts: [],
-      splitBills: []
+      splitBills: [],
+      purchasePlans: []
     };
   },
 
@@ -122,6 +123,25 @@ const DataStore = {
         if (!Array.isArray(this._data.contacts)) {
           this._data.contacts = [];
         }
+        if (!this._data.purchasePlans) {
+          this._data.purchasePlans = [];
+        }
+        // Sanitize purchasePlans (forward-compat with older/partial exports)
+        if (Array.isArray(this._data.purchasePlans)) {
+          const seenPlans = new Set();
+          this._data.purchasePlans = this._data.purchasePlans.filter(p => {
+            if (!p || !p.id || seenPlans.has(p.id)) return false;
+            if (typeof p.totalAmount !== 'number' || !isFinite(p.totalAmount) || p.totalAmount <= 0) return false;
+            if (typeof p.months !== 'number' || !isFinite(p.months) || p.months < 1) return false;
+            if (p.mode !== 'save' && p.mode !== 'borrow' && p.mode !== 'credit') return false;
+            if (!p.overrides || typeof p.overrides !== 'object') p.overrides = {};
+            if (!p.status) p.status = 'active';
+            seenPlans.add(p.id);
+            return true;
+          });
+        } else {
+          this._data.purchasePlans = [];
+        }
         // Split-bill storage refactor (B): split records now carry the bill's REAL
         // categoryId instead of the '__split__' pseudo-category. Migrate legacy data.
         this._migrateSplitRecordCategories(this._data);
@@ -167,6 +187,9 @@ const DataStore = {
 
   save() {
     try {
+      // Monotonic revision — cheap cache-invalidation signal for derived computations
+      // (PlanMath memoizes its month-by-month waterfall against this)
+      this._rev = (this._rev || 0) + 1;
       localStorage.setItem('budgetAppData', JSON.stringify(this._data));
       this._log('save', 'records=' + this._data.records.length);
     } catch(e) {
@@ -346,6 +369,7 @@ const DataStore = {
     if (raw) {
       try {
         this._data = JSON.parse(raw);
+        this._rev = (this._rev || 0) + 1;
         this._log('reload', 'OK records=' + this._data.records.length);
         return true;
       } catch(e) {
@@ -580,6 +604,62 @@ const DataStore = {
     this.save();
   },
 
+  // Purchase Plans (大额分期消费计划)
+  // Ledger is NOT stored — actual repayment per month is derived by PlanMath from
+  // that month's income/bills/records. Only manual interventions live in `overrides`.
+  getPurchasePlans() {
+    return Array.isArray(this._data.purchasePlans) ? this._data.purchasePlans : [];
+  },
+  getPurchasePlan(id) {
+    return this.getPurchasePlans().find(p => p.id === id) || null;
+  },
+  addPurchasePlan(plan) {
+    if (!Array.isArray(this._data.purchasePlans)) this._data.purchasePlans = [];
+    if (!plan.id) plan.id = uuid();
+    if (!plan.overrides) plan.overrides = {};
+    if (!plan.status) plan.status = 'active';
+    plan.createdAt = plan.createdAt || new Date().toISOString();
+    plan.updatedAt = plan.createdAt;
+    this._data.purchasePlans.unshift(plan);
+    this.save();
+    this._log('addPurchasePlan', 'id=' + plan.id + ' mode=' + plan.mode);
+    return plan;
+  },
+  updatePurchasePlan(id, updates) {
+    const list = this._data.purchasePlans || [];
+    const idx = list.findIndex(p => p.id === id);
+    if (idx === -1) return null;
+    updates.updatedAt = new Date().toISOString();
+    Object.assign(list[idx], updates);
+    this.save();
+    this._log('updatePurchasePlan', 'id=' + id);
+    return list[idx];
+  },
+  // Deleting a plan cascades to the credit-mode installment records it generated,
+  // so no orphan records keep inflating month totals (mirrors _splitCascade intent)
+  deletePurchasePlan(id) {
+    if (!Array.isArray(this._data.purchasePlans)) return false;
+    const before = this._data.purchasePlans.length;
+    this._data.purchasePlans = this._data.purchasePlans.filter(p => p.id !== id);
+    if (this._data.purchasePlans.length === before) return false;
+    const killed = (this._data.records || []).filter(r => r && r.planId === id).length;
+    this._data.records = (this._data.records || []).filter(r => !r || r.planId !== id);
+    this.save();
+    this._log('deletePurchasePlan', 'id=' + id + ' cascadedRecords=' + killed);
+    return true;
+  },
+  setPlanOverride(id, month, amount) {
+    const plan = this.getPurchasePlan(id);
+    if (!plan) return null;
+    if (!plan.overrides) plan.overrides = {};
+    if (amount === null || amount === undefined) delete plan.overrides[month];
+    else plan.overrides[month] = amount;
+    plan.updatedAt = new Date().toISOString();
+    this.save();
+    this._log('setPlanOverride', 'id=' + id + ' month=' + month + ' amount=' + amount);
+    return plan;
+  },
+
   // Export / Import
   exportJSON() {
     return JSON.stringify(this._data, null, 2);
@@ -636,6 +716,16 @@ const DataStore = {
             if (b && b.id && !billIds.has(b.id)) {
               this._data.splitBills.push(b);
               billIds.add(b.id);
+            }
+          });
+        }
+        if (Array.isArray(data.purchasePlans)) {
+          if (!this._data.purchasePlans) this._data.purchasePlans = [];
+          const planIds = new Set(this._data.purchasePlans.map(p => p.id));
+          data.purchasePlans.forEach(p => {
+            if (p && p.id && !planIds.has(p.id)) {
+              this._data.purchasePlans.push(p);
+              planIds.add(p.id);
             }
           });
         }
@@ -716,7 +806,7 @@ const DataStore = {
     // Generate a simple hash from all data to detect sync mismatches
     const data = this._data;
     const fingerprint = JSON.stringify({
-      records: data.records.map(r => ({ id: r.id, amount: r.amount, categoryId: r.categoryId, date: r.date, note: r.note, tags: r.tags, splitBillId: r.splitBillId, excludeFromAvg: r.excludeFromAvg, _deleted: r._deleted, updatedAt: r.updatedAt })),
+      records: data.records.map(r => ({ id: r.id, amount: r.amount, categoryId: r.categoryId, date: r.date, note: r.note, tags: r.tags, splitBillId: r.splitBillId, excludeFromAvg: r.excludeFromAvg, planId: r.planId, planMonth: r.planMonth, _deleted: r._deleted, updatedAt: r.updatedAt })),
       categories: data.categories.map(c => ({ id: c.id, name: c.name, parentId: c.parentId })),
       budgets: data.budgets,
       categoryBudgets: data.categoryBudgets,
@@ -727,7 +817,8 @@ const DataStore = {
       percentBase: data.percentBase,
       contacts: data.contacts,
       allTags: data.allTags,
-      splitBills: (data.splitBills || []).map(b => ({ id: b.id, amount: b.amount, date: b.date, categoryId: b.categoryId, selfShare: b.selfShare, mode: b.mode, note: b.note, archived: b.archived, participants: (b.participants || []).map(p => ({ contactId: p.contactId, name: p.name, share: p.share, paid: p.paid, unknown: p.unknown })) }))
+      splitBills: (data.splitBills || []).map(b => ({ id: b.id, amount: b.amount, date: b.date, categoryId: b.categoryId, selfShare: b.selfShare, mode: b.mode, note: b.note, archived: b.archived, participants: (b.participants || []).map(p => ({ contactId: p.contactId, name: p.name, share: p.share, paid: p.paid, unknown: p.unknown })) })),
+      purchasePlans: (data.purchasePlans || []).map(p => ({ id: p.id, name: p.name, icon: p.icon, totalAmount: p.totalAmount, mode: p.mode, startMonth: p.startMonth, months: p.months, categoryId: p.categoryId, status: p.status, overrides: p.overrides, note: p.note }))
     });
     // DJB2 hash
     let hash = 5381;
