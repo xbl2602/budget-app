@@ -824,7 +824,7 @@ const DataStore = {
       percentBase: data.percentBase,
       contacts: data.contacts,
       allTags: data.allTags,
-      splitBills: (data.splitBills || []).map(b => ({ id: b.id, amount: b.amount, date: b.date, categoryId: b.categoryId, selfShare: b.selfShare, mode: b.mode, note: b.note, archived: b.archived, participants: (b.participants || []).map(p => ({ contactId: p.contactId, name: p.name, share: p.share, paid: p.paid, unknown: p.unknown })) })),
+      splitBills: (data.splitBills || []).map(b => ({ id: b.id, amount: b.amount, date: b.date, categoryId: b.categoryId, selfShare: b.selfShare, mode: b.mode, note: b.note, archived: b.archived, participants: (b.participants || []).map(p => ({ contactId: p.contactId, name: p.name, share: p.share, paid: p.paid, paidAmount: p.paidAmount, unknown: p.unknown })) })),
       purchasePlans: (data.purchasePlans || []).map(p => ({ id: p.id, name: p.name, icon: p.icon, totalAmount: p.totalAmount, mode: p.mode, startMonth: p.startMonth, months: p.months, categoryId: p.categoryId, status: p.status, overrides: p.overrides, note: p.note }))
     });
     // DJB2 hash

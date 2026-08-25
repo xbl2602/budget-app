@@ -212,3 +212,62 @@
   height: 16px;
   cursor: pointer;
 }
+
+/* ===== PARTIAL REPAYMENT ===== */
+.split-partial-chip {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--warning);
+  background: rgba(245, 158, 11, 0.12);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.split-partial-btn {
+  padding: 0 6px;
+  font-size: 0.68rem;
+  flex-shrink: 0;
+}
+
+.split-pay-head {
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+
+.split-pay-list {
+  max-height: 34vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2px 8px;
+  background: var(--card-bg);
+}
+
+.split-pay-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  font-size: 0.85rem;
+  border-bottom: 1px dashed var(--border);
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.split-pay-row:last-child { border-bottom: none; }
+
+/* Deselected rows stay readable but visibly out of the calculation */
+.split-pay-row.off { opacity: 0.45; }
+
+.split-pay-alloc {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--success);
+  white-space: nowrap;
+  flex-shrink: 0;
+}

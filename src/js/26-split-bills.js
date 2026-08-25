@@ -29,13 +29,43 @@ function _billDayUTC(bill) {
    CONTRIBUTION MATH
    ============================================================ */
 // Current contribution of one bill: my share (always) + unpaid others' shares
+/* ============================================================
+   PARTICIPANT PAYMENT MODEL (supports partial repayment)
+
+   A participant owes `share` and has repaid `paidAmount`. Bills written before
+   partial repayment existed carry only the boolean `paid`, which is read as
+   all-or-nothing. Every write sets BOTH fields, so exports, LAN sync and any
+   older reader keep seeing a correct `paid` flag.
+   ============================================================ */
+function partShare(p) { return Math.max(0, parseFloat(p && p.share) || 0); }
+
+function partPaid(p) {
+  if (!p) return 0;
+  const share = partShare(p);
+  if (p.paidAmount !== undefined && p.paidAmount !== null && p.paidAmount !== '') {
+    const v = parseFloat(p.paidAmount);
+    if (isFinite(v)) return Math.min(share, Math.max(0, round2(v)));
+    return 0;
+  }
+  return p.paid === true ? share : 0;   // legacy boolean-only bill
+}
+
+function partOwed(p) { return round2(partShare(p) - partPaid(p)); }
+
+function partSettled(p) { return partOwed(p) <= 0.005; }
+
+/* Returns a NEW participant with the repaid amount clamped into [0, share] */
+function withPaidAmount(p, amount) {
+  const share = partShare(p);
+  const v = Math.min(share, Math.max(0, round2(parseFloat(amount) || 0)));
+  return Object.assign({}, p, { paidAmount: v, paid: (share - v) <= 0.005 });
+}
+
 function billContrib(bill) {
   const my = Math.max(0, parseFloat(bill.selfShare) || 0);
   let unpaid = 0;
-  (bill.participants || []).forEach(p => {
-    if (!p.paid) unpaid += (parseFloat(p.share) || 0);
-  });
-  return { my, unpaid, total: my + unpaid };
+  (bill.participants || []).forEach(p => { unpaid += partOwed(p); });
+  return { my, unpaid: round2(unpaid), total: round2(my + unpaid) };
 }
 
 function _sumRange(bills, startKey, endKey, keyFn, rangeFn) {
@@ -125,24 +155,31 @@ function getPendingSummary(opts) {
   const bills = (typeof DataStore !== 'undefined' && DataStore._data && Array.isArray(DataStore._data.splitBills)) ? DataStore._data.splitBills : [];
   bills.forEach(b => {
     (b.participants || []).forEach(p => {
-      const amt = parseFloat(p.share) || 0;
+      const amt = partShare(p);
       if (amt <= 0) return;
-      const paid = !!p.paid;
-      if (paid && !includePaid) return;
+      const owed = partOwed(p);
+      const paidAmt = partPaid(p);
+      const settled = partSettled(p);
+      if (settled && !includePaid) return;
       const key = p.contactId || 'anon:' + (p.name || '');
       if (!perContact[key]) {
         perContact[key] = { contactId: p.contactId || '', name: p.name || __('split.unknown'), total: 0, paidTotal: 0, bills: [] };
       }
-      if (paid) perContact[key].paidTotal += amt;
-      else perContact[key].total += amt;
+      // A partially repaid row contributes to BOTH sides
+      perContact[key].total = round2(perContact[key].total + owed);
+      perContact[key].paidTotal = round2(perContact[key].paidTotal + paidAmt);
       perContact[key].bills.push({
         billId: b.id,
         billNote: b.note || '',
         billTag: b.tag || '',
         billCategoryId: b.categoryId || '',
         amount: amt,
+        owed,
+        paidAmount: paidAmt,
+        partial: paidAmt > 0.005 && !settled,
+        archived: !!b.archived,
         date: _billDayRaw(b),
-        paid,
+        paid: settled,
         unknown: !!p.unknown
       });
     });
@@ -150,8 +187,8 @@ function getPendingSummary(opts) {
   const list = Object.values(perContact).sort((a, b) => (b.total + b.paidTotal) - (a.total + a.paidTotal));
   return {
     perContact: list,
-    total: list.reduce((s, x) => s + x.total, 0),
-    count: list.reduce((s, x) => s + x.bills.length, 0)
+    total: round2(list.reduce((s, x) => s + x.total, 0)),
+    count: list.reduce((s, x) => s + x.bills.filter(bl => !bl.paid).length, 0)
   };
 }
 
@@ -170,9 +207,8 @@ function getContribBreakdown(start, end) {
     const t = new Date(b.date).getTime();
     if (isNaN(t) || t < startT || t > endT) return;
     (b.participants || []).forEach(p => {
-      if (p.paid !== true) return;
-      const amt = parseFloat(p.share) || 0;
-      if (amt <= 0) return;
+      const amt = partPaid(p);
+      if (amt <= 0.005) return;
       rows.push({
         billId: b.id,
         billNote: b.note || '',
@@ -253,7 +289,7 @@ function getSplitBillForRecord(record) {
 
 function getSplitBillUnpaid(bill) {
   if (!bill) return 0;
-  return (bill.participants || []).reduce((s, p) => s + (p.paid === true ? 0 : (parseFloat(p.share) || 0)), 0);
+  return round2((bill.participants || []).reduce((s, p) => s + partOwed(p), 0));
 }
 
 function setBillCategory(billId, categoryId) {
@@ -408,6 +444,137 @@ function computeShares(total, pool, selfInvolved) {
   const sum = round2(shares.reduce((s, x) => s + x.share, 0));
   if (Math.abs(sum - total) > 0.01) return { error: __('split.errorSumMismatch') };
   return { shares };
+}
+
+/* ============================================================
+   REPAYMENT ALLOCATION
+
+   Someone hands over one lump sum that clears part of several bills. All maths
+   runs in integer cents so repeated splitting never drifts a cent, and every
+   strategy is capped by what each bill actually still owes — an allocation can
+   never push a participant past their share.
+   ============================================================ */
+function toCents(x) { return Math.round((parseFloat(x) || 0) * 100); }
+function fromCents(c) { return c / 100; }
+
+/* Even split across the selected bills. A bill that fills up drops out and its
+   leftover is redistributed, so "even" never means "overpay the small ones". */
+function allocateEvenCents(amountC, caps) {
+  const alloc = caps.map(() => 0);
+  let pool = amountC;
+  let idxs = caps.map((c, i) => i).filter(i => caps[i] > 0);
+  while (pool > 0 && idxs.length) {
+    const base = Math.floor(pool / idxs.length);
+    if (base === 0) {
+      // Final few cents: hand them out one at a time, largest room first, so the
+      // total always lands exactly on the amount entered.
+      const order = idxs.slice().sort((a, b) => (caps[b] - alloc[b]) - (caps[a] - alloc[a]));
+      for (const i of order) {
+        if (pool <= 0) break;
+        if (alloc[i] < caps[i]) { alloc[i]++; pool--; }
+      }
+      break;
+    }
+    let consumed = 0;
+    const next = [];
+    for (const i of idxs) {
+      const give = Math.min(caps[i] - alloc[i], base);
+      alloc[i] += give;
+      consumed += give;
+      if (alloc[i] < caps[i]) next.push(i);
+    }
+    pool -= consumed;
+    if (consumed === 0) break;
+    idxs = next;
+  }
+  return { alloc, leftover: pool };
+}
+
+/* Oldest bill first — clear one debt fully before starting the next. */
+function allocateOrderedCents(amountC, caps) {
+  const alloc = caps.map(() => 0);
+  let pool = amountC;
+  for (let i = 0; i < caps.length && pool > 0; i++) {
+    const give = Math.min(caps[i], pool);
+    alloc[i] = give;
+    pool -= give;
+  }
+  return { alloc, leftover: pool };
+}
+
+/* rows: [{ billId, contactKey, remaining, date }] already filtered to selected.
+   mode: 'even' | 'ordered' | 'manual'
+   manual: { billId: amountString } — only read in manual mode.
+   Returns { ok, error, alloc: [{billId, contactKey, amount}], allocated, leftover } */
+function allocateRepayment(amount, rows, mode, manual) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { ok: false, error: __('split.pay.errorNoSelection') };
+  }
+  const caps = rows.map(r => Math.max(0, toCents(r.remaining)));
+  const capTotal = caps.reduce((a, b) => a + b, 0);
+  if (capTotal <= 0) return { ok: false, error: __('split.pay.errorNothingDue') };
+
+  if (mode === 'manual') {
+    const alloc = [];
+    let sum = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const raw = manual ? manual[rows[i].billId] : '';
+      const v = (raw === undefined || raw === null || String(raw).trim() === '') ? 0 : parseFloat(raw);
+      if (!isFinite(v) || v < 0) return { ok: false, error: __('split.pay.errorNegative') };
+      const c = toCents(v);
+      if (c > caps[i]) {
+        return { ok: false, error: __('split.pay.errorOverBill', rows[i].label || '', formatMoney(fromCents(caps[i]))) };
+      }
+      alloc.push(c);
+      sum += c;
+    }
+    if (sum <= 0) return { ok: false, error: __('split.pay.errorZero') };
+    return {
+      ok: true,
+      alloc: rows.map((r, i) => ({ billId: r.billId, contactKey: r.contactKey, amount: fromCents(alloc[i]) })).filter(a => a.amount > 0),
+      allocated: fromCents(sum),
+      leftover: 0
+    };
+  }
+
+  const amountC = toCents(amount);
+  if (!isFinite(amountC) || amountC <= 0) return { ok: false, error: __('split.pay.errorZero') };
+  if (amountC > capTotal) {
+    return { ok: false, error: __('split.pay.errorOverTotal', formatMoney(fromCents(capTotal))) };
+  }
+  const res = mode === 'ordered' ? allocateOrderedCents(amountC, caps) : allocateEvenCents(amountC, caps);
+  return {
+    ok: true,
+    alloc: rows.map((r, i) => ({ billId: r.billId, contactKey: r.contactKey, amount: fromCents(res.alloc[i]) })).filter(a => a.amount > 0),
+    allocated: fromCents(amountC - res.leftover),
+    leftover: fromCents(res.leftover)
+  };
+}
+
+/* Apply an allocation produced above. Each bill is re-read at write time so a
+   stale preview can never push a participant past their share. */
+function applyRepayment(alloc) {
+  let applied = 0, touched = 0;
+  (alloc || []).forEach(a => {
+    if (!(a.amount > 0)) return;
+    const bill = getSplitBill(a.billId);
+    if (!bill) return;
+    const target = (bill.participants || []).find(p => (p.contactId || 'anon:' + (p.name || '')) === a.contactKey);
+    if (!target) return;
+    const room = partOwed(target);
+    const add = Math.min(room, round2(a.amount));
+    if (add <= 0.005) return;
+    const next = round2(partPaid(target) + add);
+    const participants = (bill.participants || []).map(p => {
+      const key = p.contactId || 'anon:' + (p.name || '');
+      return key === a.contactKey ? withPaidAmount(p, next) : p;
+    });
+    updateSplitBill(a.billId, { participants });
+    applied = round2(applied + add);
+    touched++;
+  });
+  if (touched) logEvent('splitRepayment', 'bills=' + touched + ' amount=' + applied);
+  return { applied, touched };
 }
 
 /* ============================================================
@@ -687,6 +854,7 @@ function collectSplitBill(args) {
         name: s.name,
         share: s.share,
         paid: false,
+        paidAmount: 0,
         unknown: !!(row && row.unknown)
       };
     });
@@ -765,15 +933,29 @@ function _splitCatChip(catId) {
   return `<span class="split-cat-chip">${escHtml(cat.icon)} ${escHtml(cat.name)}</span>`;
 }
 
-function _splitPaidControl(billId, contactId, name, paid) {
+/* opts: { paidAmount, share } — when given, a part-paid row shows its progress.
+   The badge and the "part" button both open the amount dialog, which is also the
+   only way to walk a payment back. */
+function _splitPaidControl(billId, contactId, name, paid, opts) {
+  const key = contactId || 'anon:' + name;
+  const editBtn = `<button class="btn btn-ghost btn-sm split-partial-btn" title="${__('split.pay.setAmountTitle')}"
+      onclick="openSplitPartial('${escHtml(billId)}','${escHtml(key)}')">${__('split.pay.partial')}</button>`;
   if (paid) {
-    return `<span class="split-paid-badge">✅ ${__('split.paidLabel')}</span>`;
+    return `<span class="split-paid-badge" style="cursor:pointer" title="${__('split.pay.setAmountTitle')}"
+      onclick="openSplitPartial('${escHtml(billId)}','${escHtml(key)}')">✅ ${__('split.paidLabel')}</span>`;
   }
+  const paidAmt = opts ? (parseFloat(opts.paidAmount) || 0) : 0;
+  const progress = paidAmt > 0.005
+    ? `<span class="split-partial-chip" title="${__('split.pay.setAmountTitle')}"
+        onclick="openSplitPartial('${escHtml(billId)}','${escHtml(key)}')">${formatMoney(paidAmt)} / ${formatMoney(parseFloat(opts.share) || 0)}</span>`
+    : '';
   return `
+    ${progress}
     <label class="split-paid-toggle" title="${__('split.markPaidTitle')}">
-      <input type="checkbox" data-mark-paid data-bill="${escHtml(billId)}" data-pkey="${escHtml(contactId || 'anon:' + name)}" style="width:16px;height:16px;cursor:pointer">
+      <input type="checkbox" data-mark-paid data-bill="${escHtml(billId)}" data-pkey="${escHtml(key)}" style="width:16px;height:16px;cursor:pointer">
       <span>${__('split.paidLabel')}</span>
-    </label>`;
+    </label>
+    ${editBtn}`;
 }
 
 function _splitBillTitle(b) {
@@ -794,11 +976,12 @@ function _splitContactCardHtml(pc) {
   const expanded = _splitExpandStates['contact:' + key] === true;
   return `
     <div class="card split-contact-card" data-contact="${escHtml(key)}">
-      <div class="split-contact-header" style="cursor:pointer" onclick="toggleSplitContactExpand('${escHtml(key)}')">
-        <span style="font-weight:600;word-break:break-word">${expanded ? '▼' : '▶'} 👤 ${escHtml(pc.name)}</span>
+      <div class="split-contact-header">
+        <span style="font-weight:600;word-break:break-word;cursor:pointer;flex:1;min-width:0" onclick="toggleSplitContactExpand('${escHtml(key)}')">${expanded ? '▼' : '▶'} 👤 ${escHtml(pc.name)}</span>
         ${settledAll
           ? `<span class="split-paid-badge">✅ ${__('split.allSettled')}</span>`
-          : `<span style="color:var(--danger);font-weight:700">${formatMoney(owe)}${hasUnknown ? ' ❓' : ''}</span>`}
+          : `<span style="color:var(--danger);font-weight:700;cursor:pointer" onclick="toggleSplitContactExpand('${escHtml(key)}')">${formatMoney(owe)}${hasUnknown ? ' ❓' : ''}</span>
+             <button class="btn btn-outline btn-sm" style="flex-shrink:0;padding:1px 8px;font-size:0.72rem" onclick="openSplitReceive('${escHtml(key)}')">💰 ${__('split.pay.receive')}</button>`}
       </div>
       ${expanded ? pc.bills.map(b => {
         const t = _splitBillTitle({ tag: b.billTag, note: b.billNote });
@@ -812,10 +995,11 @@ function _splitContactCardHtml(pc) {
                 ${_splitCatChip(b.billCategoryId)}
                 ${t.note && t.note !== t.title ? `<span class="text-xs text-muted" style="word-break:break-word">📝 ${escHtml(t.note)}</span>` : ''}
                 <span class="text-xs text-muted">${b.date} · ${b.unknown ? '❓ ' + __('split.unknownAmount') : formatMoney(b.amount)}</span>
+                ${b.partial ? `<span class="text-xs" style="color:var(--warning)">${__('split.pay.remainingShort', formatMoney(b.owed))}</span>` : ''}
               </div>
             </div>
-            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-              ${_splitPaidControl(b.billId, pc.contactId, pc.name, b.paid)}
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+              ${_splitPaidControl(b.billId, pc.contactId, pc.name, b.paid, { paidAmount: b.paidAmount, share: b.amount })}
               <button class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:0.7rem" onclick="openSplitBillEditor('${b.billId}')" title="${__('split.editBillTitle')}">✏️</button>
             </div>
           </div>`;
@@ -861,9 +1045,13 @@ function _splitBillCard(b, opts) {
     <div style="border-top:1px dashed var(--border);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:4px">
       ${((b.selfShare || 0) > 0 || b.selfUnknown) ? _splitPersonRow(__('split.me'), b.selfUnknown ? '❓ ' + __('split.unknownAmount') : formatMoney(b.selfShare), `<span class="split-paid-badge">✅ ${__('split.paidLabel')}</span>`) : ''}
       ${(b.participants || []).map(p => {
-        const amt = parseFloat(p.share) || 0;
-        const disp = p.unknown ? '❓ ' + __('split.unknownAmount') : formatMoney(amt);
-        const control = b.archived ? '' : _splitPaidControl(b.id, p.contactId, p.name, !!p.paid);
+        const amt = partShare(p);
+        const pd = partPaid(p);
+        const base = p.unknown ? '❓ ' + __('split.unknownAmount') : formatMoney(amt);
+        const disp = (pd > 0.005 && !partSettled(p))
+          ? `${base} <span class="text-xs" style="color:var(--warning)">(${__('split.pay.remainingShort', formatMoney(partOwed(p)))})</span>`
+          : base;
+        const control = b.archived ? '' : _splitPaidControl(b.id, p.contactId, p.name, partSettled(p), { paidAmount: pd, share: amt });
         return _splitPersonRow(p.name || __('split.unknown'), disp, control);
       }).join('')}
     </div>`;
@@ -1037,11 +1225,353 @@ function markSplitPaid(billId, contactKey, paid) {
   if (bill.archived) return;
   const participants = (bill.participants || []).map(p => {
     const key = p.contactId || 'anon:' + (p.name || '');
-    return key === contactKey ? Object.assign({}, p, { paid: !!paid }) : p;
+    return key === contactKey ? withPaidAmount(p, paid ? partShare(p) : 0) : p;
   });
   updateSplitBill(billId, { participants });
   showToast(paid ? __('split.paidToast') : __('split.unpaidToast'));
   _refreshCenterPaidState(billId, contactKey, paid);
+}
+
+/* Set one participant's repaid amount outright (partial repayment / correction).
+   Returns { ok, error } so callers can surface the limit that was hit. */
+function setSplitPaidAmount(billId, contactKey, amount) {
+  const bill = getSplitBill(billId);
+  if (!bill) return { ok: false, error: __('split.pay.errorNoBill') };
+  const target = (bill.participants || []).find(p => (p.contactId || 'anon:' + (p.name || '')) === contactKey);
+  if (!target) return { ok: false, error: __('split.pay.errorNoPerson') };
+  const share = partShare(target);
+  const v = parseFloat(amount);
+  if (!isFinite(v) || v < 0) return { ok: false, error: __('split.pay.errorNegative') };
+  if (round2(v) > round2(share) + 0.005) {
+    return { ok: false, error: __('split.pay.errorOverShare', formatMoney(share)) };
+  }
+  const participants = (bill.participants || []).map(p => {
+    const key = p.contactId || 'anon:' + (p.name || '');
+    return key === contactKey ? withPaidAmount(p, v) : p;
+  });
+  const patch = { participants };
+  // Reopening an archived bill that is no longer fully settled keeps the two
+  // states consistent (same rule the editor uses).
+  if (bill.archived && participants.some(x => !partSettled(x))) patch.archived = false;
+  updateSplitBill(billId, patch);
+  logEvent('splitSetPaidAmount', 'bill=' + billId + ' amount=' + round2(v));
+  return { ok: true };
+}
+
+/* ============================================================
+   PARTIAL REPAYMENT DIALOGS
+   ============================================================ */
+
+/* One participant on one bill: set the repaid amount outright. Doubles as the
+   undo path — the quick buttons cover "all of it" and "nothing yet". */
+function openSplitPartial(billId, contactKey) {
+  const bill = getSplitBill(billId);
+  if (!bill) { showToast(__('split.pay.errorNoBill'), 'error'); return; }
+  const p = (bill.participants || []).find(x => (x.contactId || 'anon:' + (x.name || '')) === contactKey);
+  if (!p) { showToast(__('split.pay.errorNoPerson'), 'error'); return; }
+  const share = partShare(p);
+  const paid = partPaid(p);
+  const t = _splitBillTitle(bill);
+  showModal(`
+    <div class="modal-title">💰 ${__('split.pay.setAmountTitle')}</div>
+    <div class="split-form">
+      <div class="split-pay-head">
+        <div style="font-weight:600;word-break:break-word">👤 ${escHtml(p.name || __('split.unknown'))}</div>
+        <div class="text-xs text-muted" style="word-break:break-word">${escHtml(t.title)} · ${String(bill.date || '').slice(0, 10)}</div>
+      </div>
+      <div class="split-form-row">
+        <span class="split-form-label">${__('split.pay.shareLabel')}</span>
+        <span class="font-semibold">${formatMoney(share)}</span>
+      </div>
+      <div class="split-form-row">
+        <span class="split-form-label">${__('split.pay.paidLabel')}</span>
+        <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
+          <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
+          <input type="number" id="splitPartialAmount" class="input-field" min="0" max="${share}" step="0.01"
+                 value="${paid > 0.005 ? round2(paid) : ''}" placeholder="0.00" style="width:120px"
+                 oninput="_splitPartialPreview(${share})">
+        </span>
+      </div>
+      <div class="flex gap-8" style="flex-wrap:wrap;margin-top:2px">
+        <button type="button" class="btn btn-sm btn-outline" onclick="_splitPartialSet(${round2(share)},${share})">${__('split.pay.quickFull')}</button>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="_splitPartialSet(0,${share})">${__('split.pay.quickNone')}</button>
+      </div>
+      <div id="splitPartialPreview" class="split-share-preview" style="margin-top:8px"></div>
+      <div class="modal-actions" style="margin-top:10px">
+        <button class="btn btn-ghost" onclick="closeModal();openSplitCenter()">${__('split.cancel')}</button>
+        <button class="btn btn-primary" onclick="confirmSplitPartial('${escHtml(billId)}','${escHtml(contactKey)}')">💾 ${__('split.save')}</button>
+      </div>
+    </div>
+  `);
+  _splitPartialPreview(share);
+}
+
+function _splitPartialSet(v, share) {
+  const el = document.getElementById('splitPartialAmount');
+  if (el) el.value = v > 0 ? v : '';
+  _splitPartialPreview(share);
+}
+
+function _splitPartialPreview(share) {
+  const el = document.getElementById('splitPartialAmount');
+  const box = document.getElementById('splitPartialPreview');
+  if (!el || !box) return;
+  const raw = String(el.value).trim();
+  const v = raw === '' ? 0 : parseFloat(raw);
+  if (!isFinite(v) || v < 0) {
+    box.innerHTML = '<span class="text-xs" style="color:var(--danger)">⚠️ ' + __('split.pay.errorNegative') + '</span>';
+    return;
+  }
+  if (round2(v) > round2(share) + 0.005) {
+    box.innerHTML = '<span class="text-xs" style="color:var(--danger)">⚠️ ' + __('split.pay.errorOverShare', formatMoney(share)) + '</span>';
+    return;
+  }
+  const left = round2(share - v);
+  box.innerHTML = left <= 0.005
+    ? '<span class="split-share-chip">✅ ' + __('split.allSettled') + '</span>'
+    : '<span class="split-share-chip">' + __('split.pay.remainingShort', formatMoney(left)) + '</span>';
+}
+
+function confirmSplitPartial(billId, contactKey) {
+  const el = document.getElementById('splitPartialAmount');
+  const raw = el ? String(el.value).trim() : '';
+  const res = setSplitPaidAmount(billId, contactKey, raw === '' ? 0 : raw);
+  if (!res.ok) { showToast(res.error, 'error'); return; }
+  closeModal();
+  showToast(__('split.pay.savedToast'));
+  openSplitCenter();
+  refreshCurrentPage();
+}
+
+/* ---------- Multi-bill repayment ("收款登记") ---------- */
+let _payState = null;   // { contactKey, name, rows, selected:Set, mode }
+
+function openSplitReceive(contactKey) {
+  const rows = [];
+  (DataStore._data.splitBills || []).forEach(b => {
+    if (b.archived) return;   // archived debts are closed — reopen them first
+    (b.participants || []).forEach(p => {
+      const key = p.contactId || 'anon:' + (p.name || '');
+      if (key !== contactKey) return;
+      const owed = partOwed(p);
+      if (owed <= 0.005) return;
+      const t = _splitBillTitle(b);
+      rows.push({
+        billId: b.id, contactKey: key, name: p.name || __('split.unknown'),
+        label: t.title, date: String(b.date || '').slice(0, 10),
+        share: partShare(p), paidAmount: partPaid(p), remaining: owed,
+        unknown: !!p.unknown
+      });
+    });
+  });
+  if (rows.length === 0) { showToast(__('split.pay.errorNothingDue'), 'error'); return; }
+  rows.sort((a, b) => (a.date || '').localeCompare(b.date || ''));   // oldest first
+  _payState = {
+    contactKey,
+    name: rows[0].name,
+    rows,
+    selected: new Set(rows.map(r => r.billId)),   // start with everything selected
+    mode: 'even'
+  };
+  _renderSplitReceive();
+}
+
+function _renderSplitReceive() {
+  const st = _payState;
+  if (!st) return;
+  const totalDue = round2(st.rows.reduce((s, r) => s + r.remaining, 0));
+  showModal(`
+    <div class="modal-title">💰 ${__('split.pay.receiveTitle', escHtml(st.name))}</div>
+    <div class="split-form">
+      <div class="split-form-row">
+        <span class="split-form-label">${__('split.pay.totalDue')}</span>
+        <span class="font-bold" style="color:var(--danger)">${formatMoney(totalDue)}</span>
+      </div>
+      <div class="split-form-row">
+        <span class="split-form-label">${__('split.pay.amountLabel')}</span>
+        <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
+          <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
+          <input type="number" id="splitPayAmount" class="input-field" min="0" step="0.01" placeholder="0.00"
+                 style="width:130px" oninput="updateSplitPayPreview()">
+        </span>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="setSplitPayAmountToSelected()">${__('split.pay.fillSelected')}</button>
+      </div>
+      <div class="split-form-row split-form-row-top">
+        <span class="split-form-label">${__('split.pay.modeLabel')}</span>
+        <label class="split-mode-opt"><input type="radio" name="splitPayMode" value="even" ${st.mode === 'even' ? 'checked' : ''} onchange="setSplitPayMode('even')"> ${__('split.pay.modeEven')}</label>
+        <label class="split-mode-opt"><input type="radio" name="splitPayMode" value="ordered" ${st.mode === 'ordered' ? 'checked' : ''} onchange="setSplitPayMode('ordered')"> ${__('split.pay.modeOrdered')}</label>
+        <label class="split-mode-opt"><input type="radio" name="splitPayMode" value="manual" ${st.mode === 'manual' ? 'checked' : ''} onchange="setSplitPayMode('manual')"> ${__('split.pay.modeManual')}</label>
+      </div>
+      <div class="text-xs text-muted">${__('split.pay.modeHint.' + st.mode)}</div>
+      <div class="split-form-row split-form-row-top" style="gap:6px">
+        <span class="split-form-label">${__('split.pay.selectLabel')}</span>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="splitPaySelectAll()">${__('split.pay.selectAll')}</button>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="splitPaySelectNone()">${__('split.pay.selectNone')}</button>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="splitPaySelectInvert()">${__('split.pay.selectInvert')}</button>
+      </div>
+      <div id="splitPayList" class="split-pay-list">${_splitPayRowsHtml()}</div>
+      <div id="splitPayPreview" class="split-share-preview" style="margin-top:8px"></div>
+      <div class="modal-actions" style="margin-top:10px">
+        <button class="btn btn-ghost" onclick="closeModal();openSplitCenter()">${__('split.cancel')}</button>
+        <button class="btn btn-primary" id="splitPayConfirmBtn" onclick="confirmSplitReceive()">✅ ${__('split.pay.confirm')}</button>
+      </div>
+    </div>
+  `);
+  updateSplitPayPreview();
+}
+
+function _splitPayRowsHtml() {
+  const st = _payState;
+  if (!st) return '';
+  return st.rows.map(r => {
+    const on = st.selected.has(r.billId);
+    return `
+      <div class="split-pay-row ${on ? '' : 'off'}" data-bill="${escHtml(r.billId)}">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0">
+          <input type="checkbox" ${on ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer"
+                 onchange="toggleSplitPayRow('${escHtml(r.billId)}', this.checked)">
+          <span style="flex:1;min-width:0">
+            <span style="word-break:break-word">${escHtml(r.label)}${r.unknown ? ' ❓' : ''}</span>
+            <span class="text-xs text-muted" style="display:block">${r.date} · ${__('split.pay.rowRemaining', formatMoney(r.remaining), formatMoney(r.share))}</span>
+          </span>
+        </label>
+        <span class="split-pay-alloc" data-alloc="${escHtml(r.billId)}"></span>
+        <span class="split-pay-manual" style="display:${st.mode === 'manual' ? '' : 'none'};align-items:center;gap:2px;flex-shrink:0">
+          <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
+          <input type="number" class="input-field split-person-amount" min="0" max="${r.remaining}" step="0.01"
+                 placeholder="0.00" data-manual="${escHtml(r.billId)}" ${on ? '' : 'disabled'}
+                 oninput="updateSplitPayPreview()">
+        </span>
+      </div>`;
+  }).join('');
+}
+
+function setSplitPayMode(mode) {
+  if (!_payState) return;
+  _payState.mode = (mode === 'ordered' || mode === 'manual') ? mode : 'even';
+  _renderSplitReceive();
+}
+
+function toggleSplitPayRow(billId, on) {
+  if (!_payState) return;
+  if (on) _payState.selected.add(billId); else _payState.selected.delete(billId);
+  const row = document.querySelector('.split-pay-row[data-bill="' + billId + '"]');
+  if (row) {
+    row.classList.toggle('off', !on);
+    const man = row.querySelector('input[data-manual]');
+    if (man) { man.disabled = !on; if (!on) man.value = ''; }
+  }
+  updateSplitPayPreview();
+}
+
+function splitPaySelectAll() { _splitPaySetSelection(() => true); }
+function splitPaySelectNone() { _splitPaySetSelection(() => false); }
+function splitPaySelectInvert() {
+  if (!_payState) return;
+  const sel = _payState.selected;
+  _splitPaySetSelection(r => !sel.has(r.billId));
+}
+
+function _splitPaySetSelection(pred) {
+  const st = _payState;
+  if (!st) return;
+  const next = new Set();
+  st.rows.forEach(r => { if (pred(r)) next.add(r.billId); });
+  st.selected = next;
+  document.querySelectorAll('.split-pay-row').forEach(row => {
+    const id = row.getAttribute('data-bill');
+    const on = next.has(id);
+    const cb = row.querySelector('input[type="checkbox"]');
+    if (cb) cb.checked = on;
+    row.classList.toggle('off', !on);
+    const man = row.querySelector('input[data-manual]');
+    if (man) { man.disabled = !on; if (!on) man.value = ''; }
+  });
+  updateSplitPayPreview();
+}
+
+/* Selected rows in list order (already oldest-first, which is what 'ordered' means) */
+function _splitPaySelectedRows() {
+  const st = _payState;
+  if (!st) return [];
+  return st.rows.filter(r => st.selected.has(r.billId));
+}
+
+function setSplitPayAmountToSelected() {
+  const el = document.getElementById('splitPayAmount');
+  if (!el) return;
+  const sum = round2(_splitPaySelectedRows().reduce((s, r) => s + r.remaining, 0));
+  el.value = sum > 0 ? sum : '';
+  updateSplitPayPreview();
+}
+
+function _splitPayManualMap() {
+  const map = {};
+  document.querySelectorAll('#splitPayList input[data-manual]').forEach(el => {
+    if (!el.disabled) map[el.getAttribute('data-manual')] = el.value;
+  });
+  return map;
+}
+
+function updateSplitPayPreview() {
+  const st = _payState;
+  const box = document.getElementById('splitPayPreview');
+  if (!st || !box) return;
+  const rows = _splitPaySelectedRows();
+  const amtEl = document.getElementById('splitPayAmount');
+  const btn = document.getElementById('splitPayConfirmBtn');
+  document.querySelectorAll('[data-alloc]').forEach(el => { el.textContent = ''; });
+
+  const manual = st.mode === 'manual' ? _splitPayManualMap() : null;
+  const amount = st.mode === 'manual'
+    ? 0
+    : (amtEl && String(amtEl.value).trim() !== '' ? parseFloat(amtEl.value) : 0);
+
+  if (st.mode !== 'manual' && !(amount > 0)) {
+    window._payPlan = null;
+    if (btn) btn.disabled = true;
+    box.innerHTML = '<span class="text-xs text-muted">' + __('split.pay.previewNeedAmount') + '</span>';
+    return;
+  }
+  const res = allocateRepayment(amount, rows, st.mode, manual);
+  if (!res.ok) {
+    window._payPlan = null;
+    if (btn) btn.disabled = true;
+    box.innerHTML = '<span class="text-xs" style="color:var(--danger)">⚠️ ' + res.error + '</span>';
+    return;
+  }
+  window._payPlan = res.alloc;
+  if (btn) btn.disabled = false;
+  // Mirror the plan onto each row, and in manual mode keep the header total live
+  const byId = {};
+  res.alloc.forEach(a => { byId[a.billId] = a.amount; });
+  st.rows.forEach(r => {
+    const el = document.querySelector('[data-alloc="' + r.billId + '"]');
+    if (!el) return;
+    const v = byId[r.billId] || 0;
+    el.textContent = v > 0 ? '→ ' + formatMoney(v) : '';
+  });
+  if (st.mode === 'manual' && amtEl) amtEl.value = res.allocated > 0 ? round2(res.allocated) : '';
+  const cleared = res.alloc.filter(a => {
+    const r = st.rows.find(x => x.billId === a.billId);
+    return r && round2(r.remaining - a.amount) <= 0.005;
+  }).length;
+  box.innerHTML =
+    `<span class="split-share-chip">${__('split.pay.previewApplied', formatMoney(res.allocated), res.alloc.length)}</span>` +
+    (cleared > 0 ? `<span class="split-share-chip">✅ ${__('split.pay.previewCleared', cleared)}</span>` : '');
+}
+
+function confirmSplitReceive() {
+  const plan = window._payPlan;
+  if (!plan || !plan.length) { showToast(__('split.pay.previewNeedAmount'), 'error'); return; }
+  const res = applyRepayment(plan);
+  window._payPlan = null;
+  _payState = null;
+  closeModal();
+  if (res.touched === 0) { showToast(__('split.pay.errorNothingDue'), 'error'); openSplitCenter(); return; }
+  showToast(__('split.pay.appliedToast', formatMoney(res.applied), res.touched));
+  openSplitCenter();
+  refreshCurrentPage();
 }
 
 /* ============================================================
@@ -1171,8 +1701,9 @@ function openSplitBillEditor(billId, fromRecords) {
         <div id="editPaidCheckboxes" style="display:flex;flex-wrap:wrap;gap:8px">
           ${(bill.participants || []).map(p => `
             <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.8rem">
-              <input type="checkbox" data-paid-contact="${escHtml(p.contactId || 'anon:' + p.name)}" ${p.paid ? 'checked' : ''} style="width:15px;height:15px;cursor:pointer">
-              ${escHtml(p.name || '')}
+              <input type="checkbox" data-paid-contact="${escHtml(p.contactId || 'anon:' + p.name)}" ${partSettled(p) ? 'checked' : ''} style="width:15px;height:15px;cursor:pointer">
+              ${escHtml(p.name || '')}${partPaid(p) > 0.005 && !partSettled(p)
+                ? `<span class="text-xs" style="color:var(--warning)">(${__('split.partialPaidShort', formatMoney(partPaid(p)))})</span>` : ''}
             </label>
           `).join('') || '<span class="text-xs text-muted">' + __('split.noParticipants') + '</span>'}
         </div>
@@ -1313,9 +1844,17 @@ function saveSplitBillEditor(billId) {
     .map(s => {
       const key = s.id;
       const prev = (bill.participants || []).find(p => (p.contactId || 'anon:' + p.name) === key);
-      const paid = paidMap[key] !== undefined ? paidMap[key] : (prev ? !!prev.paid : false);
       const unk = (window._editSplitRows || []).find(r => r.contactId === key);
-      return { contactId: s.id, name: s.name, share: s.share, paid, unknown: unk ? !!unk.unknown : (prev ? !!prev.unknown : false) };
+      const base = { contactId: s.id, name: s.name, share: s.share,
+                     unknown: unk ? !!unk.unknown : (prev ? !!prev.unknown : false) };
+      const wasSettled = prev ? partSettled(prev) : false;
+      const prevPaid = prev ? partPaid(prev) : 0;
+      const checked = paidMap[key] !== undefined ? paidMap[key] : wasSettled;
+      // Unchecking someone who only PARTLY repaid must not wipe what they did pay
+      // — it just means they are not settled yet. The amount is re-clamped to the
+      // (possibly edited) share by withPaidAmount.
+      const amount = checked ? s.share : (wasSettled ? 0 : prevPaid);
+      return withPaidAmount(base, amount);
     });
   const patch = {
     tag,
@@ -1327,7 +1866,7 @@ function saveSplitBillEditor(billId) {
     // was saved with (without this, a custom split reopens as an even one).
     mode: _editSplitMode() === 'specified' ? 'specified' : 'equal'
   };
-  if (bill.archived && participants.some(p => !p.paid)) patch.archived = false;
+  if (bill.archived && participants.some(p => !partSettled(p))) patch.archived = false;
   const amtEl = document.getElementById('editSplitAmount');
   const newAmount = amtEl ? (parseFloat(amtEl.value) || 0) : bill.amount;
   const amountChanged = newAmount > 0 && Math.abs(newAmount - (parseFloat(bill.amount) || 0)) > 0.01;
@@ -1616,6 +2155,46 @@ addI18nEntries({
   'split.moreRows': { zh: '还有 {0} 笔，前往追账中心查看', en: '{0} more, see Collection Center' },
   'split.needShare': { zh: '请至少勾选一位参与人，或勾选"自己也有份额"', en: 'Select at least one participant, or check "I have a share"' },
   'split.unknownAmount': { zh: '金额不明', en: 'Amount unknown' },
+  'split.partialPaidShort': { zh: '已还 {0}', en: 'paid {0}' },
+  'split.pay.receive': { zh: '收款', en: 'Receive' },
+  'split.pay.receiveTitle': { zh: '登记收款 — {0}', en: 'Record repayment — {0}' },
+  'split.pay.partial': { zh: '部分', en: 'Part' },
+  'split.pay.setAmountTitle': { zh: '设置已还金额', en: 'Set repaid amount' },
+  'split.pay.shareLabel': { zh: '应还', en: 'Owes' },
+  'split.pay.paidLabel': { zh: '已还', en: 'Repaid' },
+  'split.pay.quickFull': { zh: '✅ 全额', en: '✅ Full' },
+  'split.pay.quickNone': { zh: '↺ 清零', en: '↺ Clear' },
+  'split.pay.remainingShort': { zh: '还差 {0}', en: '{0} left' },
+  'split.pay.savedToast': { zh: '✅ 已更新还款金额', en: '✅ Repaid amount updated' },
+  'split.pay.totalDue': { zh: '未收总额', en: 'Total outstanding' },
+  'split.pay.amountLabel': { zh: '本次收到', en: 'Amount received' },
+  'split.pay.fillSelected': { zh: '＝所选合计', en: '= selected total' },
+  'split.pay.modeLabel': { zh: '记账方式', en: 'Allocation' },
+  'split.pay.modeEven': { zh: '平均分配', en: 'Even' },
+  'split.pay.modeOrdered': { zh: '按日期先后', en: 'Oldest first' },
+  'split.pay.modeManual': { zh: '手动指定', en: 'Manual' },
+  'split.pay.modeHint.even': { zh: '金额在所选账单间平均分配；某笔还满后，多出的部分自动分给其余账单。', en: 'Split evenly across the selected bills; once one is settled its leftover flows to the rest.' },
+  'split.pay.modeHint.ordered': { zh: '从最早的账单开始逐笔还清，再轮到下一笔。', en: 'Clear the oldest bill first, then move on to the next.' },
+  'split.pay.modeHint.manual': { zh: '为每笔账单单独填写金额，总额自动累加。', en: 'Enter each bill\'s amount yourself; the total adds up automatically.' },
+  'split.pay.selectLabel': { zh: '选择账单', en: 'Bills' },
+  'split.pay.selectAll': { zh: '全选', en: 'All' },
+  'split.pay.selectNone': { zh: '全不选', en: 'None' },
+  'split.pay.selectInvert': { zh: '反选', en: 'Invert' },
+  'split.pay.rowRemaining': { zh: '还差 {0} / 共 {1}', en: '{0} left of {1}' },
+  'split.pay.confirm': { zh: '确认收款', en: 'Record' },
+  'split.pay.previewNeedAmount': { zh: '填写收到的金额后显示分配预览', en: 'Enter an amount to preview the allocation' },
+  'split.pay.previewApplied': { zh: '共冲抵 {0}，涉及 {1} 笔', en: 'Allocates {0} across {1} bill(s)' },
+  'split.pay.previewCleared': { zh: '其中 {0} 笔将结清', en: '{0} will be fully settled' },
+  'split.pay.appliedToast': { zh: '✅ 已登记收款 {0}（{1} 笔）', en: '✅ Recorded {0} across {1} bill(s)' },
+  'split.pay.errorNoBill': { zh: '账单不存在', en: 'Bill not found' },
+  'split.pay.errorNoPerson': { zh: '该账单里没有这个人', en: 'That person is not on this bill' },
+  'split.pay.errorNegative': { zh: '金额不能为负数', en: 'Amount cannot be negative' },
+  'split.pay.errorZero': { zh: '请填写大于 0 的金额', en: 'Enter an amount greater than 0' },
+  'split.pay.errorOverShare': { zh: '不能超过他应还的 {0}', en: 'Cannot exceed the {0} owed' },
+  'split.pay.errorOverBill': { zh: '「{0}」最多只能收 {1}', en: '"{0}" can take at most {1}' },
+  'split.pay.errorOverTotal': { zh: '超出所选账单的未收合计 {0}', en: 'Exceeds the {0} outstanding on the selected bills' },
+  'split.pay.errorNoSelection': { zh: '请至少选择一笔账单', en: 'Select at least one bill' },
+  'split.pay.errorNothingDue': { zh: '没有待收的账单', en: 'Nothing outstanding' },
   'split.unknownAmountTitle': { zh: '勾选后该参与人的金额视为不明：不能输入指定金额，均分计算不受影响（仅展示 ❓）', en: 'Mark this person\'s amount as unknown: cannot type a specified amount, equal-split math is unaffected (shown as ❓)' },
   'split.formCategory': { zh: '分类', en: 'Category' },
   'split.formCategoryPlaceholder': { zh: '选择分类', en: 'Select category' },
@@ -1628,6 +2207,8 @@ addI18nEntries({
 
   // === EXPORTS ===
   window.SplitEngine = {
+    partShare, partPaid, partOwed, partSettled, withPaidAmount,
+    allocateRepayment, applyRepayment, setSplitPaidAmount,
     SPLIT_ID,
     SPLIT_COLOR,
     SPLIT_PIE_ICON,
@@ -1683,6 +2264,20 @@ addI18nEntries({
   window.toggleSplitBillExpand = toggleSplitBillExpand;
   window.toggleSplitContactExpand = toggleSplitContactExpand;
   window.markSplitPaid = markSplitPaid;
+  window.setSplitPaidAmount = setSplitPaidAmount;
+  window.openSplitPartial = openSplitPartial;
+  window.confirmSplitPartial = confirmSplitPartial;
+  window._splitPartialSet = _splitPartialSet;
+  window._splitPartialPreview = _splitPartialPreview;
+  window.openSplitReceive = openSplitReceive;
+  window.setSplitPayMode = setSplitPayMode;
+  window.toggleSplitPayRow = toggleSplitPayRow;
+  window.splitPaySelectAll = splitPaySelectAll;
+  window.splitPaySelectNone = splitPaySelectNone;
+  window.splitPaySelectInvert = splitPaySelectInvert;
+  window.setSplitPayAmountToSelected = setSplitPayAmountToSelected;
+  window.updateSplitPayPreview = updateSplitPayPreview;
+  window.confirmSplitReceive = confirmSplitReceive;
   window.openSplitBillEditor = openSplitBillEditor;
   window.updateEditSplitPreview = updateEditSplitPreview;
   window.onEditSplitAmountTyped = onEditSplitAmountTyped;

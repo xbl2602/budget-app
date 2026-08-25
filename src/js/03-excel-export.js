@@ -489,8 +489,9 @@ function exportToExcel() {
     const parts = Array.isArray(b.participants) ? b.participants : [];
     let unpaid = 0, paidTotal = 0, unknownCount = 0;
     parts.forEach(p => {
-      const amt = parseFloat(p.share) || 0;
-      if (p.paid) paidTotal += amt; else unpaid += amt;
+      // Partial repayments split across both columns
+      paidTotal += SplitEngine.partPaid(p);
+      unpaid += SplitEngine.partOwed(p);
       if (p.unknown) unknownCount++;
     });
     const scat = catMap[b.categoryId] || { name: __('excel.label.unknown'), icon: '❓' };
@@ -520,10 +521,13 @@ function exportToExcel() {
 
     if (parts.length > 0) {
       parts.forEach((p, pi) => {
-        const pAmt = parseFloat(p.share) || 0;
-        const pStatus = p.paid
+        const pAmt = SplitEngine.partShare(p);
+        const pPaid = SplitEngine.partPaid(p);
+        const pStatus = SplitEngine.partSettled(p)
           ? __('excel.split.status.paid')
-          : (p.unknown ? __('excel.split.status.unknown') : __('excel.split.status.unpaid'));
+          : (pPaid > 0.005
+            ? __('excel.split.status.partial', fmtNum(pPaid), fmtNum(SplitEngine.partOwed(p)))
+            : (p.unknown ? __('excel.split.status.unknown') : __('excel.split.status.unpaid')));
         xml += '   <Row>\n';
         xml += `    <Cell><Data ss:Type="String">${esc('  ↳ ' + (p.name || __('excel.label.unknown')))}</Data></Cell>\n`;
         xml += `    <Cell><Data ss:Type="String">${p.unknown ? esc(__('excel.split.label.unknownMark')) : ''}</Data></Cell>\n`;
@@ -674,6 +678,7 @@ function exportToExcel() {
     'excel.split.status.archived': { zh: '已归档', en: 'Archived' },
     'excel.split.status.active': { zh: '进行中', en: 'Active' },
     'excel.split.status.paid': { zh: '✅ 已还', en: '✅ Paid' },
+    'excel.split.status.partial': { zh: '🟡 部分已还（已还 {0}，还差 {1}）', en: '🟡 Partial (paid {0}, {1} left)' },
     'excel.split.status.unpaid': { zh: '⏳ 待收', en: '⏳ Unpaid' },
     'excel.split.status.unknown': { zh: '❓ 金额不明（待收）', en: '❓ Unknown (unpaid)' },
     'excel.summary.total': { zh: '合计', en: 'Total' },

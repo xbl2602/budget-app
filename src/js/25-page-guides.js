@@ -246,7 +246,8 @@ const PAGE_GUIDES = {
           isTips: true,
           items: [
             'guide.records.simple.tip4_1',
-            'guide.records.simple.tip4_2'
+            'guide.records.simple.tip4_2',
+            'guide.records.simple.tip4_3'
           ]
         }
       ]
@@ -963,7 +964,7 @@ addI18nEntries({
   'guide.add.detailed.grid2_6_label': { zh: '分摊收款单开关', en: 'Split Bill Toggle' },
   'guide.add.detailed.grid2_7_desc': { zh: '份额可指定（如 A 付 20、B 付 30），未填写的参与人自动均分剩余金额；所有份额之和不能超过总额', en: 'Shares can be specified (e.g. A pays 20, B pays 30); participants without an amount auto-share the remainder. Total shares cannot exceed the bill total' },
   'guide.add.detailed.grid2_7_label': { zh: '参与人份额', en: 'Participant Shares' },
-  'guide.add.detailed.tip5_7': { zh: '分摊账单保存后生成一条带「分摊」标记的流水（分类保持真实分类）并计入「待收回款项」，对方还款后勾选「已还」即冲减当月支出', en: 'Saving a split bill creates a record with a split marker (keeping its real category) tracked under “Pending Collections”; when repaid, tick “paid” to reduce the month’s spending' },
+  'guide.add.detailed.tip5_7': { zh: '分摊账单保存后生成一条带「分摊」标记的流水（分类保持真实分类）并计入「待收回款项」，对方还款后勾选「已还」或登记部分金额，即按实收金额冲减当月支出', en: 'Saving a split bill creates a record with a split marker (keeping its real category) tracked under “Pending Collections”; when repaid, tick “paid” to reduce the month’s spending' },
   'guide.records.detailed.grid2_10_desc': { zh: '分摊账单生成的记录保留真实消费分类并带「分摊」标记，点击它打开的是分摊账单编辑器', en: 'Records from split bills keep the real spending category with a “split” marker; tapping one opens the split bill editor instead of the normal form' },
   'guide.records.detailed.grid2_10_label': { zh: '分摊记录', en: 'Split Records' },
   'guide.records.detailed.grid2_11_desc': { zh: '在分摊编辑器中可改总额、改各人份额、标记已还；删除记录会连同分摊账单一起删除，反之亦然', en: 'In the split editor you can change the total, adjust shares, and mark repayments; deleting the record also deletes the bill and vice versa' },
@@ -972,6 +973,7 @@ addI18nEntries({
   'guide.records.simple.heading4': { zh: '🧾 分摊记录', en: '🧾 Split Records' },
   'guide.records.simple.tip4_1': { zh: '分摊账单在流水中显示为带「分摊」标记的普通记录（金额显示自己的份额），点击它进入分摊编辑器，可改金额/份额或标记已还', en: 'Split bills show as normal records with a split marker (amount shows your share); tap one to open the split editor to change amounts, shares, or mark repayments' },
   'guide.records.simple.tip4_2': { zh: '删除分摊记录会连同其账单一起删除（撤销可恢复），删除账单则同时解除关联记录', en: 'Deleting a split record also deletes its bill (undoable); deleting the bill detaches the linked record in the same action' },
+  'guide.records.simple.tip4_3': { zh: '对方只还了一部分时，在追账中心点该行的「部分」按钮填写已还金额；若一次收钱要冲抵好几笔账单，点人名旁的「💰 收款」，可全选/反选账单并按「平均分配 / 按日期先后 / 手动指定」分摊这笔钱。', en: 'When someone repays only part of a share, use the “Part” button on that row in Collection Center. To spread one lump sum across several bills, use “💰 Receive” next to their name — select or invert bills and allocate the money evenly, oldest-first, or by hand.' },
   'guide.overview.detailed.grid2_13_desc': { zh: '汇总所有待收款项，支持按人员/按账单两种视角，逐笔标记已还；全部结清的账单自动归档', en: 'Aggregates all pending collections in two views (by person / by bill), marks repayments per entry; fully settled bills archive automatically' },
   'guide.overview.detailed.grid2_13_label': { zh: '分摊收款中心', en: 'Collection Center' },
   'guide.overview.detailed.tip6_5': { zh: '「待收回款项」横幅只在存在未结清分摊账单时显示；对方还钱后金额自动减少', en: 'The “Pending Collections” banner only appears while unsettled split bills exist; amounts drop as repayments are marked' },

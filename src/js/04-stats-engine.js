@@ -177,8 +177,8 @@ const StatsEngine = {
       const d = new Date(b.date);
       if (isNaN(d.getTime()) || d < start || d > end) return;
       (b.participants || []).forEach(p => {
-        if (p.paid !== true) return;
-        const amt = parseFloat(p.share) || 0;
+        // Money actually received — a partial repayment counts for what it is
+        const amt = SplitEngine.partPaid(p);
         if (amt > 0) total += amt;
       });
     });
@@ -212,8 +212,7 @@ const StatsEngine = {
       const d = new Date(b.date);
       if (isNaN(d.getTime()) || d < start || d > end) return;
       (b.participants || []).forEach(p => {
-        if (p.paid === true) return;
-        const amt = parseFloat(p.share) || 0;
+        const amt = SplitEngine.partOwed(p);   // still outstanding, partials netted off
         if (amt > 0) total += amt;
       });
     });
@@ -229,9 +228,7 @@ const StatsEngine = {
       const d = new Date(b.date);
       if (isNaN(d.getTime())) return;
       let paidSum = 0;
-      (b.participants || []).forEach(p => {
-        if (p.paid === true) paidSum += parseFloat(p.share) || 0;
-      });
+      (b.participants || []).forEach(p => { paidSum += SplitEngine.partPaid(p); });
       if (paidSum <= 0) return;
       const key = keyFn(d);
       map[key] = (map[key] || 0) + paidSum;
