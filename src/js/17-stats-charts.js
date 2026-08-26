@@ -47,6 +47,7 @@ function updateDrillCharts() {
   const sD = isCustom ? statsStartDate : null;
   const eD = isCustom ? statsEndDate : null;
   if (statsCatView === 'waffle') drawCategoryWaffle('catWaffleChart', sD, eD, 250);
+  else if (statsCatView === 'treemap') drawCategoryTreemap('catTreemapChart', sD, eD, 250);
   else drawPieChart('pieChart', statsMonth, sD, eD);
   drawBarChart('barChart', statsMonth, sD, eD);
   syncPieDrillBar();
@@ -286,8 +287,9 @@ function expandPie() {
       <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:1.1rem;margin-bottom:8px">📊 ${__('stats.pieChart.expandTitle')} ${renderCatViewToggle()} ${renderHierarchyToggle()}</div>
       <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <div style="flex:1;min-width:300px">
-          <canvas id="expandPieChart" class="${statsCatView === 'waffle' ? 'cat-view-hidden' : ''}" style="width:100%;max-width:500px;height:360px;margin:0 auto"></canvas>
-          <canvas id="expandCatWaffle" class="${statsCatView === 'waffle' ? '' : 'cat-view-hidden'}" style="width:100%;max-width:500px;height:360px;margin:0 auto;cursor:pointer"></canvas>
+          <canvas id="expandPieChart" class="${catViewClass('pie')}" style="width:100%;max-width:500px;height:360px;margin:0 auto"></canvas>
+          <canvas id="expandCatWaffle" class="${catViewClass('waffle')}" style="width:100%;max-width:500px;height:360px;margin:0 auto;cursor:pointer"></canvas>
+          <canvas id="expandCatTreemap" class="${catViewClass('treemap')}" style="width:100%;max-width:500px;height:360px;margin:0 auto;cursor:pointer"></canvas>
         </div>
         <div style="flex:1;min-width:250px" id="expandPieTable">
           <!-- Category table rendered here after chart draw -->
@@ -301,6 +303,8 @@ function expandPie() {
     const isCustom = useCustomRange();
     if (statsCatView === 'waffle') {
       drawCategoryWaffle('expandCatWaffle', isCustom ? statsStartDate : null, isCustom ? statsEndDate : null, 360);
+    } else if (statsCatView === 'treemap') {
+      drawCategoryTreemap('expandCatTreemap', isCustom ? statsStartDate : null, isCustom ? statsEndDate : null, 360);
     } else {
       drawPieChart('expandPieChart', statsMonth,
         isCustom ? statsStartDate : null,
@@ -326,8 +330,10 @@ function setStatsHierarchyLevel(n) {
   window.statsHierarchyLevel = n;
   try { localStorage.setItem('budgetStatsHierarchy', String(n)); } catch (e) {}
   if (statsCatView === 'waffle') drawCategoryWaffle('catWaffleChart', null, null, 250);
+  else if (statsCatView === 'treemap') drawCategoryTreemap('catTreemapChart', null, null, 250);
   else if (typeof drawPieChart === 'function') drawPieChart('pieChart', statsMonth, null, null, null, 250, false);
   if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', null, null, 360);
+  if (document.getElementById('expandCatTreemap')) drawCategoryTreemap('expandCatTreemap', null, null, 360);
   if (document.getElementById('expandPieChart')) drawPieChart('expandPieChart', statsMonth, null, null, null, 360, false);
   if (typeof renderPieTables === 'function') renderPieTables();
   if (typeof syncPieDrillBar === 'function') syncPieDrillBar();
@@ -363,11 +369,23 @@ function renderPieDetailTable() {
 
 /* Pie vs waffle for the category-spending card. Both read the same rows, so the
    drill state, hierarchy level and exclude-bills toggle survive the switch. */
+const CAT_VIEWS = ['pie', 'waffle', 'treemap'];
 let statsCatView = 'pie';
-try { statsCatView = localStorage.getItem('budgetStatsCatView') === 'waffle' ? 'waffle' : 'pie'; } catch (e) {}
+try {
+  const v = localStorage.getItem('budgetStatsCatView');
+  if (CAT_VIEWS.indexOf(v) !== -1) statsCatView = v;
+} catch (e) {}
+
+/* '' when this view is the active one, the hiding class otherwise. Markup and
+   applyStatsCatView() must agree, so both go through here. */
+function catViewClass(view) {
+  return statsCatView === view ? '' : 'cat-view-hidden';
+}
 
 function renderCatViewToggle() {
-  const views = [['pie', '🥧 ' + __('stats.catView.pie')], ['waffle', '▦ ' + __('stats.catView.waffle')]];
+  const views = [['pie', '🥧 ' + __('stats.catView.pie')],
+                 ['waffle', '▦ ' + __('stats.catView.waffle')],
+                 ['treemap', '▤ ' + __('stats.catView.treemap')]];
   return '<span class="view-toggle-btn-group" title="' + __('stats.catView.hint') + '" style="display:inline-flex;align-items:center;gap:2px;font-size:0.7rem;border:1px solid var(--border);border-radius:6px;padding:1px">' +
     views.map(function (v) {
       const active = statsCatView === v[0];
@@ -377,7 +395,7 @@ function renderCatViewToggle() {
 }
 
 function setStatsCatView(view) {
-  statsCatView = view === 'waffle' ? 'waffle' : 'pie';
+  statsCatView = CAT_VIEWS.indexOf(view) !== -1 ? view : 'pie';
   try { localStorage.setItem('budgetStatsCatView', statsCatView); } catch (e) {}
   applyStatsCatView();
   document.querySelectorAll('[data-cat-view]').forEach(function (el) {
@@ -391,35 +409,37 @@ function setStatsCatView(view) {
    moves — the waffle sizes itself to whatever box the card already had. */
 function applyStatsCatView() {
   // The expanded overlay carries its own pair of canvases
-  const xPie = document.getElementById('expandPieChart');
-  const xWaffle = document.getElementById('expandCatWaffle');
-  if (xPie || xWaffle) {
-    const showWaffle = statsCatView === 'waffle';
-    // Class, not inline style: an id-level `display: … !important` in the
-    // stylesheet would otherwise beat an inline display and show both at once.
-    if (xPie) xPie.classList.toggle('cat-view-hidden', showWaffle);
-    if (xWaffle) xWaffle.classList.toggle('cat-view-hidden', !showWaffle);
-    if (showWaffle) drawCategoryWaffle('expandCatWaffle', null, null, 360);
-    else drawPieChart('expandPieChart', statsMonth, null, null, null, 360, false);
-    renderExpandPieTable();
-  }
-  const pie = document.getElementById('pieChart');
-  const waffle = document.getElementById('catWaffleChart');
-  const densityRow = document.getElementById('catWaffleDensity');
-  const dlBtn = document.getElementById('catViewDownloadBtn');
-  const isWaffle = statsCatView === 'waffle';
-  if (pie) pie.classList.toggle('cat-view-hidden', isWaffle);
-  if (waffle) waffle.classList.toggle('cat-view-hidden', !isWaffle);
-  if (densityRow) densityRow.style.display = isWaffle ? '' : 'none';
-  if (dlBtn) dlBtn.setAttribute('onclick', isWaffle ? "downloadChart('catWaffleChart')" : "downloadChart('pieChart')");
   const isCustom = useCustomRange();
   const sD = isCustom ? statsStartDate : null;
   const eD = isCustom ? statsEndDate : null;
-  if (isWaffle) {
-    if (waffle) drawCategoryWaffle('catWaffleChart', sD, eD, 250);
-  } else {
-    if (pie) drawPieChart('pieChart', statsMonth, sD, eD);
+
+  // The expanded overlay carries its own set of canvases
+  const xIds = { pie: 'expandPieChart', waffle: 'expandCatWaffle', treemap: 'expandCatTreemap' };
+  if (document.getElementById(xIds.pie) || document.getElementById(xIds.waffle) || document.getElementById(xIds.treemap)) {
+    // Class, not inline style: an id-level `display: … !important` in the
+    // stylesheet would otherwise beat an inline display and show several at once.
+    CAT_VIEWS.forEach(v => {
+      const el = document.getElementById(xIds[v]);
+      if (el) el.classList.toggle('cat-view-hidden', v !== statsCatView);
+    });
+    if (statsCatView === 'waffle') drawCategoryWaffle(xIds.waffle, sD, eD, 360);
+    else if (statsCatView === 'treemap') drawCategoryTreemap(xIds.treemap, sD, eD, 360);
+    else drawPieChart(xIds.pie, statsMonth, sD, eD, null, 360, false);
+    renderExpandPieTable();
   }
+
+  const ids = { pie: 'pieChart', waffle: 'catWaffleChart', treemap: 'catTreemapChart' };
+  CAT_VIEWS.forEach(v => {
+    const el = document.getElementById(ids[v]);
+    if (el) el.classList.toggle('cat-view-hidden', v !== statsCatView);
+  });
+  const densityRow = document.getElementById('catWaffleDensity');
+  if (densityRow) densityRow.style.display = statsCatView === 'waffle' ? '' : 'none';
+  const dlBtn = document.getElementById('catViewDownloadBtn');
+  if (dlBtn) dlBtn.setAttribute('onclick', "downloadChart('" + ids[statsCatView] + "')");
+  if (statsCatView === 'waffle') drawCategoryWaffle(ids.waffle, sD, eD, 250);
+  else if (statsCatView === 'treemap') drawCategoryTreemap(ids.treemap, sD, eD, 250);
+  else drawPieChart(ids.pie, statsMonth, sD, eD);
 }
 
 function setCatWaffleDensity(level) {
@@ -560,6 +580,8 @@ function refreshExpandedCatChart() {
   const eD = isCustom ? statsEndDate : null;
   if (statsCatView === 'waffle') {
     if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', sD, eD, 360);
+  } else if (statsCatView === 'treemap') {
+    if (document.getElementById('expandCatTreemap')) drawCategoryTreemap('expandCatTreemap', sD, eD, 360);
   } else if (document.getElementById('expandPieChart')) {
     drawPieChart('expandPieChart', statsMonth, sD, eD, null, 360, false);
   }
@@ -1052,8 +1074,9 @@ function renderStats() {
           ${renderBillToggle('pieChart')}
           <button class="view-toggle-btn" onclick="expandPie()" title="${__('stats.zoomIn')}" style="font-size:0.7rem">⛶ ${__('stats.expand')}</button>
         </div>
-        <canvas id="pieChart" class="${statsCatView === 'waffle' ? 'cat-view-hidden' : ''}" width="400" height="300" style="width:100%;height:250px"></canvas>
-        <canvas id="catWaffleChart" class="${statsCatView === 'waffle' ? '' : 'cat-view-hidden'}" width="400" height="250" style="width:100%;height:250px;cursor:pointer"></canvas>
+        <canvas id="pieChart" class="${catViewClass('pie')}" width="400" height="300" style="width:100%;height:250px"></canvas>
+        <canvas id="catWaffleChart" class="${catViewClass('waffle')}" width="400" height="250" style="width:100%;height:250px;cursor:pointer"></canvas>
+        <canvas id="catTreemapChart" class="${catViewClass('treemap')}" width="400" height="250" style="width:100%;height:250px;cursor:pointer"></canvas>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button class="btn btn-ghost btn-sm" id="pieDetailToggleBtn" onclick="togglePieDetailTable()">${statsPieTableOpen ? '▼' : '▶'} ${__('stats.categoryDetail')}</button>
           ${renderCatDensityControl()}
@@ -2282,6 +2305,271 @@ function drawCategoryWaffle(canvasId, startDate, endDate, height) {
   });
 }
 
+/* ============================================================
+   CATEGORY TREEMAP (WizTree-style nested boxes)
+
+   Area is proportional to spend and the hierarchy is shown by NESTING — a
+   subcategory's box sits inside its parent's. The 1层/2层/全部 control drives
+   how deep the nesting goes, so the treemap answers a question neither the pie
+   nor the waffle can: where does a big number actually come from.
+   ============================================================ */
+let _treemapRects = [];   // flat list of laid-out boxes for hit testing
+
+/* Lighten toward white so nested children stay in the parent's colour family */
+function lightenColor(hex, pct) {
+  const num = parseInt(String(hex).replace('#', ''), 16);
+  if (!isFinite(num)) return hex;
+  const mix = (c) => Math.round(c + (255 - c) * (pct / 100));
+  const r = mix(num >> 16), g = mix((num >> 8) & 0xFF), b = mix(num & 0xFF);
+  return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+}
+
+/* Worst aspect ratio of a candidate row — the squarify heuristic */
+function _worstRatio(row, short, scale) {
+  const sum = row.reduce((s, n) => s + n.value, 0) * scale;
+  if (sum <= 0 || short <= 0) return Infinity;
+  const thickness = sum / short;
+  let worst = 0;
+  row.forEach(n => {
+    const len = (n.value * scale) / thickness;
+    if (len <= 0) { worst = Infinity; return; }
+    const ratio = Math.max(thickness / len, len / thickness);
+    if (ratio > worst) worst = ratio;
+  });
+  return worst;
+}
+
+/* Squarified treemap (Bruls et al.): keeps boxes close to square so small
+   categories stay clickable instead of becoming hairlines. */
+function squarify(nodes, x, y, w, h) {
+  const out = [];
+  if (!nodes.length || w <= 0 || h <= 0) return out;
+  let items = nodes.filter(n => n.value > 0).slice().sort((a, b) => b.value - a.value);
+  let rx = x, ry = y, rw = w, rh = h;
+  let guard = 0;
+  while (items.length && rw > 0.5 && rh > 0.5 && guard++ < 500) {
+    const short = Math.min(rw, rh);
+    const remaining = items.reduce((s, n) => s + n.value, 0);
+    if (remaining <= 0) break;
+    const scale = (rw * rh) / remaining;
+    let row = [], best = Infinity;
+    for (let i = 0; i < items.length; i++) {
+      const cand = row.concat([items[i]]);
+      const worst = _worstRatio(cand, short, scale);
+      if (row.length && worst > best) break;
+      row = cand; best = worst;
+    }
+    const rowArea = row.reduce((s, n) => s + n.value, 0) * scale;
+    const thickness = rowArea / short;
+    let off = 0;
+    row.forEach(n => {
+      const len = (n.value * scale) / thickness;
+      if (rw >= rh) out.push(Object.assign({}, n, { x: rx, y: ry + off, w: thickness, h: len }));
+      else out.push(Object.assign({}, n, { x: rx + off, y: ry, w: len, h: thickness }));
+      off += len;
+    });
+    if (rw >= rh) { rx += thickness; rw -= thickness; }
+    else { ry += thickness; rh -= thickness; }
+    items = items.slice(row.length);
+  }
+  return out;
+}
+
+/* Nested node tree honouring drill state + hierarchy level.
+   level 1 → roots only, 2 → roots + direct children, 3 → all the way down. */
+function buildCategoryTreeNodes(level, startDate, endDate) {
+  const excludeBills = !isBillToggleChecked('pieChart');
+  const billSet = excludeBills
+    ? new Set((DataStore.getBillCategories() || []).map(c => getRootAncestorId(c.id)))
+    : null;
+  const records = getHierarchyRecords(statsMonth, startDate, endDate);
+  const direct = {};
+  records.forEach(r => {
+    if (billSet && billSet.has(getRootAncestorId(r.categoryId))) return;
+    direct[r.categoryId] = (direct[r.categoryId] || 0) + r.amount;
+  });
+
+  const subtotal = (catId) => {
+    let t = direct[catId] || 0;
+    (DataStore.getChildren(catId) || []).forEach(c => { t += subtotal(c.id); });
+    return t;
+  };
+
+  const maxDepth = level >= 3 ? 99 : Math.max(1, level);
+  const build = (catId, depth, color) => {
+    const cat = DataStore.getCategory(catId);
+    if (!cat) return null;
+    const total = subtotal(catId);
+    if (total <= 0.005) return null;
+    const node = { id: catId, name: cat.name, icon: cat.icon, value: total, color, children: [] };
+    const kids = DataStore.getChildren(catId) || [];
+    if (depth < maxDepth && kids.length) {
+      const childColor = lightenColor(color, 18);
+      kids.forEach(c => {
+        const n = build(c.id, depth + 1, childColor);
+        if (n) node.children.push(n);
+      });
+      const own = direct[catId] || 0;
+      // The parent's own receipts need a box too, or the areas would not add up
+      if (own > 0.005 && node.children.length) {
+        node.children.push({
+          id: catId + '-direct', name: cat.name + __('stats.direct'), icon: '📌',
+          value: own, color: lightenColor(color, 34), children: [], leafOnly: true
+        });
+      }
+      node.children.sort((a, b) => b.value - a.value);
+    }
+    return node;
+  };
+
+  const drill = getDrillCategory();
+  let rootIds;
+  if (drill) {
+    rootIds = (DataStore.getChildren(drill) || []).map(c => c.id);
+    const own = direct[drill] || 0;
+    const nodes = rootIds.map((id, i) => build(id, 1, COLORS[i % COLORS.length])).filter(Boolean);
+    if (own > 0.005) {
+      const dc = DataStore.getCategory(drill);
+      nodes.push({ id: drill + '-direct', name: (dc ? dc.name : '') + __('stats.direct'), icon: '📌',
+        value: own, color: COLORS[nodes.length % COLORS.length], children: [], leafOnly: true });
+    }
+    return nodes.sort((a, b) => b.value - a.value);
+  }
+  rootIds = (DataStore.getRootCategories() || [])
+    .filter(c => !(billSet && billSet.has(c.id)))
+    .map(c => c.id);
+  // Colour by descending spend so the palette matches the pie and the waffle
+  const ranked = rootIds.map(id => ({ id, v: subtotal(id) })).filter(r => r.v > 0.005)
+    .sort((a, b) => b.v - a.v);
+  return ranked.map((r, i) => build(r.id, 1, COLORS[i % COLORS.length])).filter(Boolean);
+}
+
+function drawCategoryTreemap(canvasId, startDate, endDate, height) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const tc = getThemeColors();
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const w = rect.width || 400;
+  const h = height || 250;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  const nodes = buildCategoryTreeNodes(statsHierarchyLevel, startDate, endDate);
+  const total = nodes.reduce((s, n) => s + n.value, 0);
+  if (!nodes.length || total <= 0) {
+    _treemapRects = [];
+    canvas._treemapRects = [];
+    ctx.fillStyle = tc.textMuted;
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(__('stats.noCategoryData'), w / 2, h / 2);
+    return;
+  }
+
+  const flat = [];
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+  function place(list, x, y, bw, bh, depth) {
+    const boxes = squarify(list, x, y, bw, bh);
+    boxes.forEach(b => {
+      const pad = depth === 0 ? 1.5 : 1;
+      const bx = b.x + pad, by = b.y + pad;
+      const bwid = Math.max(0, b.w - pad * 2), bhei = Math.max(0, b.h - pad * 2);
+      if (bwid <= 0.5 || bhei <= 0.5) return;
+
+      const hasKids = b.children && b.children.length > 0;
+      ctx.fillStyle = b.color;
+      ctx.fillRect(bx, by, bwid, bhei);
+      ctx.strokeStyle = isDark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.75)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx + 0.5, by + 0.5, Math.max(0, bwid - 1), Math.max(0, bhei - 1));
+
+      flat.push({ id: b.id, name: b.name, icon: b.icon, value: b.value,
+                  x: bx, y: by, w: bwid, h: bhei, depth, leafOnly: !!b.leafOnly });
+
+      // A parent keeps a title strip and hands the rest of its box to its children
+      const headerH = 15;
+      if (hasKids && bhei > headerH + 12 && bwid > 40) {
+        _label(bx + 4, by + 11, bwid - 8, b, true);
+        place(b.children, bx + 2, by + headerH, bwid - 4, bhei - headerH - 2, depth + 1);
+      } else if (bwid > 34 && bhei > 14) {
+        _label(bx + 4, by + Math.min(12, bhei / 2 + 4), bwid - 8, b, false);
+      }
+    });
+  }
+
+  function _label(tx, ty, maxW, node, isHeader) {
+    ctx.font = (isHeader ? '600 ' : '') + '10px sans-serif';
+    ctx.textAlign = 'left';
+    const name = (node.icon ? node.icon + ' ' : '') + node.name;
+    const amount = formatMoney(node.value);
+    let text = name;
+    if (ctx.measureText(name + '  ' + amount).width <= maxW) text = name + '  ' + amount;
+    while (text.length > 1 && ctx.measureText(text).width > maxW) text = text.slice(0, -1);
+    // Readable on any fill: dark ink on light boxes and vice versa
+    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.92)' : 'rgba(17,24,39,0.88)';
+    ctx.fillText(text, tx, ty);
+  }
+
+  place(nodes, 0, 0, w, h, 0);
+  _treemapRects = flat;
+  canvas._treemapRects = flat;
+  canvas._treemapTotal = total;
+  bindTreemapHover(canvas);
+}
+
+/* Hit test walks deepest-first so a child wins over the parent it sits in */
+function treemapHitTest(canvas, mx, my) {
+  const rects = canvas._treemapRects || [];
+  let hit = null;
+  rects.forEach(r => {
+    if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
+      if (!hit || r.depth > hit.depth) hit = r;
+    }
+  });
+  return hit;
+}
+
+function bindTreemapHover(canvas) {
+  let tooltip = document.getElementById('waffleTooltip');
+  if (!tooltip) {
+    tooltip = document.createElement('div');
+    tooltip.id = 'waffleTooltip';
+    tooltip.style.cssText = 'display:none;position:fixed;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:0.75rem;pointer-events:none;z-index:1000;box-shadow:var(--shadow-md)';
+    document.body.appendChild(tooltip);
+  }
+  canvas.onmousemove = function (e) {
+    const br = canvas.getBoundingClientRect();
+    const hit = treemapHitTest(canvas, e.clientX - br.left, e.clientY - br.top);
+    if (!hit) { tooltip.style.display = 'none'; canvas.style.cursor = 'default'; canvas._treemapHit = null; return; }
+    canvas._treemapHit = hit;
+    const pct = canvas._treemapTotal ? (hit.value / canvas._treemapTotal * 100).toFixed(1) : '0';
+    tooltip.innerHTML = '<b>' + escHtml((hit.icon ? hit.icon + ' ' : '') + hit.name) + '</b><br>' +
+      formatMoney(hit.value) + ' · ' + pct + '%';
+    tooltip.style.display = 'block';
+    let tl = e.clientX + 12, tt = e.clientY + 12;
+    const tw = tooltip.offsetWidth || 160, th = tooltip.offsetHeight || 34;
+    if (tl + tw > window.innerWidth - 8) tl = e.clientX - tw - 12;
+    if (tt + th > window.innerHeight - 8) tt = e.clientY - th - 12;
+    tooltip.style.left = tl + 'px';
+    tooltip.style.top = tt + 'px';
+    const kids = hit.leafOnly ? [] : (DataStore.getChildren(hit.id) || []);
+    canvas.style.cursor = kids.length ? 'pointer' : 'default';
+  };
+  canvas.onmouseleave = function () {
+    tooltip.style.display = 'none';
+    canvas._treemapHit = null;
+  };
+  canvas.onclick = function () {
+    const hit = canvas._treemapHit;
+    if (hit && !hit.leafOnly) drillIntoCategory(hit.id);
+  };
+}
+
 /* ---------- Shared waffle renderer ----------
    data: [{ name, amount, color, id? }] already sorted/filtered.
    opts: { height, density, legendId, emptyText, onItem, onSwatch } */
@@ -2718,7 +3006,8 @@ addI18nEntries({
   'stats.waffle.density': { zh: '密度', en: 'Density' },
   'stats.catView.pie': { zh: '饼图', en: 'Pie' },
   'stats.catView.waffle': { zh: '格子图', en: 'Waffle' },
-  'stats.catView.hint': { zh: '同一份分类数据的两种看法：饼图看占比，格子图看「一格 = 多少钱」', en: 'Two readings of the same category data: a pie for proportion, a waffle for "one block = this much money"' },
+  'stats.catView.treemap': { zh: '矩形图', en: 'Treemap' },
+  'stats.catView.hint': { zh: '同一份分类数据的三种看法：饼图看占比，格子图看「一格 = 多少钱」，矩形图按面积比大小、用嵌套看层级', en: 'Three readings of the same category data: a pie for proportion, a waffle for "one block = this much money", a treemap for size by area with nesting for hierarchy' },
   'stats.category': { zh: '分类', en: 'Category' },
   'stats.amount': { zh: '金额', en: 'Amount' },
   'stats.percentage': { zh: '占比', en: 'Percentage' },
@@ -2820,6 +3109,9 @@ addI18nEntries({
   window.applyStatsCatView = applyStatsCatView;
   window.setCatWaffleDensity = setCatWaffleDensity;
   window.drawCategoryWaffle = drawCategoryWaffle;
+  window.drawCategoryTreemap = drawCategoryTreemap;
+  window.buildCategoryTreeNodes = buildCategoryTreeNodes;
+  window.squarify = squarify;
   window.buildCategoryWaffleData = buildCategoryWaffleData;
   window.renderPieDetailTable = renderPieDetailTable;
   window.toggleExpandPieRow = toggleExpandPieRow;

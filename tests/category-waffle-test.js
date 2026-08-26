@@ -116,7 +116,7 @@ async function run() {
 
   /* ---------- 1. The toggle exists and defaults to the pie ---------- */
   assert('view toggle rendered on the category card',
-    window.document.querySelectorAll('#pieCard [data-cat-view]').length === 2);
+    window.document.querySelectorAll('#pieCard [data-cat-view]').length === 3);
   assert('both canvases live in the same card',
     !!$('pieChart') && !!$('catWaffleChart')
     && $('pieCard').contains($('pieChart')) && $('pieCard').contains($('catWaffleChart')));
@@ -199,7 +199,7 @@ async function run() {
   assert('overlay has both canvases', !!$('expandCatWaffle') && !!$('expandPieChart'));
   assert('overlay opens on the waffle', !isHidden($('expandCatWaffle')) && isHidden($('expandPieChart')));
   assert('overlay carries its own view toggle',
-    window.document.querySelectorAll('#chartExpandOverlay [data-cat-view]').length === 2);
+    window.document.querySelectorAll('#chartExpandOverlay [data-cat-view]').length === 3);
   window.setStatsCatView('pie');
   assert('toggling inside the overlay swaps its canvases too',
     !isHidden($('expandPieChart')) && isHidden($('expandCatWaffle')));

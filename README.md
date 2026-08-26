@@ -92,7 +92,7 @@ Advanced multi-filter system supporting keyword, category, date range, amount ra
 Infinite nesting tree with accordion UI. Set per-category budgets in RM or percentage. Inline budget editing with parent-child budget validation. Merge categories, move nodes with cycle detection, pick from 14 preset colors, and choose emoji icons.
 
 ### 📈 统计 Statistics
-Interactive Canvas charts — elastic animated pie chart with hover pop-out and full drill-down (switchable to a **waffle grid** of the same category data, where one block = a fixed amount of money), animated line chart, bar chart with drill-down, and a calendar heatmap with 6-color gradient. Month-over-month comparison, 6-month trends, and a dedicated savings chart. All charts downloadable as PNG. Custom date range analysis included.
+Interactive Canvas charts — elastic animated pie chart with hover pop-out and full drill-down (switchable to a **waffle grid** where one block = a fixed amount, or a **nested treemap** where area = spend and boxes nest to show the category hierarchy), animated line chart, bar chart with drill-down, and a calendar heatmap with 6-color gradient. Month-over-month comparison, 6-month trends, and a dedicated savings chart. All charts downloadable as PNG. Custom date range analysis included.
 
 ### 📄 月度报告 Report
 Print-optimized monthly summary featuring budget and savings rings, a category breakdown table, a spending sparkline, and natural language savings prediction.
@@ -119,6 +119,7 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 - **💰 部分还款**：参与人记「应还 / 已还」金额而非单一勾选框。单笔可直接设定已还金额（含撤销），一次收到的钱也可冲抵多笔账单——支持全选 / 全不选 / 反选，按**平均分配 / 按日期先后 / 手动指定**三种方式分摊，整数分运算不丢厘，且任何分配都不会让人还超应还额。
 - **💳 大额分期消费计划**：三模式（先攒后买 / 先买后还 / 信用卡分期），月供自动占用可支配预算，台账逐月重放推导，逾期可延期 / 补齐 / 放弃。起始月改用年 + 月下拉选择（不再是 `<input type="month">`），带「本月 / 下月」快捷键与起止区间提示，金额 / 期数 / 月份均有边界校验。
 - **🎨 分类图标与颜色**：新建子分类自动继承父级颜色；编辑分类图标时可直接输入任意 Emoji，不再局限于预设网格。
+- **▤ 分类矩形图（treemap）**：面积正比于金额，子分类的框**嵌套**在父分类框里——一眼看出「餐饮花得多」是被哪个子分类拉高的。层级控件直接决定嵌套几层，点框下钻。与饼图/格子图并列为分类卡片的第三种视图。
 - **▦ 分类格子图**：分类支出卡片新增「饼图 / 格子图」视图切换——格子图把金额画成方块阵（一格 = 固定金额），比饼图更容易比较相近的占比。与饼图共用同一份数据，下钻、层级（1 层 / 2 层 / 全部）、排除账单开关、配色全部通用，点格子即下钻，展开弹窗同样支持。
 - **📈 统计页可读性**：分类明细表默认收起（可折叠并记忆状态）；饼图深层展开时标签不再重叠、不越过图例栏，图例按画布高度封顶；热力图格子间距恢复均匀。
 

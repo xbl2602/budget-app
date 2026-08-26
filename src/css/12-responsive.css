@@ -216,7 +216,8 @@
    `display` must NOT be forced — a `display: block !important` here used to beat
    the inline display:none and render both charts stacked on top of each other. */
 .chart-expand-inner #expandPieChart,
-.chart-expand-inner #expandCatWaffle {
+.chart-expand-inner #expandCatWaffle,
+.chart-expand-inner #expandCatTreemap {
   width: 100% !important;
   max-width: 650px !important;
   height: 400px !important;

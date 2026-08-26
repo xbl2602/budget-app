@@ -472,7 +472,13 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `showMonthCompare` | 月度对比开关 |
 | `_expandedChart` | 展开的图表类型（'heatmap' / 'pie'） |
 
-**分类支出卡片的两种视图**——饼图和格子图（waffle）读的是**同一份** `buildPieSliceRows()` 行，所以下钻状态、层级选择、排除账单开关在两种视图间完全通用，配色也一一对应（都用 `COLORS[i]`）。
+**分类支出卡片的三种视图**（`statsCatView`：`pie` / `waffle` / `treemap`）——下钻状态、层级选择、排除账单开关、配色在三者间完全通用。饼图与格子图共用 `buildPieSliceRows()` 的扁平行；矩形图另走 `buildCategoryTreeNodes()`，因为它要的是**嵌套树**而不是扁平列表。
+
+| 视图 | 回答的问题 |
+|---|---|
+| 🥧 饼图 | 各分类占比多少 |
+| ▦ 格子图 | 一格 = 多少钱（离散计数感） |
+| ▤ 矩形图 | 谁大谁小（面积可直接比较），以及**大数字是从哪儿来的**（嵌套显示层级） |
 
 | 函数 | 说明 |
 |------|------|
@@ -481,6 +487,11 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `buildCategoryWaffleData(canvasId, s, e)` | 把 `buildPieSliceRows` 的行转成 `{id, name, amount, color}` |
 | `drawCategoryWaffle(canvasId, s, e, h)` | 画分类格子图。点格子 = 下钻（与点饼图扇区一致），叶子分类不响应 |
 | `setCatWaffleDensity(n)` | 分类格子图密度，独立于标签卡片（`budgetCatWaffleDensity` vs `budgetWaffleDensity`） |
+| `catViewClass(view)` | 三个 canvas 的可见性类。**markup 与 `applyStatsCatView()` 必须共用它**——之前 markup 里写死两路三元表达式，加第三种视图时饼图在矩形图模式下没被隐藏 |
+| `buildCategoryTreeNodes(level, s, e)` | 矩形图的嵌套树。层级即嵌套深度：1 = 只画根，2 = 子分类嵌进父框，全部 = 逐层嵌到叶子。父分类自己的流水会单独生成一个「(直接)」框，否则子框面积加不满父框 |
+| `squarify(nodes, x, y, w, h)` | Squarified treemap 布局（Bruls et al.）。按短边成行铺放、以最差长宽比决定何时换行，小分类才不会变成细条 |
+| `drawCategoryTreemap(canvasId, s, e, h)` | 绘制。父框留 15px 标题条、其余空间交给子框递归；命中检测按 `depth` 深者优先，所以点子框不会命中父框 |
+| `lightenColor(hex, pct)` | 子分类颜色 = 父色向白色混合，一支下的分类读起来是同一族 |
 | `renderWaffle(canvasId, data, opts)` | **共用的格子图渲染器**。`opts = { height, density, legendId, emptyText, onItem, onSwatch }`，`opts` 挂在 canvas 上供 hover/点击回调读取 |
 | `drawWaffleChart(canvasId, records)` | 标签格子图入口：聚合 `r.tags` 后交给 `renderWaffle`（点击跳流水页筛选、色块开颜色选择器） |
 
@@ -875,7 +886,8 @@ for t in tests/*.js; do node "$t"; done
 | `tests/plan-editor-bounds-test.js` | 大额计划编辑器：月份选择器与全部边界校验（13 月 / 期数 / 金额） |
 | `tests/partial-repayment-test.js` | 分摊部分还款：金额模型、三种分配方式、限制、收款对话框 |
 | `tests/structure-fixes-test.js` | 分类颜色继承与自定义图标、分摊编辑器字段、饼图标签几何 |
-| `tests/category-waffle-test.js` | 分类格子图：视图切换与持久化、与饼图共用数据/配色、下钻、密度独立、标签格子图回归 |
+| `tests/category-waffle-test.js` | 分类格子图：视图切换与持久化、与饼图共用数据/配色、下钻、密度独立、展开弹窗、标签格子图回归 |
+| `tests/category-treemap-test.js` | 分类矩形图：squarify 布局（面积正比、铺满、长宽比、越界）、按层级嵌套、子框在父框内、下钻、展开弹窗 |
 
 写测试时注意：
 
