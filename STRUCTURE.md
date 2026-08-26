@@ -492,6 +492,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `squarify(nodes, x, y, w, h)` | Squarified treemap 布局（Bruls et al.）。按短边成行铺放、以最差长宽比决定何时换行，小分类才不会变成细条 |
 | `drawCategoryTreemap(canvasId, s, e, h)` | 绘制。父框留 15px 标题条、其余空间交给子框递归；命中检测按 `depth` 深者优先，所以点子框不会命中父框 |
 | `lightenColor(hex, pct)` | 子分类颜色 = 父色向白色混合，一支下的分类读起来是同一族 |
+| `togglePieDetailTable()` | 展开/收起卡片下方的分类明细表（默认收起，状态存 `budgetStatsPieTable`）。收起时不渲染 |
+| `splitContribForCurrentRange()` | 当前时间窗内他人已还的分摊金额。按月 / 近 30 天 / 自定义范围分别取数，与顶部总额的算法保持一致，明细表底部靠它对账 |
 | `renderWaffle(canvasId, data, opts)` | **共用的格子图渲染器**。`opts = { height, density, legendId, emptyText, onItem, onSwatch }`，`opts` 挂在 canvas 上供 hover/点击回调读取 |
 | `drawWaffleChart(canvasId, records)` | 标签格子图入口：聚合 `r.tags` 后交给 `renderWaffle`（点击跳流水页筛选、色块开颜色选择器） |
 
@@ -501,7 +503,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 
 | 坑 | 说明 |
 |---|---|
-| 可见性必须用 class，不能用内联 `display` | `12-responsive.css` 里 `#expandPieChart` 曾有 `display: block !important`，**id 级 `!important` 会压过内联样式**，结果饼图和格子图在弹窗里上下叠着一起显示。现在统一用 `.cat-view-hidden` 切换 |
+| 可见性必须用 class，不能用内联 `display` | `12-responsive.css` 里 `#expandPieChart` 曾有 `display: block !important`，**id 级 `!important` 会压过内联样式**，结果饼图和格子图在弹窗里上下叠着一起显示。现在三个 canvas 统一走 `catViewClass()` + `.cat-view-hidden` |
 | 下钻要走 `drillIntoCategory()` / `backFromDrill()` | 原先是内联 onclick 里写一串语句，只重画 `expandPieChart`；格子图模式下重画的是隐藏的 canvas，看起来就是「下钻失效」。两个函数内部用 `refreshExpandedCatChart()` 重画**当前可见的那个** |
 | 图表高度只在 CSS 里定 | 三个渲染函数都用 `Math.round(rect.height) || 传入值` 读回布局后的高度。以前 CSS 写 `height:400px` 而 JS 按 360 画，canvas 的 backing store 和显示框对不上，整张图被拉伸糊掉。**别再往 JS 里写死高度** |
 | 表格与图表必须用同一个时间窗 | `renderPieTable` 原先固定传 `null, null`，自定义日期范围下表格退回整月、图表用范围，两个数对不上 |
