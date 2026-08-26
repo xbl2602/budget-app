@@ -28,8 +28,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 │   ├── index.html              # HTML 骨架
 │   ├── css/                    # 15 个 CSS 文件
 │   └── js/                     # 27 个 JS 文件
-├── features/                   # 功能文档
-│   └── budget-app-feature-catalog.md  # 完整功能目录
+├── features/                   # 功能文档（v2.0.0 时期快照，仅供参考，勿当现状）
+│   └── budget-app-feature-catalog.md  # 见文件顶部的时效性说明
 ├── logs/                       # 开发日志
 ├── technical/                  # 技术日志
 └── user/                       # 用户变更日志
@@ -233,7 +233,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 
 | 符号 | 说明 |
 |------|------|
-| `function exportToExcel()` | 生成 XML Spreadsheet 2003（5 个工作表，含 SUMIF/AVERAGE/IF 公式） |
+| `function exportToExcel()` | 生成 XML Spreadsheet 2003（7 个工作表：消费记录 / 分类统计 / 月度统计 / 预算跟踪 / 储蓄统计 / 分摊账单 / 大额计划，含 SUMIF/AVERAGE/IF 公式） |
 
 ---
 

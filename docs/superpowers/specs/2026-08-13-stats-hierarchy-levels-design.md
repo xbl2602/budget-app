@@ -1,5 +1,19 @@
 # 2026-08-13 — Stats category-spending hierarchy levels
 
+> ## ⚠️ 决策 1 已被推翻（2026-08-25）
+>
+> 本文当时把「分类支出用格子图呈现」否掉了（Decision 1：*The waffle/tag card stays
+> tag-only — one card, one dimension*），理由是可读性。**这个决定后来被用户推翻并已实现**：
+> 分类支出卡片现在有「🥧 饼图 / ▦ 格子图」视图切换，见 commit `fb05b6c`
+> 与 [STRUCTURE.md](../../../STRUCTURE.md) 的 `17-stats-charts.js` 一节。
+>
+> 落地方式与本文当时的顾虑不同：不是往标签卡片上加维度，而是在**分类卡片自身**
+> 加视图切换，两种视图共用同一份 `buildPieSliceRows()` 数据。半宽卡片的可读性
+> 顾虑并未成立——格子图按宽高比自适应，不像饼图那样需要固定留出图例列。
+>
+> 本文其余部分（层级控制的设计与行为）仍然有效，作为当时的记录保留原样。
+
+
 ## Problem
 The stats page "category spending" view (pie chart + expanded detail table) only
 expands one level of subcategories, and the tag (waffle) card has no way to view
