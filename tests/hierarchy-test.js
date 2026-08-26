@@ -147,6 +147,38 @@ async function run() {
   await new Promise(r => setTimeout(r, 60));
   assert('on-page table back to 1 layer: no 夜宵 row', detailTable.innerHTML.indexOf('夜宵') === -1);
 
+  // ---- custom date range actually narrows the window ----
+  // renderStats() used to unconditionally restore statsMonth, so the blank month
+  // that marks custom-range mode was wiped and useCustomRange() never fired.
+  window.setStatsHierarchyLevel(1);
+  const dStart = window.document.getElementById('statsDateStart');
+  const dEnd = window.document.getElementById('statsDateEnd');
+  if (dStart && dEnd) {
+    dStart.value = month + '-01';
+    dEnd.value = month + '-06';        // r1 (10) + r2 (40) only; r3/r4 fall outside
+    window.changeStatsCustom();
+    await new Promise(r => setTimeout(r, 200));
+    assert('custom range clears statsMonth', window.statsMonth === '', JSON.stringify(window.statsMonth));
+    const ranged = window.buildPieSliceRows(1, 'pieChart', window.statsStartDate, window.statsEndDate);
+    const rangedSum = ranged.reduce((s, d) => s + d.total, 0);
+    assert('range totals only the records inside it', rangedSum === 50, 'got ' + rangedSum);
+
+    // renderStats() rebuilt #page-stats, so the earlier node reference is detached
+    let liveTable = window.document.getElementById('pieDetailTable');
+    if (liveTable.style.display === 'none') window.togglePieDetailTable();
+    await new Promise(r => setTimeout(r, 150));
+    liveTable = window.document.getElementById('pieDetailTable');
+    assert('the on-page table honours the range too',
+      liveTable.textContent.indexOf('50.00') !== -1 && liveTable.textContent.indexOf('110.00') === -1,
+      liveTable.textContent.replace(/\s+/g, ' ').slice(-120));
+
+    window.changeStatsMonth(month);
+    await new Promise(r => setTimeout(r, 200));
+    assert('switching back to a month restores it', window.statsMonth === month);
+    const backSum = window.buildPieSliceRows(1, 'pieChart', null, null).reduce((s, d) => s + d.total, 0);
+    assert('month view is whole-month again', backSum === 110, 'got ' + backSum);
+  }
+
   // setStatsHierarchyLevel persists + redraws without drill reset
   window.setStatsHierarchyLevel(3);
   assert('localStorage persisted', window.localStorage.getItem('budgetStatsHierarchy') === '3');

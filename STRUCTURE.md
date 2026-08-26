@@ -484,6 +484,20 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `renderWaffle(canvasId, data, opts)` | **共用的格子图渲染器**。`opts = { height, density, legendId, emptyText, onItem, onSwatch }`，`opts` 挂在 canvas 上供 hover/点击回调读取 |
 | `drawWaffleChart(canvasId, records)` | 标签格子图入口：聚合 `r.tags` 后交给 `renderWaffle`（点击跳流水页筛选、色块开颜色选择器） |
 
+**格子排列是行优先（row-major）**：`cells` 已按金额从大到小排好，格子沿一行从左到右填、填满换下一行，所以**最大的分类在最上面，最小的在最下面**。历史上有过一次 `fix: waffle排列改为列优先(从左到右)`（`fc93304`），2026-08-26 按用户要求改回行优先——别再翻回去。四处必须同时改、否则悬停会指错格子：`animateWaffle` 的 `positions`、动画帧、`drawWaffleStatic`、以及 `bindWaffleHover` 里的反向映射 `idx = row * cols + col`。`tests/category-waffle-test.js` 用记录型上下文捕获 `fill()` 的坐标，断言「最长的一段 y 非递减序列」跨越整个网格（列优先时这个长度不可能超过一列）。
+
+**展开弹窗里的三个坑（都踩过）：**
+
+| 坑 | 说明 |
+|---|---|
+| 可见性必须用 class，不能用内联 `display` | `12-responsive.css` 里 `#expandPieChart` 曾有 `display: block !important`，**id 级 `!important` 会压过内联样式**，结果饼图和格子图在弹窗里上下叠着一起显示。现在统一用 `.cat-view-hidden` 切换 |
+| 下钻要走 `drillIntoCategory()` / `backFromDrill()` | 原先是内联 onclick 里写一串语句，只重画 `expandPieChart`；格子图模式下重画的是隐藏的 canvas，看起来就是「下钻失效」。两个函数内部用 `refreshExpandedCatChart()` 重画**当前可见的那个** |
+| 表格与图表必须用同一个时间窗 | `renderPieTable` 原先固定传 `null, null`，自定义日期范围下表格退回整月、图表用范围，两个数对不上 |
+
+**自定义日期范围的开关是「`statsMonth` 为空」**（`useCustomRange()` 要求 `statsStartDate && statsEndDate && !statsMonth`）。`renderStats()` 开头曾无条件执行 `statsMonth = statsMonth || 当月`，把这个标记冲掉，导致选了日期范围也永远按整月算。现在只在没有自定义范围时才回落到当月——改 `renderStats()` 开头那几行时务必注意。
+
+**合计口径**——分类行是**毛额**（分摊流水按账单全额计入其真实分类），而统计页顶部和总览是**净额**（`getMonthTotal` 会减去 `getSplitContrib`，即他人已还的钱）。两者天然不等，差额 = 已收回的分摊。表格底部因此会补两行：「减：已收回分摊」和「实际支出」，后者与顶部数字一致。**没有改分类金额本身**——分类预算进度是按毛额比对的，改了会连带改掉预算的含义。
+
 > 分类格子图**不提供**色块改色——它的配色跟随饼图调色板（`COLORS[i]`），改了也不会生效；标签格子图才有自定义颜色。
 >
 > `animateWaffle` 收显式的 `canvas` 参数，不要退回用 `ctx.canvas`：清屏范围要按真实 canvas 高度算（展开视图是 360px，不是卡片里的 220/250px）。
