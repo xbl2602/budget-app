@@ -7,6 +7,33 @@ const { JSDOM } = require('jsdom');
 const root = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
+// Records every filled cell rect so the layout can be asserted numerically
+const drawn = [];
+function recordingStub() {
+  const noop = () => {};
+  let pending = null;
+  const c = {
+    setTransform: noop, scale: noop, translate: noop, rotate: noop,
+    clearRect: noop, fillRect: noop, strokeRect: noop, beginPath: noop,
+    closePath: noop, moveTo: noop, lineTo: noop, arc: noop, arcTo: noop,
+    bezierCurveTo: noop, quadraticCurveTo: noop, stroke: noop,
+    clip: noop, fillText: noop, strokeText: noop,
+    measureText: () => ({ width: 10 }), save: noop, restore: noop,
+    createLinearGradient: () => ({ addColorStop: noop }),
+    createRadialGradient: () => ({ addColorStop: noop }),
+    createPattern: () => ({}), drawImage: noop,
+    getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData: noop,
+    resetTransform: noop, setLineDash: noop, rect: noop, ellipse: noop,
+    globalAlpha: 1, globalCompositeOperation: 'source-over',
+    lineWidth: 1, lineCap: 'butt', lineJoin: 'miter',
+    strokeStyle: '#000', fillStyle: '#000', font: '10px sans-serif',
+    textAlign: 'left', textBaseline: 'alphabetic',
+    roundRect(x, y, w, h) { pending = { x, y, w, h }; return this; },
+    fill() { if (pending) { drawn.push({ x: pending.x, y: pending.y, color: c.fillStyle }); pending = null; } },
+  };
+  return c;
+}
+
 function canvasStub() {
   const noop = () => {};
   return {
@@ -56,6 +83,11 @@ whenReady().then(async () => {
 });
 
 const $ = id => window.document.getElementById(id);
+const isHidden = el => !!el && el.classList.contains('cat-view-hidden');
+const statsTableOpen = () => {
+  const b = $('pieDetailTable');
+  return !!b && b.style.display !== 'none';
+};
 
 async function run() {
   const { DataStore } = window;
@@ -89,13 +121,13 @@ async function run() {
     !!$('pieChart') && !!$('catWaffleChart')
     && $('pieCard').contains($('pieChart')) && $('pieCard').contains($('catWaffleChart')));
   assert('pie is the default view',
-    $('pieChart').style.display !== 'none' && $('catWaffleChart').style.display === 'none');
+    !isHidden($('pieChart')) && isHidden($('catWaffleChart')));
 
   /* ---------- 2. Switching swaps the canvas, not the layout ---------- */
   const cardBefore = $('pieCard').getBoundingClientRect().width;
   window.setStatsCatView('waffle');
   assert('waffle shows, pie hides',
-    $('catWaffleChart').style.display !== 'none' && $('pieChart').style.display === 'none');
+    !isHidden($('catWaffleChart')) && isHidden($('pieChart')));
   assert('the card itself is untouched (no layout reflow)',
     $('pieCard').getBoundingClientRect().width === cardBefore);
   assert('choice persists to localStorage', window.localStorage.getItem('budgetStatsCatView') === 'waffle');
@@ -105,7 +137,7 @@ async function run() {
 
   window.setStatsCatView('pie');
   assert('switching back restores the pie',
-    $('pieChart').style.display !== 'none' && $('catWaffleChart').style.display === 'none');
+    !isHidden($('pieChart')) && isHidden($('catWaffleChart')));
   assert('density control hides again', $('catWaffleDensity').style.display === 'none');
   window.setStatsCatView('waffle');
 
@@ -165,13 +197,12 @@ async function run() {
   window.expandPie();
   await new Promise(r => setTimeout(r, 120));
   assert('overlay has both canvases', !!$('expandCatWaffle') && !!$('expandPieChart'));
-  assert('overlay opens on the waffle', $('expandCatWaffle').style.display === 'block'
-    && $('expandPieChart').style.display === 'none');
+  assert('overlay opens on the waffle', !isHidden($('expandCatWaffle')) && isHidden($('expandPieChart')));
   assert('overlay carries its own view toggle',
     window.document.querySelectorAll('#chartExpandOverlay [data-cat-view]').length === 2);
   window.setStatsCatView('pie');
   assert('toggling inside the overlay swaps its canvases too',
-    $('expandPieChart').style.display === 'block' && $('expandCatWaffle').style.display === 'none');
+    !isHidden($('expandPieChart')) && isHidden($('expandCatWaffle')));
   window.shrinkChart();
   window.setStatsCatView('waffle');
 
@@ -184,7 +215,136 @@ async function run() {
   try { window.drawCategoryWaffle('catWaffleChart', null, null, 250); } catch (e) { threw = true; }
   assert('drawing an empty waffle does not throw', !threw);
 
-  /* ---------- 10. The tag waffle still works (regression) ---------- */
+  /* ---------- 10. Blocks run largest-at-the-top, not largest-at-the-left ---------- */
+  DataStore._data.records = [
+    { id: 'w1', categoryId: 'catA', amount: 60, date: month + '-05' },
+    { id: 'w2', categoryId: 'catB', amount: 40, date: month + '-06' },
+  ];
+  DataStore.save();
+  window.setStatsHierarchyLevel(1);
+
+  const origGet = window.HTMLCanvasElement.prototype.getContext;
+  const origRect = window.HTMLCanvasElement.prototype.getBoundingClientRect;
+  window.HTMLCanvasElement.prototype.getContext = recordingStub;
+  window.HTMLCanvasElement.prototype.getBoundingClientRect = function () {
+    return { width: 400, height: 250, top: 0, left: 0, right: 400, bottom: 250, x: 0, y: 0 };
+  };
+  try {
+    drawn.length = 0;
+    window.drawCategoryWaffle('catWaffleChart', null, null, 250);
+    await new Promise(r => setTimeout(r, 1400));   // let the pop-in finish
+  } finally {
+    window.HTMLCanvasElement.prototype.getContext = origGet;
+    window.HTMLCanvasElement.prototype.getBoundingClientRect = origRect;
+  }
+
+  assert('cells were recorded', drawn.length > 50, String(drawn.length));
+
+  // The pop-in animation staggers cells across frames, so `drawn` is a series of
+  // partial passes. The LONGEST non-decreasing-y run is therefore the final full
+  // frame: under row-major it spans the whole grid, under column-major it could
+  // never exceed one column (~10 cells).
+  let bestStart = 0, bestLen = 1, runStart = 0;
+  for (let i = 1; i <= drawn.length; i++) {
+    const broke = i === drawn.length || drawn[i].y < drawn[i - 1].y - 0.01;
+    if (broke) {
+      if (i - runStart > bestLen) { bestLen = i - runStart; bestStart = runStart; }
+      runStart = i;
+    }
+  }
+  assert('a full pass fills row by row (largest block on top, not on the left)',
+    bestLen > 50, 'longest non-decreasing-y run was only ' + bestLen + ' cells');
+
+  // And concretely: the biggest category owns the topmost row
+  const pass = drawn.slice(bestStart, bestStart + bestLen);
+  const minY = Math.min(...pass.map(d => d.y));
+  const maxY = Math.max(...pass.map(d => d.y));
+  const topColors = new Set(pass.filter(d => Math.abs(d.y - minY) < 0.01).map(d => d.color));
+  const bottomColors = new Set(pass.filter(d => Math.abs(d.y - maxY) < 0.01).map(d => d.color));
+  const data10 = window.buildCategoryWaffleData('catWaffleChart', null, null);
+  assert('top row belongs to the largest category',
+    topColors.has(data10[0].color) && topColors.size === 1,
+    [...topColors].join(',') + ' vs ' + data10[0].color);
+  assert('bottom row belongs to the smallest category',
+    bottomColors.has(data10[data10.length - 1].color),
+    [...bottomColors].join(',') + ' vs ' + data10[data10.length - 1].color);
+  assert('the two categories occupy different bands', minY < maxY);
+
+  /* ---------- 11. Expanded overlay: one chart at a time, drill works, totals reconcile ---------- */
+  DataStore.clearAll();
+  DataStore.importJSON(JSON.stringify({
+    records: [
+      { id: 'x1', categoryId: 'catA', amount: 400, date: month + '-03' },
+      { id: 'x2', categoryId: 'catB', amount: 300, date: month + '-04' },
+      { id: 'x3', categoryId: 'catA', amount: 400, date: month + '-05', splitBillId: 'sb1' },
+    ],
+    categories: [
+      { id: 'catA', name: '餐饮', icon: '🍜', color: '#e74c3c', parentId: null, sortOrder: 0 },
+      { id: 'catA1', name: '外卖', icon: '🍱', color: '#e67e22', parentId: 'catA', sortOrder: 0 },
+      { id: 'catB', name: '交通', icon: '🚌', color: '#3498db', parentId: null, sortOrder: 1 },
+    ],
+    budgets: {}, budgetObj: {}, categoryBudgets: {}, monthlyIncome: {},
+    billAmounts: {}, savingsTarget: { type: 'fixed', fixedAmount: 0 },
+    percentBase: 'gross', whatIfParams: null, allTags: [], billCategories: [],
+    contacts: [{ id: 'p1', name: '阿明' }],
+    splitBills: [{
+      id: 'sb1', amount: 400, date: month + '-05T12:00', note: '', tag: '聚餐',
+      categoryId: 'catA', payer: 'self', selfShare: 0, mode: 'equal',
+      participants: [{ contactId: 'p1', name: '阿明', share: 400, paid: true, paidAmount: 400, unknown: false }],
+    }],
+    _v: 7, _t: 'budget-app',
+  }), 'replace');
+  DataStore.init();
+  window.changeStatsMonth(month);
+  await new Promise(r => setTimeout(r, 150));
+  window.setStatsHierarchyLevel(1);
+  if (!statsTableOpen()) window.togglePieDetailTable();
+  await new Promise(r => setTimeout(r, 100));
+
+  // The headline nets off what others repaid; the category rows are gross.
+  // Both numbers must be on screen so they visibly reconcile.
+  const footer = $('pieDetailTable').textContent.replace(/\s+/g, ' ');
+  assert('table still totals the gross category spend', footer.indexOf('1,100.00') !== -1, footer.slice(-160));
+  assert('footer shows what was repaid back', footer.indexOf('400.00') !== -1);
+  assert('footer shows net spending matching the headline',
+    footer.indexOf('700.00') !== -1
+    && Math.round(window.StatsEngine.getMonthTotal(month) * 100) === 70000, footer.slice(-160));
+
+  window.setStatsCatView('waffle');
+  window.expandPie();
+  await new Promise(r => setTimeout(r, 150));
+  const hidden = el => el && el.classList.contains('cat-view-hidden');
+  // A `display: … !important` in the stylesheet used to beat the inline style and
+  // render BOTH charts stacked in the overlay
+  assert('overlay shows the waffle only', hidden($('expandPieChart')) && !hidden($('expandCatWaffle')));
+  window.setStatsCatView('pie');
+  assert('overlay shows the pie only after toggling', !hidden($('expandPieChart')) && hidden($('expandCatWaffle')));
+  assert('visibility is class-based, not inline display',
+    $('expandPieChart').style.display === '' && $('expandCatWaffle').style.display === '');
+
+  const drillRows = $('expandPieTable').querySelectorAll('[onclick*="drillIntoCategory"]');
+  assert('expanded table offers a drill row', drillRows.length > 0);
+  while (window.getDrillCategory()) window.resetStatsDrill();
+  drillRows[0].onclick();
+  await new Promise(r => setTimeout(r, 80));
+  assert('drilling from the expanded table works', window.getDrillCategory() === 'catA',
+    String(window.getDrillCategory()));
+  const backBtn = $('expandPieTable').querySelector('[onclick*="backFromDrill"]');
+  assert('expanded table gets a back button', !!backBtn);
+  backBtn.onclick();
+  await new Promise(r => setTimeout(r, 80));
+  assert('back leaves the drill', window.getDrillCategory() === null);
+
+  // Drilling must also work while the waffle is the visible chart
+  window.setStatsCatView('waffle');
+  await new Promise(r => setTimeout(r, 80));
+  window.drillIntoCategory('catA');
+  await new Promise(r => setTimeout(r, 80));
+  assert('drilling works in waffle mode too', window.getDrillCategory() === 'catA');
+  while (window.getDrillCategory()) window.resetStatsDrill();
+  window.shrinkChart();
+
+  /* ---------- 12. The tag waffle still works (regression) ---------- */
   DataStore._data.records = [{ id: 'r9', categoryId: 'catB', amount: 40, date: month + '-09', tags: ['旅行'] }];
   DataStore.save();
   window.renderStats();

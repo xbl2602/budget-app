@@ -286,8 +286,8 @@ function expandPie() {
       <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:1.1rem;margin-bottom:8px">📊 ${__('stats.pieChart.expandTitle')} ${renderCatViewToggle()} ${renderHierarchyToggle()}</div>
       <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
         <div style="flex:1;min-width:300px">
-          <canvas id="expandPieChart" style="width:100%;max-width:500px;height:360px;margin:0 auto;display:${statsCatView === 'waffle' ? 'none' : 'block'}"></canvas>
-          <canvas id="expandCatWaffle" style="width:100%;max-width:500px;height:360px;margin:0 auto;cursor:pointer;display:${statsCatView === 'waffle' ? 'block' : 'none'}"></canvas>
+          <canvas id="expandPieChart" class="${statsCatView === 'waffle' ? 'cat-view-hidden' : ''}" style="width:100%;max-width:500px;height:360px;margin:0 auto"></canvas>
+          <canvas id="expandCatWaffle" class="${statsCatView === 'waffle' ? '' : 'cat-view-hidden'}" style="width:100%;max-width:500px;height:360px;margin:0 auto;cursor:pointer"></canvas>
         </div>
         <div style="flex:1;min-width:250px" id="expandPieTable">
           <!-- Category table rendered here after chart draw -->
@@ -395,8 +395,10 @@ function applyStatsCatView() {
   const xWaffle = document.getElementById('expandCatWaffle');
   if (xPie || xWaffle) {
     const showWaffle = statsCatView === 'waffle';
-    if (xPie) xPie.style.display = showWaffle ? 'none' : 'block';
-    if (xWaffle) xWaffle.style.display = showWaffle ? 'block' : 'none';
+    // Class, not inline style: an id-level `display: … !important` in the
+    // stylesheet would otherwise beat an inline display and show both at once.
+    if (xPie) xPie.classList.toggle('cat-view-hidden', showWaffle);
+    if (xWaffle) xWaffle.classList.toggle('cat-view-hidden', !showWaffle);
     if (showWaffle) drawCategoryWaffle('expandCatWaffle', null, null, 360);
     else drawPieChart('expandPieChart', statsMonth, null, null, null, 360, false);
     renderExpandPieTable();
@@ -406,8 +408,8 @@ function applyStatsCatView() {
   const densityRow = document.getElementById('catWaffleDensity');
   const dlBtn = document.getElementById('catViewDownloadBtn');
   const isWaffle = statsCatView === 'waffle';
-  if (pie) pie.style.display = isWaffle ? 'none' : '';
-  if (waffle) waffle.style.display = isWaffle ? '' : 'none';
+  if (pie) pie.classList.toggle('cat-view-hidden', isWaffle);
+  if (waffle) waffle.classList.toggle('cat-view-hidden', !isWaffle);
   if (densityRow) densityRow.style.display = isWaffle ? '' : 'none';
   if (dlBtn) dlBtn.setAttribute('onclick', isWaffle ? "downloadChart('catWaffleChart')" : "downloadChart('pieChart')");
   const isCustom = useCustomRange();
@@ -534,11 +536,66 @@ function buildPieSliceRows(level, canvasId, startDate, endDate) {
   return rows.filter(function (d) { return d.total > 0.001; }).sort(function (a, b) { return b.total - a.total; });
 }
 
+/* Money others have already paid back inside the window the table is showing.
+   Mirrors how the headline total is computed (getMonthTotal / getPeriodTotal
+   both subtract it), so the table can reconcile against it. */
+function splitContribForCurrentRange() {
+  try {
+    if (useCustomRange()) {
+      const r = StatsEngine.getCustomRangeTotals(statsStartDate, statsEndDate);
+      return (r && r.splitContrib) || 0;
+    }
+    const isRolling = getStatsRange() === 'rolling30' && statsMonth === getMonthKey(new Date().toISOString());
+    if (isRolling && StatsEngine.getPeriodSplitContrib) return StatsEngine.getPeriodSplitContrib() || 0;
+    return statsMonth ? (StatsEngine.getSplitContrib(statsMonth) || 0) : 0;
+  } catch (e) { return 0; }
+}
+
+/* Redraw whichever chart the expanded overlay is currently showing. The drill
+   handlers used to redraw expandPieChart unconditionally, so drilling while the
+   waffle was on screen updated a hidden canvas and nothing appeared to happen. */
+function refreshExpandedCatChart() {
+  const isCustom = useCustomRange();
+  const sD = isCustom ? statsStartDate : null;
+  const eD = isCustom ? statsEndDate : null;
+  if (statsCatView === 'waffle') {
+    if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', sD, eD, 360);
+  } else if (document.getElementById('expandPieChart')) {
+    drawPieChart('expandPieChart', statsMonth, sD, eD, null, 360, false);
+  }
+}
+
+/* Single entry point for "drill into this category", shared by the detail table,
+   the pie slices and the waffle blocks. */
+function drillIntoCategory(catId) {
+  if (!catId) return;
+  const children = DataStore.getChildren(catId);
+  if (!children || !children.length) return;
+  if (getDrillCategory() !== catId) statsDrillStack.push(catId);
+  updateDrillCharts();
+  refreshExpandedCatChart();
+  renderPieTables();
+  syncPieDrillBar();
+}
+
+function backFromDrill() {
+  resetStatsDrill();          // already calls updateDrillCharts()
+  refreshExpandedCatChart();
+  renderPieTables();
+  syncPieDrillBar();
+}
+
 function renderPieTable(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
   
-  const data = buildPieSliceRows(statsHierarchyLevel, containerId === 'pieDetailTable' ? 'pieChart' : 'expandPieChart', null, null);
+  // Resolve the window exactly like the charts do. Passing null/null here made the
+  // table fall back to the whole month while the chart beside it honoured the
+  // custom range — the two then disagreed on the total.
+  const _isCustom = useCustomRange();
+  const _sD = _isCustom ? statsStartDate : null;
+  const _eD = _isCustom ? statsEndDate : null;
+  const data = buildPieSliceRows(statsHierarchyLevel, containerId === 'pieDetailTable' ? 'pieChart' : 'expandPieChart', _sD, _eD);
   
   if (!data.length) {
     container.innerHTML = '<div class="text-sm text-muted" style="padding:20px;text-align:center">' + __('stats.noCategoryData') + '</div>';
@@ -554,7 +611,7 @@ function renderPieTable(containerId) {
   // Back button + breadcrumb
   if (drillCat) {
     html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">';
-    html += '<button class="btn btn-ghost btn-sm" onclick="resetStatsDrill();if(document.getElementById(\'expandPieChart\'))drawPieChart(\'expandPieChart\', statsMonth, null, null, null, 360, false);renderPieTables()" title="' + __('stats.back') + '" style="padding:2px 8px;font-size:0.75rem">← ' + __('stats.back') + '</button>';
+    html += '<button class="btn btn-ghost btn-sm" onclick="backFromDrill()" title="' + __('stats.back') + '" style="padding:2px 8px;font-size:0.75rem">← ' + __('stats.back') + '</button>';
     html += '<span class="text-sm text-secondary">' + (parentCat ? parentCat.icon + ' ' + parentCat.name : '') + ' ' + __('stats.drill.subcategory') + '</span>';
     html += '</div>';
   }
@@ -581,7 +638,7 @@ function renderPieTable(containerId) {
     
     html += '<div style="flex:1;display:flex;align-items:center;gap:4px;min-width:0;cursor:' + (hasChildren ? 'pointer' : 'default') + '"';
     if (hasChildren) {
-      html += ' onclick="statsDrillStack.push(\'' + d.id + '\');updateDrillCharts();if(document.getElementById(\'expandPieChart\'))drawPieChart(\'expandPieChart\', statsMonth, null, null, null, 360, false);renderPieTables()"';
+      html += ' onclick="drillIntoCategory(\'' + d.id + '\')"';
       html += ' onmouseover="this.style.color=\'var(--primary)\'" onmouseout="this.style.color=\'\'"';
     }
     html += '>';
@@ -603,6 +660,25 @@ function renderPieTable(containerId) {
   html += '<span style="width:80px;text-align:right">' + formatMoney(total) + '</span>';
   html += '<span style="width:50px;text-align:right;color:var(--text-muted)">100%</span>';
   html += '</div>';
+
+  // Reconciliation with the headline figure. Category rows count the FULL amount
+  // of a split record (that is what was spent in the category), while the stats
+  // page and overview show spending net of what others have already paid back.
+  // Without this the two numbers look like one of them is simply wrong.
+  const reimbursed = splitContribForCurrentRange();
+  if (reimbursed > 0.005 && !drillCat) {
+    html += '<div style="display:flex;align-items:center;padding:3px 4px;font-size:0.78rem;color:var(--text-muted)">';
+    html += '<span style="flex:1">' + __('stats.reimbursedLabel') + '</span>';
+    html += '<span style="width:80px;text-align:right">-' + formatMoney(reimbursed) + '</span>';
+    html += '<span style="width:50px"></span>';
+    html += '</div>';
+    html += '<div style="display:flex;align-items:center;padding:3px 4px;font-size:0.82rem;font-weight:600;border-top:1px dashed var(--border)">';
+    html += '<span style="flex:1">' + __('stats.netSpendLabel') + '</span>';
+    html += '<span style="width:80px;text-align:right">' + formatMoney(Math.max(0, total - reimbursed)) + '</span>';
+    html += '<span style="width:50px"></span>';
+    html += '</div>';
+    html += '<div class="text-xs text-muted" style="padding:2px 4px;line-height:1.4">' + __('stats.reimbursedHint') + '</div>';
+  }
   
   html += '</div>';
   container.innerHTML = html;
@@ -789,7 +865,13 @@ function renderStats() {
   console.log('[renderStats] rendering for month:', statsMonth, 'custom:', statsStartDate, statsEndDate);
   const el = document.getElementById('page-stats');
   const now = new Date();
-  statsMonth = statsMonth || getMonthKey(now.toISOString());
+  // Only fall back to "this month" when no custom range is active. changeStatsCustom()
+  // blanks statsMonth to mark custom-range mode, and restoring it here unconditionally
+  // meant useCustomRange() could never return true — the picked range was ignored
+  // everywhere and the page silently kept showing the whole month.
+  if (!statsStartDate || !statsEndDate) {
+    statsMonth = statsMonth || getMonthKey(now.toISOString());
+  }
   window.statsMonth = statsMonth;
   const isRolling = getStatsRange() === 'rolling30' && statsMonth === getMonthKey(now.toISOString()) && !useCustomRange();
   const monthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(statsMonth);
@@ -970,8 +1052,8 @@ function renderStats() {
           ${renderBillToggle('pieChart')}
           <button class="view-toggle-btn" onclick="expandPie()" title="${__('stats.zoomIn')}" style="font-size:0.7rem">⛶ ${__('stats.expand')}</button>
         </div>
-        <canvas id="pieChart" width="400" height="300" style="width:100%;height:250px;display:${statsCatView === 'waffle' ? 'none' : ''}"></canvas>
-        <canvas id="catWaffleChart" width="400" height="250" style="width:100%;height:250px;cursor:pointer;display:${statsCatView === 'waffle' ? '' : 'none'}"></canvas>
+        <canvas id="pieChart" class="${statsCatView === 'waffle' ? 'cat-view-hidden' : ''}" width="400" height="300" style="width:100%;height:250px"></canvas>
+        <canvas id="catWaffleChart" class="${statsCatView === 'waffle' ? '' : 'cat-view-hidden'}" width="400" height="250" style="width:100%;height:250px;cursor:pointer"></canvas>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px">
           <button class="btn btn-ghost btn-sm" id="pieDetailToggleBtn" onclick="togglePieDetailTable()">${statsPieTableOpen ? '▼' : '▶'} ${__('stats.categoryDetail')}</button>
           ${renderCatDensityControl()}
@@ -2195,17 +2277,8 @@ function drawCategoryWaffle(canvasId, startDate, endDate, height) {
     density: catWaffleDensity,
     legendId: isExpand ? null : null,   // the detail table already lists every row
     emptyText: __('stats.noCategoryData'),
-    onItem: function (item) {
-      // Clicking a block drills in, exactly like clicking its pie slice
-      if (!item.id) return;
-      const children = DataStore.getChildren(item.id);
-      if (!children || !children.length) return;
-      if (getDrillCategory() !== item.id) statsDrillStack.push(item.id);
-      updateDrillCharts();
-      if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', null, null, 360);
-      renderPieTables();
-      syncPieDrillBar();
-    }
+    // Clicking a block drills in, exactly like clicking its pie slice
+    onItem: function (item) { drillIntoCategory(item.id); }
   });
 }
 
@@ -2290,10 +2363,13 @@ function animateWaffle(ctx, canvas, cells, cellSize, gap, offsetX, offsetY, cols
   var totalBatches = Math.ceil(cells.length / batchSize);
   var startTime = performance.now();
 
+  // Row-major fill: cells run left→right along a row, then wrap to the next row.
+  // Because `cells` is ordered largest category first, the biggest block sits at
+  // the TOP and the smallest at the bottom.
   var positions = cells.map(function(cell, i) {
     return {
-      col: Math.floor(i / rows),
-      row: i % rows,
+      col: i % cols,
+      row: Math.floor(i / cols),
       tagIndex: cell.tagIndex,
       color: cell.color
     };
@@ -2407,8 +2483,8 @@ function startHoverAnim(canvas, cells, cellSize, gap, offsetX, offsetY, cols, ro
     var highlightIdx = isLeaving ? -1 : targetTagIdx;
 
     cells.forEach(function(cell, i) {
-      var row = i % rows;
-      var col = Math.floor(i / rows);
+      var row = Math.floor(i / cols);
+      var col = i % cols;
       var x = offsetX + col * (cellSize + gap);
       var y = offsetY + row * (cellSize + gap);
       var isHighlighted = cell.tagIndex === highlightIdx;
@@ -2471,9 +2547,13 @@ function bindWaffleHover(canvas, cells, cellSize, gap, offsetX, offsetY, cols, r
     var my = e.clientY - rect.top;
     var col = Math.floor((mx - offsetX) / (cellSize + gap));
     var row = Math.floor((my - offsetY) / (cellSize + gap));
-    var idx = col * rows + row;
+    var idx = row * cols + col;   // must mirror the row-major fill above
 
-    if (idx >= 0 && idx < cells.length && mx >= offsetX && my >= offsetY) {
+    // col/row must be inside the grid: without the col bound, a pointer just
+    // right of the last column would spill into the next row's first cell.
+    var inGrid = col >= 0 && col < cols && row >= 0 && row < rows
+      && mx >= offsetX && my >= offsetY;
+    if (inGrid && idx >= 0 && idx < cells.length) {
       var tagIdx = cells[idx].tagIndex;
       if (tagIdx !== currentHoverTag) {
         currentHoverTag = tagIdx;
@@ -2526,8 +2606,8 @@ function drawWaffleStatic(canvas, cells, cellSize, gap, offsetX, offsetY, cols, 
   ctx.clearRect(0, 0, w, h);
 
   cells.forEach(function(cell, i) {
-    var row = i % rows;
-    var col = Math.floor(i / rows);
+    var row = Math.floor(i / cols);
+    var col = i % cols;
     var x = offsetX + col * (cellSize + gap);
     var y = offsetY + row * (cellSize + gap);
     var isHighlighted = highlightIdx !== undefined && cell.tagIndex === highlightIdx;
@@ -2632,6 +2712,9 @@ addI18nEntries({
   'stats.direct': { zh: '(直接)', en: '(direct)' },
   'stats.categoryDetail': { zh: '分类明细', en: 'Category details' },
   'stats.legendMore': { zh: '+{0} 项 · {1}', en: '+{0} more · {1}' },
+  'stats.reimbursedLabel': { zh: '减：已收回分摊', en: 'Less: split repayments received' },
+  'stats.netSpendLabel': { zh: '实际支出', en: 'Net spending' },
+  'stats.reimbursedHint': { zh: '分类金额按账单全额计算；「实际支出」已扣除他人还款，与统计页顶部和总览一致。', en: 'Category amounts count the full bill; "net spending" deducts what others repaid and matches the figure at the top of Stats and on the Overview.' },
   'stats.waffle.density': { zh: '密度', en: 'Density' },
   'stats.catView.pie': { zh: '饼图', en: 'Pie' },
   'stats.catView.waffle': { zh: '格子图', en: 'Waffle' },
@@ -2730,6 +2813,9 @@ addI18nEntries({
   window.renderExpandPieTable = renderExpandPieTable;
   window.renderPieTables = renderPieTables;
   window.togglePieDetailTable = togglePieDetailTable;
+  window.drillIntoCategory = drillIntoCategory;
+  window.backFromDrill = backFromDrill;
+  window.refreshExpandedCatChart = refreshExpandedCatChart;
   window.setStatsCatView = setStatsCatView;
   window.applyStatsCatView = applyStatsCatView;
   window.setCatWaffleDensity = setCatWaffleDensity;

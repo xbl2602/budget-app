@@ -212,14 +212,24 @@
 .chart-expand-inner .heatmap-day {
   font-size: 0.9rem !important;
 }
-.chart-expand-inner #expandPieChart {
+/* Both the pie and the waffle live here; only one is shown at a time, so
+   `display` must NOT be forced — a `display: block !important` here used to beat
+   the inline display:none and render both charts stacked on top of each other. */
+.chart-expand-inner #expandPieChart,
+.chart-expand-inner #expandCatWaffle {
   width: 100% !important;
   max-width: 650px !important;
   height: 400px !important;
   margin: 0 auto !important;
-  display: block !important;
+  display: block;
   pointer-events: auto !important;
   touch-action: auto !important;
+}
+
+/* Wins over any id-level display rule above */
+.cat-view-hidden,
+.chart-expand-inner .cat-view-hidden {
+  display: none !important;
 }
 
 /* Ensure main pie chart receives mouse events */
