@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.1.0
+# 记账软件 · Budget App v3.2.0
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -107,13 +107,13 @@ Mark a record as a split bill, pick who was in on it, and let the total divide e
 Plan a large purchase in three modes: save up first (先攒后买), buy now and repay (先买后还), or a credit-card instalment (信用卡分期, which backfills real repayment records). The monthly instalment is deducted from your spendable budget, and the ledger is **replayed month by month** rather than stored — so skipping a month or editing an old record recalculates automatically. Overdue plans prompt to extend, pay off, or abandon. Custom emoji icon per plan.
 
 ### ⚙️ 设置 Settings
-Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fixed amount or percentage). Export and import data via JSON (replace or merge), CSV, or Excel (XML Spreadsheet 2003 with 5 sheets and live formulas). Clear all data option available. LAN sync via WebRTC (same Wi-Fi, zero server).
+Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fixed amount or percentage). Export and import data via JSON (replace or merge), CSV, or Excel (XML Spreadsheet 2003 with 7 sheets and live formulas). Clear all data option available. LAN sync via WebRTC (same Wi-Fi, zero server).
 
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
 
-### v3.1.0 新增功能
+### v3.2.0 新增功能
 
 - **🧾 分摊收款系统**：分摊账单编辑器补齐日期时间 / 备注 / 总额 / 分类 / 标签等全部流水字段；分摊方式（平均 / 自定义）与「金额不明」标记均落盘，重开保持原样，自己的份额也可标记为金额不明。
 - **💰 部分还款**：参与人记「应还 / 已还」金额而非单一勾选框。单笔可直接设定已还金额（含撤销），一次收到的钱也可冲抵多笔账单——支持全选 / 全不选 / 反选，按**平均分配 / 按日期先后 / 手动指定**三种方式分摊，整数分运算不丢厘，且任何分配都不会让人还超应还额。
@@ -256,7 +256,7 @@ budget-app/
 │       └── 27-purchase-plans.js # 大额分期消费计划（先攒后买/先买后还/信用卡分期）
 ├── money-wise-mobile.html   # 手机版：轻量记账，支持导入导出JSON (~1,384 lines)
 ├── STRUCTURE.md             # 完整函数地图（供 AI Agent 使用）
-├── features/                # Feature documentation
+├── features/                # Feature docs (v2.0.0-era snapshots — see each file's header)
 ├── technical/               # Technical development logs (local only)
 ├── user/                    # User-facing changelogs (local only)
 └── logs/                    # Consolidated project logs (local only)

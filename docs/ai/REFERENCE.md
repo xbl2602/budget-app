@@ -112,22 +112,34 @@ else if (tab === 'xxx') renderXxx();
 _defaults() {
   return {
     records: [],
-    categories: [...],
+    categories: JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)),
     budgets: {},
     categoryBudgets: {},
     savingsTarget: { type: 'fixed', fixedAmount: 0, percent: 0 },
-    colorIndex: ...,
+    colorIndex: DEFAULT_CATEGORIES.length,
     billCategories: [],
     billAmounts: {},
     monthlyIncome: {},
     percentBase: 'gross',
     lastActiveMonth: '',
     whatIfParams: null,
-    allTags: [],        // v2.7.0 新增
-    tagColors: {}       // v2.7.0 新增
+    contacts: [],        // v3.0 分摊收款
+    splitBills: [],      // v3.0 分摊收款
+    purchasePlans: []    // v3.1 大额分期计划
   };
 }
 ```
+
+> `allTags` / `tagColors` 不在 `_defaults()` 里，由 `init()` 与各自的 getter 惰性补全；
+> `_rev` 是运行期的单调计数（`save()` 递增），用于 `PlanMath` 的记忆化失效，**不落盘默认值**。
+
+**嵌套结构里也有兼容层**——不是所有字段都能靠 `_defaults()` 补：
+
+| 字段 | 兼容做法 |
+|---|---|
+| `splitBills[].participants[].paidAmount` | 老账单只有布尔 `paid`，由 `SplitEngine.partPaid()` 读作「全有或全无」；每次写入同时更新两者 |
+| `splitBills[].mode` / `selfUnknown` | 缺失时由 `openSplitBillEditor` 按份额偏差推断 |
+| `purchasePlans[].overrides` | 缺失视作 `{}`（无手动干预） |
 
 **`init()` 中的迁移模式：**
 ```javascript
@@ -179,12 +191,31 @@ if (mode === 'merge') {
 }
 ```
 
+**还有第三处要同步：数据指纹。** `02-datastore.js` 底部的 `getDataFingerprint()`
+把一份**手写的字段白名单**序列化后做 DJB2 哈希，局域网同步靠它判断两端是否一致。
+白名单里没有的字段改了 = 指纹不变 = **同步认为没有变化，改动传不过去**。
+
+```javascript
+splitBills: (data.splitBills || []).map(b => ({
+  id: b.id, amount: b.amount, /* ... */
+  participants: (b.participants || []).map(p => ({
+    contactId: p.contactId, share: p.share,
+    paid: p.paid, paidAmount: p.paidAmount,   // ← 漏了这个，还款就同步不出去
+    unknown: p.unknown }))
+}))
+```
+
 **常见错误：**
 - ❌ 新增字段后未在 merge 模式中处理 → 导入的数据缺少该字段
+- ❌ 新增字段未加进 `getDataFingerprint()` 白名单 → 局域网同步察觉不到改动
 - ❌ 数据格式变化（如字段重命名）→ 旧 JSON 导入失败
 - ✅ `exportJSON()` 全量导出，新增字段自动包含
 - ✅ merge 模式中新增字段通过 `Object.assign()` 或显式赋值处理
 - ✅ 导入时验证字段合法性：`if (!data.records || !data.categories) return false;`
+
+> ⚠️ **已知限制**：`23-lan-sync.js` 的 merge 只**新增**本地没有的 `splitBills` / `purchasePlans`
+> （按 id 判断），**不更新已存在的条目**。所以在另一台设备上改过的账单（如登记还款）
+> 同步过来不会覆盖本机版本。改这块前先想清楚冲突策略。
 
 ### 规则 #10：软删除机制
 
