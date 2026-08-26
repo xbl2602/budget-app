@@ -62,8 +62,8 @@
 |---|---|
 | 源文件 | 15 个 CSS + 27 个 JS（`src/`），构建为单个 `index.html` |
 | 页面 | 总览 / 记账 / 流水 / 分类 / 统计 / 月度报告 / 假设分析 / 设置 |
-| 较新的模块 | `26-split-bills.js`（分摊收款 + 部分还款）、`27-purchase-plans.js`（大额分期计划） |
-| 测试 | `tests/` 下 7 个 jsdom 套件，见 [STRUCTURE.md](../../STRUCTURE.md) 的「测试」章节 |
+| 较新的模块 | `26-split-bills.js`（分摊收款 + 部分还款）、`27-purchase-plans.js`（大额分期计划）、`17-stats-charts.js` 的分类三视图（饼图 / 格子图 / 矩形图） |
+| 测试 | `tests/` 下 8 个 jsdom 套件，见 [STRUCTURE.md](../../STRUCTURE.md) 的「测试」章节 |
 | 完整函数地图 | [STRUCTURE.md](../../STRUCTURE.md) |
 
 > `features/` 下的功能文档是 **v2.0.0 时期的快照**，已不反映现状，别拿它当现状依据。
