@@ -84,6 +84,17 @@ whenReady().then(async () => {
 
 const $ = id => window.document.getElementById(id);
 const isHidden = el => !!el && el.classList.contains('cat-view-hidden');
+/* Poll until `probe()` returns something truthy, or give up after `ms` */
+async function waitFor(probe, ms) {
+  const deadline = Date.now() + (ms || 3000);
+  while (Date.now() < deadline) {
+    let v; try { v = probe(); } catch (e) { v = null; }
+    if (v) return v;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return null;
+}
+
 const statsTableOpen = () => {
   const b = $('pieDetailTable');
   return !!b && b.style.display !== 'none';
@@ -348,7 +359,9 @@ async function run() {
   DataStore._data.records = [{ id: 'r9', categoryId: 'catB', amount: 40, date: month + '-09', tags: ['旅行'] }];
   DataStore.save();
   window.renderStats();
-  await new Promise(r => setTimeout(r, 1400));   // legend paints after the ~1s pop-in
+  // The legend paints only when the ~1s pop-in finishes. A fixed wait goes flaky
+  // when the machine is loaded, so poll for it instead.
+  await waitFor(() => ($('waffleLegend') || {}).textContent, 6000);
   assert('tag waffle canvas still rendered', !!$('waffleChart'));
   const tagOpts = $('waffleChart')._waffleOpts;
   assert('tag waffle still targets its own legend', !!tagOpts && tagOpts.legendId === 'waffleLegend');

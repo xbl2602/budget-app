@@ -207,7 +207,40 @@ async function run() {
   window.setStatsCatView('treemap');
   window.shrinkChart();
 
-  /* ---------- 8. Empty state ---------- */
+  /* ---------- 8. Backing store matches the laid-out box (no stretch/blur) ---------- */
+  // The expanded charts are sized in CSS now; each renderer must read that height
+  // back instead of drawing into a differently-sized buffer.
+  const origRect = window.HTMLCanvasElement.prototype.getBoundingClientRect;
+  window.HTMLCanvasElement.prototype.getBoundingClientRect = function () {
+    return { width: 900, height: 640, top: 0, left: 0, right: 900, bottom: 640, x: 0, y: 0 };
+  };
+  const dpr = window.devicePixelRatio || 1;
+  try {
+    window.drawCategoryTreemap('catTreemapChart', null, null, 250);
+    const c = $('catTreemapChart');
+    assert('treemap canvas resolution follows its rendered size',
+      c.width === Math.round(900 * dpr) && c.height === Math.round(640 * dpr),
+      c.width + 'x' + c.height);
+    assert('treemap uses the full rendered height for layout',
+      (c._treemapRects || []).some(r => r.y + r.h > 600),
+      'tallest box ended at ' + Math.max(...(c._treemapRects || [{ y: 0, h: 0 }]).map(r => r.y + r.h)));
+
+    window.drawCategoryWaffle('catWaffleChart', null, null, 250);
+    const wf = $('catWaffleChart');
+    assert('waffle canvas resolution follows its rendered size',
+      wf.width === Math.round(900 * dpr) && wf.height === Math.round(640 * dpr),
+      wf.width + 'x' + wf.height);
+
+    window.drawPieChart('pieChart', month, null, null, null, 250, true);
+    const pc = $('pieChart');
+    assert('pie canvas resolution follows its rendered size',
+      pc.width === Math.round(900 * dpr) && pc.height === Math.round(640 * dpr),
+      pc.width + 'x' + pc.height);
+  } finally {
+    window.HTMLCanvasElement.prototype.getBoundingClientRect = origRect;
+  }
+
+  /* ---------- 9. Empty state ---------- */
   DataStore._data.records = [];
   DataStore.save();
   assert('no spending means no nodes', window.buildCategoryTreeNodes(1, null, null).length === 0);
