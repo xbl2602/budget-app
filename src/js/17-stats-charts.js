@@ -282,16 +282,16 @@ function expandPie() {
   overlay.id = 'chartExpandOverlay';
   overlay.onclick = function(e) { if (e.target === this) shrinkChart(); };
   overlay.innerHTML = `
-    <div class="chart-expand-inner" style="max-width:800px">
+    <div class="chart-expand-inner chart-expand-wide">
       <button class="chart-expand-close" onclick="shrinkChart()">✕</button>
       <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:1.1rem;margin-bottom:8px">📊 ${__('stats.pieChart.expandTitle')} ${renderCatViewToggle()} ${renderHierarchyToggle()}</div>
-      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
-        <div style="flex:1;min-width:300px">
-          <canvas id="expandPieChart" class="${catViewClass('pie')}" style="width:100%;max-width:500px;height:360px;margin:0 auto"></canvas>
-          <canvas id="expandCatWaffle" class="${catViewClass('waffle')}" style="width:100%;max-width:500px;height:360px;margin:0 auto;cursor:pointer"></canvas>
-          <canvas id="expandCatTreemap" class="${catViewClass('treemap')}" style="width:100%;max-width:500px;height:360px;margin:0 auto;cursor:pointer"></canvas>
+      <div class="chart-expand-cols">
+        <div class="chart-expand-chartcol">
+          <canvas id="expandPieChart" class="${catViewClass('pie')}"></canvas>
+          <canvas id="expandCatWaffle" class="${catViewClass('waffle')}" style="cursor:pointer"></canvas>
+          <canvas id="expandCatTreemap" class="${catViewClass('treemap')}" style="cursor:pointer"></canvas>
         </div>
-        <div style="flex:1;min-width:250px" id="expandPieTable">
+        <div class="chart-expand-tablecol" id="expandPieTable">
           <!-- Category table rendered here after chart draw -->
         </div>
       </div>
@@ -1336,7 +1336,10 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const w = rect.width || 400;
-  const h = height || 250;
+  // Measure the height CSS actually gave us. Hardcoding it made the backing
+  // store disagree with the displayed box (360 drawn into a 400px-tall canvas),
+  // which stretches and blurs everything — sizing now lives purely in CSS.
+  const h = Math.round(rect.height) || height || 250;
   // Only update internal resolution if size actually changed
   if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
     canvas.width = Math.round(w * dpr);
@@ -2451,7 +2454,7 @@ function drawCategoryTreemap(canvasId, startDate, endDate, height) {
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const w = rect.width || 400;
-  const h = height || 250;
+  const h = Math.round(rect.height) || height || 250;
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
   const ctx = canvas.getContext('2d');
@@ -2582,7 +2585,7 @@ function renderWaffle(canvasId, data, opts) {
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const w = rect.width || 400;
-  const h = opts.height || 220;
+  const h = Math.round(rect.height) || opts.height || 220;
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

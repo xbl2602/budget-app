@@ -1625,9 +1625,39 @@ body.modal-open {
   animation: expandSlideIn 0.25s ease !important;
 }
 
+/* The whole point of expanding is to READ the thing — take the screen. */
+.chart-expand-inner.chart-expand-wide {
+  max-width: min(96vw, 1500px) !important;
+  width: 96% !important;
+  max-height: 94vh !important;
+  padding: 20px 26px 24px !important;
+}
+
+.chart-expand-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: stretch;
+}
+
+/* The chart earns more of the width than the table beside it */
+.chart-expand-chartcol {
+  flex: 1.6 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-expand-tablecol {
+  flex: 1 1 300px;
+  min-width: 0;
+  max-height: 76vh;
+  overflow-y: auto;
+}
+
 .chart-expand-inner canvas {
   max-width: 100% !important;
-  max-height: 65vh !important;
+  max-height: 78vh !important;
   margin: 0 auto !important;
   display: block !important;
 }
@@ -1655,9 +1685,9 @@ body.modal-open {
 
 /* Heatmap constraint inside expand modal (Issue 2) */
 .chart-expand-inner .heatmap-grid {
-  max-width: 480px !important;
+  max-width: min(96%, 660px) !important;
   margin: 0 auto !important;
-  gap: 6px !important;
+  gap: 8px !important;
 }
 .chart-expand-inner .heatmap-day {
   font-size: 0.9rem !important;
@@ -1669,12 +1699,32 @@ body.modal-open {
 .chart-expand-inner #expandCatWaffle,
 .chart-expand-inner #expandCatTreemap {
   width: 100% !important;
-  max-width: 650px !important;
-  height: 400px !important;
+  max-width: 100% !important;
+  /* Viewport-driven, not a fixed 400px; the JS reads this height back so the
+     canvas backing store matches the displayed box exactly (no blur). */
+  height: clamp(340px, 66vh, 720px) !important;
+  max-height: 72vh !important;
   margin: 0 auto !important;
   display: block;
   pointer-events: auto !important;
   touch-action: auto !important;
+}
+
+/* The treemap gains the most from height — nested boxes need room for labels */
+.chart-expand-inner #expandCatTreemap {
+  height: clamp(380px, 72vh, 820px) !important;
+  max-height: 78vh !important;
+}
+
+@media (max-width: 900px) {
+  .chart-expand-inner.chart-expand-wide { width: 96% !important; padding: 16px 14px 20px !important; }
+  .chart-expand-cols { gap: 12px; }
+  .chart-expand-tablecol { max-height: none; }
+  .chart-expand-inner #expandPieChart,
+  .chart-expand-inner #expandCatWaffle,
+  .chart-expand-inner #expandCatTreemap {
+    height: clamp(300px, 52vh, 520px) !important;
+  }
 }
 
 /* Wins over any id-level display rule above */
@@ -10581,16 +10631,16 @@ function expandPie() {
   overlay.id = 'chartExpandOverlay';
   overlay.onclick = function(e) { if (e.target === this) shrinkChart(); };
   overlay.innerHTML = `
-    <div class="chart-expand-inner" style="max-width:800px">
+    <div class="chart-expand-inner chart-expand-wide">
       <button class="chart-expand-close" onclick="shrinkChart()">✕</button>
       <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:1.1rem;margin-bottom:8px">📊 ${__('stats.pieChart.expandTitle')} ${renderCatViewToggle()} ${renderHierarchyToggle()}</div>
-      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
-        <div style="flex:1;min-width:300px">
-          <canvas id="expandPieChart" class="${catViewClass('pie')}" style="width:100%;max-width:500px;height:360px;margin:0 auto"></canvas>
-          <canvas id="expandCatWaffle" class="${catViewClass('waffle')}" style="width:100%;max-width:500px;height:360px;margin:0 auto;cursor:pointer"></canvas>
-          <canvas id="expandCatTreemap" class="${catViewClass('treemap')}" style="width:100%;max-width:500px;height:360px;margin:0 auto;cursor:pointer"></canvas>
+      <div class="chart-expand-cols">
+        <div class="chart-expand-chartcol">
+          <canvas id="expandPieChart" class="${catViewClass('pie')}"></canvas>
+          <canvas id="expandCatWaffle" class="${catViewClass('waffle')}" style="cursor:pointer"></canvas>
+          <canvas id="expandCatTreemap" class="${catViewClass('treemap')}" style="cursor:pointer"></canvas>
         </div>
-        <div style="flex:1;min-width:250px" id="expandPieTable">
+        <div class="chart-expand-tablecol" id="expandPieTable">
           <!-- Category table rendered here after chart draw -->
         </div>
       </div>
@@ -11635,7 +11685,10 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const w = rect.width || 400;
-  const h = height || 250;
+  // Measure the height CSS actually gave us. Hardcoding it made the backing
+  // store disagree with the displayed box (360 drawn into a 400px-tall canvas),
+  // which stretches and blurs everything — sizing now lives purely in CSS.
+  const h = Math.round(rect.height) || height || 250;
   // Only update internal resolution if size actually changed
   if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
     canvas.width = Math.round(w * dpr);
@@ -12750,7 +12803,7 @@ function drawCategoryTreemap(canvasId, startDate, endDate, height) {
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const w = rect.width || 400;
-  const h = height || 250;
+  const h = Math.round(rect.height) || height || 250;
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
   const ctx = canvas.getContext('2d');
@@ -12881,7 +12934,7 @@ function renderWaffle(canvasId, data, opts) {
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const w = rect.width || 400;
-  const h = opts.height || 220;
+  const h = Math.round(rect.height) || opts.height || 220;
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

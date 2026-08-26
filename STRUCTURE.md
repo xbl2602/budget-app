@@ -503,6 +503,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 |---|---|
 | 可见性必须用 class，不能用内联 `display` | `12-responsive.css` 里 `#expandPieChart` 曾有 `display: block !important`，**id 级 `!important` 会压过内联样式**，结果饼图和格子图在弹窗里上下叠着一起显示。现在统一用 `.cat-view-hidden` 切换 |
 | 下钻要走 `drillIntoCategory()` / `backFromDrill()` | 原先是内联 onclick 里写一串语句，只重画 `expandPieChart`；格子图模式下重画的是隐藏的 canvas，看起来就是「下钻失效」。两个函数内部用 `refreshExpandedCatChart()` 重画**当前可见的那个** |
+| 图表高度只在 CSS 里定 | 三个渲染函数都用 `Math.round(rect.height) || 传入值` 读回布局后的高度。以前 CSS 写 `height:400px` 而 JS 按 360 画，canvas 的 backing store 和显示框对不上，整张图被拉伸糊掉。**别再往 JS 里写死高度** |
 | 表格与图表必须用同一个时间窗 | `renderPieTable` 原先固定传 `null, null`，自定义日期范围下表格退回整月、图表用范围，两个数对不上 |
 
 **自定义日期范围的开关是「`statsMonth` 为空」**（`useCustomRange()` 要求 `statsStartDate && statsEndDate && !statsMonth`）。`renderStats()` 开头曾无条件执行 `statsMonth = statsMonth || 当月`，把这个标记冲掉，导致选了日期范围也永远按整月算。现在只在没有自定义范围时才回落到当月——改 `renderStats()` 开头那几行时务必注意。
@@ -887,13 +888,13 @@ for t in tests/*.js; do node "$t"; done
 | `tests/partial-repayment-test.js` | 分摊部分还款：金额模型、三种分配方式、限制、收款对话框 |
 | `tests/structure-fixes-test.js` | 分类颜色继承与自定义图标、分摊编辑器字段、饼图标签几何 |
 | `tests/category-waffle-test.js` | 分类格子图：视图切换与持久化、与饼图共用数据/配色、下钻、密度独立、展开弹窗、标签格子图回归 |
-| `tests/category-treemap-test.js` | 分类矩形图：squarify 布局（面积正比、铺满、长宽比、越界）、按层级嵌套、子框在父框内、下钻、展开弹窗 |
+| `tests/category-treemap-test.js` | 分类矩形图：squarify 布局（面积正比、铺满、长宽比、越界）、按层级嵌套、子框在父框内、下钻、展开弹窗、canvas 分辨率跟随渲染尺寸 |
 
 写测试时注意：
 
 - **canvas 要打桩**。jsdom 没有 2D 上下文，所有测试都在 `beforeParse` 里替换 `HTMLCanvasElement.prototype.getContext`。要断言绘制结果（如饼图标签位置）就用记录型上下文捕获 `fillText`。
 - **联系人按姓名排序**（`getContacts()` 用 `localeCompare`），所以分摊的人员行**不能按下标定位**，要按 `data-*` 里的 contact key 找。
-- **格子图的图例要等动画跑完**（约 1 秒：30 批 × 20ms + 400ms 弹入）才会写进 DOM，断言前要等够。
+- **格子图的图例要等动画跑完**（约 1 秒：30 批 × 20ms + 400ms 弹入）才会写进 DOM。别用固定 `setTimeout` 等——机器一忙就会假失败，用轮询（见 `category-waffle-test.js` 的 `waitFor()`）。
 - **下钻状态要用 `window.getDrillCategory()` 读**，别去改 `window.statsDrillStack`——它只是模块内数组的别名，重新赋值会切断别名，之后读到的是你自己那个空数组。
 - 断言要能真的失败。加完一条断言，先把源码改坏验证它会 FAIL，再改回来——否则容易写出恒真的断言。
 
