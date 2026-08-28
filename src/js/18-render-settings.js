@@ -257,6 +257,7 @@ function setPercentBase(base) {
 
 function exportJSON() {
   const data = DataStore.exportJSON();
+  if (!data) { showToast(__('settings.toast.exportLocked'), 'error'); return; }
   const blob = new Blob([data], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -775,6 +776,7 @@ function deleteTag(tag) {
     'settings.toast.savingsSaved': { zh: '✅ 储蓄目标已保存', en: '✅ Savings target saved' },
     'settings.toast.percentBaseChanged': { zh: '✅ 百分比基准已切换为{0}', en: '✅ Percentage base switched to {0}' },
     'settings.toast.jsonExported': { zh: '✅ JSON 已导出', en: '✅ JSON exported' },
+    'settings.toast.exportLocked': { zh: '🔒 数据已锁定，请先用 PIN 解锁再导出', en: '🔒 Data is locked — unlock with your PIN before exporting' },
     'settings.toast.noImportData': { zh: '没有可导入的数据', en: 'No data to import' },
     'settings.toast.importSuccess': { zh: '✅ 数据导入成功', en: '✅ Data imported successfully' },
     'settings.toast.importFailed': { zh: '❌ 导入失败，文件格式无效', en: '❌ Import failed, invalid file format' },

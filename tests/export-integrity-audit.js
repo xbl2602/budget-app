@@ -214,28 +214,49 @@ boot().then(async w => {
    ['分摊参与人 Alice','Alice'],['分摊参与人 Bob','Bob'],['部分还款状态','部分已还'],
    ['金额不明标记','金额不明'],['Alice 已还 45 的金额','45.00'],
    ['计划名','MacBook'],['计划逐月子行','↳ 2026-06'],['账单分类','房租'],['月收入','6000'],
-   ['标签颜色 tagColors','#ff8800']
+   ['计划逐月「实测/推定」列','推定']
   ].forEach(([label, needle]) => L('    ' + (xml.indexOf(needle) !== -1 ? '✅' : '❌') + ' ' + label));
+  L('    ── 设计上不含（UI 呈现属性，不是账本数据，见 exportJSON）──');
+  L('    ' + (xml.indexOf('#ff8800') !== -1 ? '⚠️ 意外出现' : '➖ 不含（预期）') + ' 标签颜色 tagColors');
 
   L('');
   L('===== D. Excel 分摊子行列对齐 =====');
   const sStart = xml.indexOf('<Worksheet ss:Name="分摊账单">');
   const sheet = xml.slice(sStart, xml.indexOf('</Worksheet>', sStart));
   const rows = sheet.split('<Row>').filter(r => r.indexOf('↳') !== -1);
+  // 按 ss:Index 解析每个单元格的实际落点列：有 Index 用 Index，否则接着上一格。
+  // 只数格子是不够的 —— 用了 ss:Index 之后格数本来就少于 8。
   rows.forEach(r => {
-    const n = (r.match(/<Cell/g) || []).length;
-    const name = (r.match(/↳ ([^<]*)/) || [])[1] || '?';
-    L('    ' + (n === 8 ? '✅' : '❌') + ' 子行「' + name.trim() + '」写了 ' + n + ' 个单元格（表头 8 列，需要 ss:Index 才能落到 D/H）');
+    const name = ((r.match(/↳ ([^<]*)/) || [])[1] || '?').trim();
+    const cells = r.match(/<Cell[^>]*>[\s\S]*?<\/Cell>/g) || [];
+    let col = 0;
+    const placed = {};
+    cells.forEach(c => {
+      const idx = c.match(/ss:Index="(\d+)"/);
+      col = idx ? parseInt(idx[1], 10) : col + 1;
+      const val = (c.match(/<Data[^>]*>([\s\S]*?)<\/Data>/) || [])[1] || '';
+      placed[col] = val;
+      });
+    // D(4)=份额 应为数字；H(8)=状态 应为文字
+    const shareOk = /^[\d.]+$/.test(placed[4] || '');
+    const statusOk = /[已待未❓🟡✅⏳]/.test(placed[8] || '');
+    const bad = [];
+    if (!shareOk) bad.push('份额未落在 D 列(实际 D=' + JSON.stringify(placed[4] || '') + ')');
+    if (!statusOk) bad.push('状态未落在 H 列(实际 H=' + JSON.stringify(placed[8] || '') + ')');
+    L('    ' + (bad.length ? '❌' : '✅') + ' 子行「' + name + '」' + (bad.length ? bad.join('；') : '份额→D 状态→H 对齐正确'));
   });
 
   L('');
   L('===== E. CSV 覆盖 =====');
   const csv = DS.exportCSV();
   L('    表头: ' + csv.split('\n')[0].replace(/^\uFEFF/, ''));
+  // CSV 的定位是「只导流水」，所以只要求流水自身的属性齐全。
   [['标签', /聚餐/], ['分摊标记', /🧾/], ['备注', /火锅/], ['子分类', /子分类/],
-   ['参与人姓名', /Alice/], ['已还金额', /45/], ['所属大额计划', /MacBook|plan-1/],
-   ['月收入', /6000/], ['预算', /4000/]
+   ['所属大额计划', /MacBook|plan-1/], ['自份额两位小数', /自份额 100\.00/]
   ].forEach(([l, re]) => L('    ' + (re.test(csv) ? '✅' : '❌') + ' ' + l));
+  L('    ── 以下为设计上不导出的项（属于账本而非流水，见 exportJSON / Excel）──');
+  [['参与人明细', /Alice/], ['月收入', /6000/], ['预算', /4000/]
+  ].forEach(([l, re]) => L('    ' + (re.test(csv) ? '⚠️ 意外出现' : '➖ 不含（预期）') + ' ' + l));
 
   L('');
   L('===== F. 指纹敏感度（改一处，看指纹是否变化）=====');

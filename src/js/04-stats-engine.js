@@ -209,6 +209,13 @@ const StatsEngine = {
     const bills = (typeof SplitEngine !== 'undefined' && SplitEngine.getSplitBills) ? SplitEngine.getSplitBills() : [];
     bills.forEach(b => {
       if (b.payer !== 'self') return;
+      // Archiving means "stop chasing this". The card drops its repayment
+      // control on archive, so an outstanding balance left in here could never
+      // be cleared again — it hung in 待收回总额 forever. Money already
+      // collected still counts (see _splitContribBetween): that is a fact, and
+      // netting it out of the month total must not change retroactively.
+      // Archiving is reversible via 恢复 if the user does want to chase it.
+      if (b.archived) return;
       const d = new Date(b.date);
       if (isNaN(d.getTime()) || d < start || d > end) return;
       (b.participants || []).forEach(p => {
@@ -430,7 +437,7 @@ const StatsEngine = {
     const { start, end } = getPeriodDateRange();
     return DataStore.getRecords().filter(r => {
       const d = new Date(r.date || r.createdAt);
-      return d >= start && d <= end && !r._deleted;
+      return d >= start && d <= end;
     });
   },
   getPeriodTotal() {

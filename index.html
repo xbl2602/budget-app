@@ -3857,6 +3857,9 @@ const DataStore = {
 
   // Export / Import
   exportJSON() {
+    // lockData() sets _data to null. Serialising that produced the string
+    // "null" — a normally-named backup file containing nothing at all.
+    if (!this._data) return null;
     return JSON.stringify(this._data, null, 2);
   },
 
@@ -3888,19 +3891,36 @@ const DataStore = {
     const splitBills = Array.isArray(this._data.splitBills) ? this._data.splitBills : [];
     const splitMap = {};
     splitBills.forEach(b => { if (b && b.id) splitMap[b.id] = b; });
+    const planMap = {};
+    (this._data.purchasePlans || []).forEach(p => { if (p && p.id) planMap[p.id] = p; });
+    // Root of a subcategory, so the 分类 column stays comparable with Excel's
+    const rootOf = id => {
+      let cur = catMap[id];
+      const guard = new Set();
+      while (cur && cur.parentId && catMap[cur.parentId] && !guard.has(cur.id)) { guard.add(cur.id); cur = catMap[cur.parentId]; }
+      return cur || null;
+    };
     const header = __('datastore.csvHeader');
     const rows = this._data.records.map(r => {
       const cat = catMap[r.categoryId] || { name: __('datastore.unknown'), icon: '❓' };
+      const root = cat.parentId ? rootOf(r.categoryId) : cat;
       const amount = r.amount.toFixed(2);
       const date = r.date || '';
       // Fixed (m3): escape newlines in text fields for valid CSV
       const safeNote = String(r.note || '').replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
-      const safeCatName = String(cat.icon + cat.name).replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
-      const safeTags = String(Array.isArray(r.tags) ? r.tags.join('、') : '').replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
+      const clean = v => String(v == null ? '' : v).replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
+      const safeCatName = clean((root ? root.icon + ' ' + root.name : cat.icon + ' ' + cat.name));
+      const safeSubName = clean(cat.parentId ? cat.icon + ' ' + cat.name : '');
+      const safeTags = clean(Array.isArray(r.tags) ? r.tags.join('、') : '');
       const splitMark = r.splitBillId ? (splitMap[r.splitBillId]
-        ? __('datastore.splitMark', splitMap[r.splitBillId].selfShare || 0)
+        ? __('datastore.splitMark', (parseFloat(splitMap[r.splitBillId].selfShare) || 0).toFixed(2))
         : __('datastore.splitBillOnly')) : '';
-      return `${r.id},"${amount}","${safeCatName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}","${safeTags}","${splitMark}"`;
+      // Instalment rows are ordinary expenses in every other column; without
+      // this you cannot tell which of them belong to a 大额计划.
+      const planMark = r.planId ? clean(planMap[r.planId]
+        ? ((planMap[r.planId].icon || '') + ' ' + (planMap[r.planId].name || '') + (r.planMonth ? ' · ' + r.planMonth : '')).trim()
+        : __('datastore.planGone')) : '';
+      return `${r.id},"${amount}","${safeCatName}","${safeSubName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}","${safeTags}","${splitMark}","${planMark}"`;
     });
     return '\uFEFF' + header + '\n' + rows.join('\n');
   },
@@ -4156,7 +4176,7 @@ const DataStore = {
     }
   },
   getRecordsByTag(tag) {
-    return this._data.records.filter(r => r.tags && r.tags.includes(tag) && !r._deleted);
+    return this._data.records.filter(r => r.tags && r.tags.includes(tag));
   },
   getTagStats(tag) {
     const records = this.getRecordsByTag(tag);
@@ -4197,7 +4217,8 @@ const DataStore = {
   // i18n translations
   addI18nEntries({
     'datastore.saveFailed': { zh: '❌ 数据保存失败: {0}', en: '❌ Save failed: {0}' },
-    'datastore.csvHeader': { zh: 'ID,金额,分类,日期,备注,创建时间,不计日均,标签,分摊', en: 'ID,Amount,Category,Date,Note,CreatedAt,ExcludeFromAvg,Tags,Split' },
+    'datastore.csvHeader': { zh: 'ID,金额,分类,子分类,日期,备注,创建时间,不计日均,标签,分摊,所属计划', en: 'ID,Amount,Category,Subcategory,Date,Note,CreatedAt,ExcludeFromAvg,Tags,Split,Plan' },
+    'datastore.planGone': { zh: '（计划已删除）', en: '(plan deleted)' },
     'datastore.unknown': { zh: '未知', en: 'Unknown' },
     'datastore.yes': { zh: '是', en: 'Yes' },
     'datastore.splitBillOnly': { zh: '🧾 分摊账单', en: '🧾 Split bill' },
@@ -4721,6 +4742,15 @@ function exportToExcel() {
   });
   xml += '   </Row>\n';
 
+  // Each source file is wrapped in its own try/catch by build.sh, so a throw in
+  // 26-split-bills.js leaves SplitEngine undefined and would take the whole
+  // Excel export down with it. PlanMath is guarded the same way below.
+  const SE = (typeof SplitEngine !== 'undefined') ? SplitEngine : null;
+  const sePaid = p => SE ? SE.partPaid(p) : (p && p.paid ? (parseFloat(p.share) || 0) : 0);
+  const seShare = p => SE ? SE.partShare(p) : Math.max(0, parseFloat(p && p.share) || 0);
+  const seOwed = p => SE ? SE.partOwed(p) : Math.max(0, seShare(p) - sePaid(p));
+  const seSettled = p => SE ? SE.partSettled(p) : seOwed(p) <= 0.005;
+
   const sbStartRow = 2;
   splitBills.forEach((b, bi) => {
     const billRowNum = sbStartRow + bi;
@@ -4729,8 +4759,8 @@ function exportToExcel() {
     let unpaid = 0, paidTotal = 0, unknownCount = 0;
     parts.forEach(p => {
       // Partial repayments split across both columns
-      paidTotal += SplitEngine.partPaid(p);
-      unpaid += SplitEngine.partOwed(p);
+      paidTotal += sePaid(p);
+      unpaid += seOwed(p);
       if (p.unknown) unknownCount++;
     });
     const scat = catMap[b.categoryId] || { name: __('excel.label.unknown'), icon: '❓' };
@@ -4753,25 +4783,29 @@ function exportToExcel() {
       xml += '   <Row>\n';
       xml += `    <Cell><Data ss:Type="String">${esc('  \u21b3 ' + __('excel.split.label.self'))}</Data></Cell>\n`;
       xml += `    <Cell><Data ss:Type="String">${esc(__('excel.split.label.unknownMark'))}</Data></Cell>\n`;
-      xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(selfShare)}</Data></Cell>\n`;
-      xml += `    <Cell><Data ss:Type="String">${esc(__('excel.split.status.paid'))}</Data></Cell>\n`;
+      // ss:Index is what puts these in D and H. Without it SpreadsheetML fills
+      // sequentially, so the share landed under the 分类 header and the status
+      // string went into the 总额 money column.
+      xml += `    <Cell ss:Index="4" ss:StyleID="money"><Data ss:Type="Number">${fmtNum(selfShare)}</Data></Cell>\n`;
+      xml += `    <Cell ss:Index="8"><Data ss:Type="String">${esc(__('excel.split.status.paid'))}</Data></Cell>\n`;
       xml += '   </Row>\n';
     }
 
     if (parts.length > 0) {
       parts.forEach((p, pi) => {
-        const pAmt = SplitEngine.partShare(p);
-        const pPaid = SplitEngine.partPaid(p);
-        const pStatus = SplitEngine.partSettled(p)
+        const pAmt = seShare(p);
+        const pPaid = sePaid(p);
+        const pStatus = seSettled(p)
           ? __('excel.split.status.paid')
           : (pPaid > 0.005
-            ? __('excel.split.status.partial', fmtNum(pPaid), fmtNum(SplitEngine.partOwed(p)))
+            ? __('excel.split.status.partial', fmtNum(pPaid), fmtNum(seOwed(p)))
             : (p.unknown ? __('excel.split.status.unknown') : __('excel.split.status.unpaid')));
         xml += '   <Row>\n';
         xml += `    <Cell><Data ss:Type="String">${esc('  ↳ ' + (p.name || __('excel.label.unknown')))}</Data></Cell>\n`;
         xml += `    <Cell><Data ss:Type="String">${p.unknown ? esc(__('excel.split.label.unknownMark')) : ''}</Data></Cell>\n`;
-        xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(pAmt)}</Data></Cell>\n`;
-        xml += `    <Cell><Data ss:Type="String">${esc(pStatus)}</Data></Cell>\n`;
+        xml += `    <Cell ss:Index="4" ss:StyleID="money"><Data ss:Type="Number">${fmtNum(pAmt)}</Data></Cell>\n`;
+        xml += `    <Cell ss:Index="7" ss:StyleID="money"><Data ss:Type="Number">${fmtNum(pPaid)}</Data></Cell>\n`;
+        xml += `    <Cell ss:Index="8"><Data ss:Type="String">${esc(pStatus)}</Data></Cell>\n`;
         xml += '   </Row>\n';
       });
     }
@@ -5155,6 +5189,13 @@ const StatsEngine = {
     const bills = (typeof SplitEngine !== 'undefined' && SplitEngine.getSplitBills) ? SplitEngine.getSplitBills() : [];
     bills.forEach(b => {
       if (b.payer !== 'self') return;
+      // Archiving means "stop chasing this". The card drops its repayment
+      // control on archive, so an outstanding balance left in here could never
+      // be cleared again — it hung in 待收回总额 forever. Money already
+      // collected still counts (see _splitContribBetween): that is a fact, and
+      // netting it out of the month total must not change retroactively.
+      // Archiving is reversible via 恢复 if the user does want to chase it.
+      if (b.archived) return;
       const d = new Date(b.date);
       if (isNaN(d.getTime()) || d < start || d > end) return;
       (b.participants || []).forEach(p => {
@@ -5376,7 +5417,7 @@ const StatsEngine = {
     const { start, end } = getPeriodDateRange();
     return DataStore.getRecords().filter(r => {
       const d = new Date(r.date || r.createdAt);
-      return d >= start && d <= end && !r._deleted;
+      return d >= start && d <= end;
     });
   },
   getPeriodTotal() {
@@ -12685,7 +12726,7 @@ function drawWaffleChart(canvasId, records) {
   var filteredRecords = records;
   if (waffleSelectedMonth) {
     filteredRecords = records.filter(function(r) {
-      return getMonthKey(r.date || r.createdAt) === waffleSelectedMonth && !r._deleted;
+      return getMonthKey(r.date || r.createdAt) === waffleSelectedMonth;
     });
   }
 
@@ -13867,6 +13908,7 @@ function setPercentBase(base) {
 
 function exportJSON() {
   const data = DataStore.exportJSON();
+  if (!data) { showToast(__('settings.toast.exportLocked'), 'error'); return; }
   const blob = new Blob([data], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -14385,6 +14427,7 @@ function deleteTag(tag) {
     'settings.toast.savingsSaved': { zh: '✅ 储蓄目标已保存', en: '✅ Savings target saved' },
     'settings.toast.percentBaseChanged': { zh: '✅ 百分比基准已切换为{0}', en: '✅ Percentage base switched to {0}' },
     'settings.toast.jsonExported': { zh: '✅ JSON 已导出', en: '✅ JSON exported' },
+    'settings.toast.exportLocked': { zh: '🔒 数据已锁定，请先用 PIN 解锁再导出', en: '🔒 Data is locked — unlock with your PIN before exporting' },
     'settings.toast.noImportData': { zh: '没有可导入的数据', en: 'No data to import' },
     'settings.toast.importSuccess': { zh: '✅ 数据导入成功', en: '✅ Data imported successfully' },
     'settings.toast.importFailed': { zh: '❌ 导入失败，文件格式无效', en: '❌ Import failed, invalid file format' },
@@ -18168,7 +18211,7 @@ addI18nEntries({
   'guide.settings.detailed.row3_2_label': { zh: '两者', en: 'Both' },
   'guide.settings.detailed.row3_3_desc': { zh: '纯收入（总收入）或净收入（总收入 − 账单总额）', en: 'Gross income (total income) or net income (total income − total bills)' },
   'guide.settings.detailed.row3_3_label': { zh: '百分比基准', en: 'Percentage Base' },
-  'guide.settings.detailed.row4_0_desc': { zh: '完整数据备份，包含所有记录、分类、预算、设置', en: 'Full data backup including all records, categories, budgets, and settings' },
+  'guide.settings.detailed.row4_0_desc': { zh: '账本完整备份：记录、分类、预算、收入、分摊账单、大额计划、标签。不含主题/语言/PIN 等本机偏好', en: 'Full ledger backup: records, categories, budgets, income, split bills, plans and tags. Device preferences (theme, language, PIN) are not included' },
   'guide.settings.detailed.row4_0_label': { zh: '导出 JSON', en: 'Export JSON' },
   'guide.settings.detailed.row4_1_desc': { zh: '可替换当前全部数据，或合并到现有数据中', en: 'Replace all current data or merge into existing data' },
   'guide.settings.detailed.row4_1_label': { zh: '导入 JSON', en: 'Import JSON' },

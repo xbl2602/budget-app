@@ -349,5 +349,67 @@ L('【P0-08】手机版不再抹掉主应用的数据');
   ok('手机版 merge 也按 id 去重', M._data.records.length===before, before+' → '+M._data.records.length);
 }
 
+
+L('【P1-11】归档账单的欠款不再永久挂账');
+function archFx(arch){return{records:[{id:'r1',amount:300,categoryId:cat,date:'2026-08-01',note:'x',tags:[],splitBillId:'sb1',createdAt:'2026-08-01T10:00:00.000Z'}],
+  categories:DS.getCategories(),contacts:[{id:'c1',name:'A'}],
+  splitBills:[{id:'sb1',payer:'self',amount:300,date:'2026-08-01',categoryId:cat,selfShare:100,mode:'equal',note:'x',archived:arch,
+    participants:[{contactId:'c1',name:'A',share:200,paid:false,paidAmount:50,unknown:false}]}]};}
+DS.clearAll();DS.importJSON(JSON.stringify(archFx(false)),'replace');
+const un=[S.getSplitUnpaid('2026-08'),S.getSplitContrib('2026-08'),S.getMonthTotal('2026-08')];
+DS.clearAll();DS.importJSON(JSON.stringify(archFx(true)),'replace');
+const ar=[S.getSplitUnpaid('2026-08'),S.getSplitContrib('2026-08'),S.getMonthTotal('2026-08')];
+ok('未归档时待收 150', un[0]===150, String(un[0]));
+ok('归档后待收归零', ar[0]===0, String(ar[0]));
+ok('归档不改变已收回金额', ar[1]===un[1], un[1]+' → '+ar[1]);
+ok('归档不改变月度净支出', ar[2]===un[2], un[2]+' → '+ar[2]);
+
+L('【P1-12 / P2-15】Excel 分摊 sheet');
+DS.clearAll();DS.importJSON(JSON.stringify(archFx(false)),'replace');
+let capE=null; const oe=w.URL.createObjectURL;
+w.URL.createObjectURL=b=>{capE=b;return 'x';}; w.HTMLAnchorElement.prototype.click=function(){};
+w.exportToExcel(); const xE=await capE.text(); w.URL.createObjectURL=oe;
+{
+  const st=xE.indexOf('<Worksheet ss:Name="分摊账单">');
+  const sheet=xE.slice(st,xE.indexOf('</Worksheet>',st));
+  const row=(sheet.split('<Row>').filter(r=>r.indexOf('↳')!==-1)||[])[0]||'';
+  const cells=row.match(/<Cell[^>]*>[\s\S]*?<\/Cell>/g)||[];
+  let col=0; const placed={};
+  cells.forEach(c=>{const m=c.match(/ss:Index="(\d+)"/);col=m?parseInt(m[1],10):col+1;
+    placed[col]=((c.match(/<Data[^>]*>([\s\S]*?)<\/Data>/)||[])[1])||'';});
+  ok('参与人份额落在 D 列', /^[\d.]+$/.test(placed[4]||''), 'D='+JSON.stringify(placed[4]||''));
+  ok('参与人已还落在 G 列', /^[\d.]+$/.test(placed[7]||''), 'G='+JSON.stringify(placed[7]||''));
+  ok('参与人状态落在 H 列', /[已待未❓🟡✅⏳]/.test(placed[8]||''), 'H='+JSON.stringify(placed[8]||''));
+}
+
+L('【P2-16 / P2-17 / P2-18】');
+ok('_deleted 死代码已清除', !/_deleted/.test(fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8')));
+{
+  const csv=DS.exportCSV(); const head=csv.split('\n')[0].replace(/^\uFEFF/,'');
+  ok('CSV 含子分类列', head.indexOf('子分类')!==-1, head);
+  ok('CSV 含所属计划列', head.indexOf('所属计划')!==-1, head);
+  ok('CSV 自份额两位小数', /自份额 100\.00/.test(csv), (csv.split('\n')[1]||'').slice(-40));
+  // 正规解析：字段可带引号，引号内的逗号不算分隔符
+  const parseCsvLine = line => {
+    const out=[]; let cur='', q=false;
+    for (let i=0;i<line.length;i++){
+      const ch=line[i];
+      if (q){ if(ch==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=ch; }
+      else if (ch==='"') q=true;
+      else if (ch===',') { out.push(cur); cur=''; }
+      else cur+=ch;
+    }
+    out.push(cur); return out;
+  };
+  const cols=parseCsvLine(csv.split('\n')[1]||'').length;
+  ok('CSV 数据列数与表头一致', cols===head.split(',').length, '表头 '+head.split(',').length+' 列，数据 '+cols+' 列');
+}
+{
+  const keep=DS._data;
+  DS.lockData();
+  ok('锁定后 exportJSON 不返回 "null" 字符串', DS.exportJSON()===null, JSON.stringify(DS.exportJSON()));
+  DS._data=keep;
+}
+
 console.log('\n验收: '+pass+' 通过 / '+fail+' 失败');
 process.exit(fail?1:0);},1500);

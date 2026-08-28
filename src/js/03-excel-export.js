@@ -482,6 +482,15 @@ function exportToExcel() {
   });
   xml += '   </Row>\n';
 
+  // Each source file is wrapped in its own try/catch by build.sh, so a throw in
+  // 26-split-bills.js leaves SplitEngine undefined and would take the whole
+  // Excel export down with it. PlanMath is guarded the same way below.
+  const SE = (typeof SplitEngine !== 'undefined') ? SplitEngine : null;
+  const sePaid = p => SE ? SE.partPaid(p) : (p && p.paid ? (parseFloat(p.share) || 0) : 0);
+  const seShare = p => SE ? SE.partShare(p) : Math.max(0, parseFloat(p && p.share) || 0);
+  const seOwed = p => SE ? SE.partOwed(p) : Math.max(0, seShare(p) - sePaid(p));
+  const seSettled = p => SE ? SE.partSettled(p) : seOwed(p) <= 0.005;
+
   const sbStartRow = 2;
   splitBills.forEach((b, bi) => {
     const billRowNum = sbStartRow + bi;
@@ -490,8 +499,8 @@ function exportToExcel() {
     let unpaid = 0, paidTotal = 0, unknownCount = 0;
     parts.forEach(p => {
       // Partial repayments split across both columns
-      paidTotal += SplitEngine.partPaid(p);
-      unpaid += SplitEngine.partOwed(p);
+      paidTotal += sePaid(p);
+      unpaid += seOwed(p);
       if (p.unknown) unknownCount++;
     });
     const scat = catMap[b.categoryId] || { name: __('excel.label.unknown'), icon: '❓' };
@@ -514,25 +523,29 @@ function exportToExcel() {
       xml += '   <Row>\n';
       xml += `    <Cell><Data ss:Type="String">${esc('  \u21b3 ' + __('excel.split.label.self'))}</Data></Cell>\n`;
       xml += `    <Cell><Data ss:Type="String">${esc(__('excel.split.label.unknownMark'))}</Data></Cell>\n`;
-      xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(selfShare)}</Data></Cell>\n`;
-      xml += `    <Cell><Data ss:Type="String">${esc(__('excel.split.status.paid'))}</Data></Cell>\n`;
+      // ss:Index is what puts these in D and H. Without it SpreadsheetML fills
+      // sequentially, so the share landed under the 分类 header and the status
+      // string went into the 总额 money column.
+      xml += `    <Cell ss:Index="4" ss:StyleID="money"><Data ss:Type="Number">${fmtNum(selfShare)}</Data></Cell>\n`;
+      xml += `    <Cell ss:Index="8"><Data ss:Type="String">${esc(__('excel.split.status.paid'))}</Data></Cell>\n`;
       xml += '   </Row>\n';
     }
 
     if (parts.length > 0) {
       parts.forEach((p, pi) => {
-        const pAmt = SplitEngine.partShare(p);
-        const pPaid = SplitEngine.partPaid(p);
-        const pStatus = SplitEngine.partSettled(p)
+        const pAmt = seShare(p);
+        const pPaid = sePaid(p);
+        const pStatus = seSettled(p)
           ? __('excel.split.status.paid')
           : (pPaid > 0.005
-            ? __('excel.split.status.partial', fmtNum(pPaid), fmtNum(SplitEngine.partOwed(p)))
+            ? __('excel.split.status.partial', fmtNum(pPaid), fmtNum(seOwed(p)))
             : (p.unknown ? __('excel.split.status.unknown') : __('excel.split.status.unpaid')));
         xml += '   <Row>\n';
         xml += `    <Cell><Data ss:Type="String">${esc('  ↳ ' + (p.name || __('excel.label.unknown')))}</Data></Cell>\n`;
         xml += `    <Cell><Data ss:Type="String">${p.unknown ? esc(__('excel.split.label.unknownMark')) : ''}</Data></Cell>\n`;
-        xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(pAmt)}</Data></Cell>\n`;
-        xml += `    <Cell><Data ss:Type="String">${esc(pStatus)}</Data></Cell>\n`;
+        xml += `    <Cell ss:Index="4" ss:StyleID="money"><Data ss:Type="Number">${fmtNum(pAmt)}</Data></Cell>\n`;
+        xml += `    <Cell ss:Index="7" ss:StyleID="money"><Data ss:Type="Number">${fmtNum(pPaid)}</Data></Cell>\n`;
+        xml += `    <Cell ss:Index="8"><Data ss:Type="String">${esc(pStatus)}</Data></Cell>\n`;
         xml += '   </Row>\n';
       });
     }
