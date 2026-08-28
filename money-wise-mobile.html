@@ -466,7 +466,7 @@ var DataStore = {
       categories: JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)),
       budgets: {},
       categoryBudgets: {},
-      savingsTarget: { type: 'both', fixedAmount: 0, percent: 0 },
+      savingsTarget: { type: 'fixed', fixedAmount: 0, percent: 0 },
       colorIndex: DEFAULT_CATEGORIES.length
     };
   },
@@ -480,7 +480,7 @@ var DataStore = {
           this._data.categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
         }
         if (!this._data.savingsTarget) {
-          this._data.savingsTarget = { type: 'both', fixedAmount: 0, percent: 0 };
+          this._data.savingsTarget = { type: 'fixed', fixedAmount: 0, percent: 0 };
         }
         if (!this._data.categoryBudgets) {
           this._data.categoryBudgets = {};
@@ -612,14 +612,45 @@ var DataStore = {
     return JSON.stringify(this._data, null, 2);
   },
 
+  // Keys this lightweight build knows nothing about — split bills, contacts,
+  // purchase plans, monthly income, tags... The mobile page shares the SAME
+  // localStorage key as the full app, so blindly writing its own 6-key shape
+  // back would delete all of that. Carry anything unrecognised across untouched.
+  _carryUnknown: function(from, to) {
+    for (var k in from) {
+      if (!from.hasOwnProperty(k)) continue;
+      if (!(k in to)) to[k] = from[k];
+    }
+    return to;
+  },
+
   importJSON: function(jsonStr, mode) {
     try {
       var data = JSON.parse(jsonStr);
       if (!data.records || !data.categories) return false;
       if (mode === 'replace') {
-        this._data = data;
+        this._data = this._carryUnknown(this._data || {}, data);
       } else {
-        this._data.records = data.records.concat(this._data.records);
+        // De-duplicate by id. Plain concat meant importing the same backup twice
+        // doubled every expense — the full app had the identical bug.
+        var byId = {};
+        for (var a = 0; a < this._data.records.length; a++) {
+          var lr = this._data.records[a];
+          if (lr && lr.id) byId[lr.id] = a;
+        }
+        for (var b = 0; b < data.records.length; b++) {
+          var ir = data.records[b];
+          if (!ir || !ir.id) continue;
+          if (byId[ir.id] === undefined) {
+            this._data.records.unshift(ir);
+            byId[ir.id] = 0;
+          } else {
+            var cur = this._data.records[byId[ir.id]];
+            var sa = (cur && (cur.updatedAt || cur.createdAt)) || '';
+            var sb = (ir.updatedAt || ir.createdAt) || '';
+            if (sb >= sa) this._data.records[byId[ir.id]] = ir;
+          }
+        }
         var existIds = {};
         for (var i = 0; i < this._data.categories.length; i++) {
           existIds[this._data.categories[i].id] = true;
@@ -645,7 +676,9 @@ var DataStore = {
   },
 
   clearAll: function() {
-    this._data = this._defaults();
+    // Only clears what this build actually owns — the confirmation dialog
+    // promises "所有记录和自定义分类", not the full app's split bills and plans.
+    this._data = this._carryUnknown(this._data || {}, this._defaults());
     this.save();
   }
 };
