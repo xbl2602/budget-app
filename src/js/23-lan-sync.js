@@ -236,50 +236,74 @@
         showToast(__('lansync.warn.someRowsDropped', v.droppedRecords, v.droppedCategories), 'error');
     }
     backupBeforeMerge();
+    sanitizeIncoming(data);
     if (mode === 'replace') {
-      data.records.forEach(function (r) { r.note = sanitizeHtml(r.note || ''); });
-      data.categories.forEach(function (c) { c.name = sanitizeHtml(c.name); c.icon = sanitizeHtml(c.icon); });
+      // Was: _defaults() plus a hand-maintained list of keys to copy across —
+      // which is how allTags / tagColors / colorIndex / lastActiveMonth got
+      // dropped on every sync. Hand the whole payload to the one normaliser
+      // instead, so new keys are carried automatically.
       sortRecordsDesc(data.records);
-      var def = DataStore._defaults();
-      DataStore._data = def;
-      DataStore._data.records = data.records;
-      DataStore._data.categories = data.categories;
-      if (data.budgets) DataStore._data.budgets = data.budgets;
-      if (data.categoryBudgets) DataStore._data.categoryBudgets = data.categoryBudgets;
-      if (data.monthlyIncome) DataStore._data.monthlyIncome = data.monthlyIncome;
-      if (data.billAmounts) DataStore._data.billAmounts = data.billAmounts;
-      if (data.savingsTarget) DataStore._data.savingsTarget = data.savingsTarget;
-      if (data.percentBase) DataStore._data.percentBase = data.percentBase;
-      if (data.whatIfParams) DataStore._data.whatIfParams = data.whatIfParams;
-      if (data.billCategories && Array.isArray(data.billCategories))
-        DataStore._data.billCategories = data.billCategories.map(function (b) { b.name = sanitizeHtml(b.name); return b; });
-      if (data.contacts && Array.isArray(data.contacts))
-        DataStore._data.contacts = data.contacts.map(function (c) {
-          if (c && typeof c.name === 'string') c.name = sanitizeHtml(c.name);
-          return c;
-        });
-      if (data.splitBills && Array.isArray(data.splitBills))
-        DataStore._data.splitBills = data.splitBills.map(function (b) {
-          if (b && typeof b.note === 'string') b.note = sanitizeHtml(b.note);
-          if (b && Array.isArray(b.participants)) b.participants.forEach(function (p) {
-            if (p && typeof p.name === 'string') p.name = sanitizeHtml(p.name);
-          });
-          return b;
-        });
-      if (data.purchasePlans && Array.isArray(data.purchasePlans))
-        DataStore._data.purchasePlans = data.purchasePlans.map(function (p) {
-          if (p && typeof p.name === 'string') p.name = sanitizeHtml(p.name);
-          if (p && typeof p.note === 'string') p.note = sanitizeHtml(p.note);
-          return p;
-        });
+      DataStore._data = DataStore._normalize(data);
     } else {
-      mergeIntoDataStore(data);
+      DataStore._mergeData(data);
     }
     DataStore.save();
     var active = document.querySelector('.page-section.active');
     if (active && typeof navigateTo === 'function')
       navigateTo(active.getAttribute('data-page') || 'overview');
     return { records: data.records.length, categories: data.categories.length };
+  }
+
+  var pendingSyncData = null;
+  function confirmSyncMode(mode) {
+    if (typeof closeModal === 'function') closeModal();
+    if (!pendingSyncData) return;
+    var el = document.getElementById('syncClientProgress');
+    if (el) el.innerHTML = mode === 'replace'
+      ? ('⏳ ' + __('lansync.status.replacing'))
+      : ('⏳ ' + __('lansync.status.merging'));
+    var r = receiveAndMerge(pendingSyncData, mode);
+    pendingSyncData = null;
+    if (r) {
+      if (el) el.innerHTML = __('lansync.status.syncResult', r.records, r.categories);
+      try { if (channel && channel.readyState === 'open') channel.send('SYNC_OK'); } catch (e) { /* ignore */ }
+    }
+  }
+
+  // XSS scrubbing for anything arriving over the wire. Merge semantics live in
+  // DataStore._mergeData() — keeping a second copy here is what let the two
+  // paths drift apart (importJSON de-duplicated nothing, this one keyed on id).
+  function sanitizeIncoming(data) {
+    if (!data || typeof data !== 'object') return data;
+    (data.records || []).forEach(function (r) { if (r) r.note = sanitizeHtml(r.note || ''); });
+    (data.categories || []).forEach(function (c) {
+      if (!c) return;
+      c.name = sanitizeHtml(c.name);
+      c.icon = sanitizeHtml(c.icon);
+    });
+    (data.billCategories || []).forEach(function (b) { if (b) b.name = sanitizeHtml(b.name); });
+    (data.contacts || []).forEach(function (c) {
+      if (c && typeof c.name === 'string') c.name = sanitizeHtml(c.name);
+    });
+    (data.splitBills || []).forEach(function (b) {
+      if (!b) return;
+      if (typeof b.note === 'string') b.note = sanitizeHtml(b.note);
+      if (typeof b.tag === 'string') b.tag = sanitizeHtml(b.tag);
+      (b.participants || []).forEach(function (p) {
+        if (p && typeof p.name === 'string') p.name = sanitizeHtml(p.name);
+      });
+    });
+    (data.purchasePlans || []).forEach(function (p) {
+      if (!p) return;
+      if (typeof p.name === 'string') p.name = sanitizeHtml(p.name);
+      if (typeof p.note === 'string') p.note = sanitizeHtml(p.note);
+    });
+    if (Array.isArray(data.allTags)) data.allTags = data.allTags.map(function (t) {
+      return typeof t === 'string' ? sanitizeHtml(t) : t;
+    });
+    // Entity-level cleanup (drops malformed bills/plans, backfills payer)
+    if (DataStore._sanitizeEntities) DataStore._sanitizeEntities(data);
+    return data;
   }
 
   var pendingSyncData = null;

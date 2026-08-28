@@ -43,6 +43,33 @@ const dom = new JSDOM(html, {
     window.HTMLCanvasElement.prototype.toDataURL = function () { return 'data:image/png;base64,AAA'; };
     window.URL.createObjectURL = (blob) => 'blob:stub';
     window.URL.revokeObjectURL = () => {};
+    // Minimal RTCPeerConnection so createClient() completes and the test can
+    // hand over a data channel by hand — this drives the real receiveAndMerge
+    // instead of asserting on source text.
+    window.__rtcChannels = [];
+    window.RTCPeerConnection = function () {
+      const self = this;
+      this.iceConnectionState = 'connected';
+      this.iceGatheringState = 'complete';
+      this.localDescription = { sdp: 'stub' };
+      this.ondatachannel = null; this.onicecandidate = null;
+      this.setRemoteDescription = () => Promise.resolve();
+      this.createAnswer = () => Promise.resolve({ type: 'answer', sdp: 'stub' });
+      this.setLocalDescription = () => Promise.resolve();
+      this.createDataChannel = () => ({ readyState: 'open', send() {}, close() {} });
+      this.close = () => {};
+      window.__rtcChannels.push({
+        fire(payload) {
+          if (typeof self.ondatachannel !== 'function') return 'no-handler';
+          const ch = { readyState: 'open', send() {}, close() {}, onopen: null, onmessage: null, onerror: null };
+          self.ondatachannel({ channel: ch });
+          if (ch.onopen) ch.onopen();
+          if (typeof ch.onmessage !== 'function') return 'no-onmessage';
+          ch.onmessage({ data: payload });
+          return 'delivered';
+        }
+      });
+    };
   },
 });
 const { window } = dom;
@@ -68,6 +95,19 @@ whenReady().then(async () => {
   console.log('\n===== RESULT: ' + pass + ' PASS / ' + fail + ' FAIL =====');
   process.exit(fail > 0 ? 1 : 0);
 });
+
+// Push a payload through the real LAN-sync receive path.
+async function lanSync(payloadJson, mode) {
+  let i = document.getElementById('syncOfferInput');
+  if (!i) { i = document.createElement('input'); i.id = 'syncOfferInput'; document.body.appendChild(i); }
+  i.value = 'stub-offer';
+  window.SyncUI.connectAsClient();
+  await new Promise(r => setTimeout(r, 120));
+  window.__rtcChannels[window.__rtcChannels.length - 1].fire(payloadJson);
+  await new Promise(r => setTimeout(r, 20));
+  window.confirmSyncMode(mode);
+  await new Promise(r => setTimeout(r, 20));
+}
 
 async function run() {
   const { DataStore } = window;
@@ -117,25 +157,31 @@ assert('E1 merge: splitBills merged', Array.isArray(DataStore._data.splitBills) 
 assert('E1 merge: contacts merged', Array.isArray(DataStore._data.contacts) &&
   DataStore._data.contacts.some(c => c.id === 'c1'));
 
-// ========== E3: LAN sync merge preserves contacts + splitBills ==========
-assert('E3 hook present', typeof window.mergeIntoDataStore === 'function' || typeof window.SyncUI === 'object');
-// mergeIntoDataStore isn't exported; simulate via receiveAndMerge path if available
-if (typeof window.receiveAndMerge === 'function') {
+// ========== E3: LAN sync preserves contacts + splitBills ==========
+// Was asserting on the SOURCE TEXT of 23-lan-sync.js, which proved nothing about
+// behaviour and broke the moment the whitelist was replaced by _normalize().
+// Now it drives the real receive path.
+assert('E3 hook present', typeof window.SyncUI === 'object' && typeof window.confirmSyncMode === 'function');
+{
+  const seed = JSON.parse(JSON.stringify(raw));
+  seed.contacts = [{ id: 'c9', name: 'Carol' }];
+  seed.splitBills = [{ id: 'sb9', payer: 'self', amount: 50, date: '2026-08-02', categoryId: catId, selfShare: 0, mode: 'equal', archived: false, participants: [] }];
+
   DataStore.clearAll();
-  DataStore.importJSON(JSON.stringify({ records: [], categories: DataStore.getCategories(), budgets: {}, categoryBudgets: {}, savingsTarget: { type: 'fixed', fixedAmount: 0, percent: 0 }, monthlyIncome: {}, billAmounts: {}, billCategories: [], percentBase: 'gross' }), 'replace');
-  const inc = JSON.parse(DataStore.exportJSON());
-  inc.contacts = [{ id: 'c9', name: 'Carol' }];
-  inc.splitBills = [{ id: 'sb9', amount: 50, date: '2026-08-02', categoryId: catId, selfShare: 0, mode: 'equal', archived: false, participants: [] }];
-  window.receiveAndMerge(JSON.stringify(inc), 'merge');
+  await lanSync(JSON.stringify(seed), 'replace');
+  assert('E3 replace: records survive', DataStore._data.records.length === seed.records.length,
+    'got ' + DataStore._data.records.length + ' of ' + seed.records.length);
+  assert('E3 replace: contacts preserved', DataStore._data.contacts.some(c => c.id === 'c9'));
+  assert('E3 replace: splitBills preserved', DataStore._data.splitBills.some(b => b.id === 'sb9'));
+  assert('E3 replace: allTags preserved', Array.isArray(DataStore._data.allTags) && DataStore._data.allTags.includes('聚餐'));
+
+  DataStore.clearAll();
+  DataStore.importJSON(JSON.stringify(raw), 'replace');
+  await lanSync(JSON.stringify(seed), 'merge');
   assert('E3 merge: contacts preserved', DataStore._data.contacts.some(c => c.id === 'c9'));
   assert('E3 merge: splitBills preserved', DataStore._data.splitBills.some(b => b.id === 'sb9'));
-} else {
-  // Fallback: read source to verify code presence
-  const lan = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', '23-lan-sync.js'), 'utf8');
-  assert('E3 replace: contacts in source', /DataStore\._data\.contacts = data\.contacts/.test(lan));
-  assert('E3 replace: splitBills in source', /DataStore\._data\.splitBills = data\.splitBills/.test(lan));
-  assert('E3 merge: contacts in mergeIntoDataStore', /incoming\.contacts && Array\.isArray\(incoming\.contacts\)/.test(lan));
-  assert('E3 merge: splitBills in mergeIntoDataStore', /incoming\.splitBills && Array\.isArray\(incoming\.splitBills\)/.test(lan));
+  assert('E3 merge: local records not duplicated', DataStore._data.records.length === raw.records.length,
+    'got ' + DataStore._data.records.length + ' expected ' + raw.records.length);
 }
 
 // ========== E4: Excel covers split bills ==========
@@ -266,11 +312,20 @@ DataStore.importJSON(JSON.stringify(planFixture), 'merge');
 assert('E7 merge: purchasePlans preserved', Array.isArray(DataStore._data.purchasePlans) &&
   DataStore._data.purchasePlans.some(p => p.id === 'pp1'));
 
-// LAN sync coverage
+// LAN sync coverage — behavioural, not source-text matching
 {
-  const lan = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', '23-lan-sync.js'), 'utf8');
-  assert('E7 sync replace: purchasePlans in source', /DataStore\._data\.purchasePlans = data\.purchasePlans/.test(lan));
-  assert('E7 sync merge: purchasePlans in mergeIntoDataStore', /incoming\.purchasePlans && Array\.isArray\(incoming\.purchasePlans\)/.test(lan));
+  const planPayload = JSON.parse(DataStore.exportJSON());
+  DataStore.clearAll();
+  await lanSync(JSON.stringify(planPayload), 'replace');
+  assert('E7 sync replace: purchasePlans preserved',
+    (DataStore._data.purchasePlans || []).some(p => p.id === 'pp1'));
+  assert('E7 sync replace: plan overrides preserved',
+    (DataStore._data.purchasePlans || []).some(p => p.id === 'pp1' && p.overrides && typeof p.overrides === 'object'));
+
+  DataStore.clearAll();
+  await lanSync(JSON.stringify(planPayload), 'merge');
+  assert('E7 sync merge: purchasePlans preserved',
+    (DataStore._data.purchasePlans || []).some(p => p.id === 'pp1'));
 }
 
 // Excel sheet 7
