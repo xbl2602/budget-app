@@ -580,7 +580,7 @@ function exportToExcel() {
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(remaining)}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="String">${esc(p.startMonth || '')}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="Number">${fmtNum(p.months || 0)}</Data></Cell>\n`;
-    xml += `    <Cell><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(st && st.hasEstimates ? status + ' · ' + __('excel.plan.status.hasEstimates', st.estimatedMonths) : status)}</Data></Cell>\n`;
     xml += '   </Row>\n';
 
     if (st && st.byMonth) {
@@ -588,7 +588,9 @@ function exportToExcel() {
         const per = st.byMonth[m];
         xml += '   <Row>\n';
         xml += `    <Cell><Data ss:Type="String">${esc('  ↳ ' + m)}</Data></Cell>\n`;
-        xml += `    <Cell><Data ss:Type="String"></Data></Cell>\n`;
+        // Months with no income on record are replayed optimistically; say so
+        // rather than letting a guessed repayment read as a measured one.
+        xml += `    <Cell><Data ss:Type="String">${esc(per.incomeKnown ? __('excel.plan.source.measured') : __('excel.plan.source.estimated'))}</Data></Cell>\n`;
         xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(per.due)}</Data></Cell>\n`;
         xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(per.actual)}</Data></Cell>\n`;
         xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(per.short)}</Data></Cell>\n`;
@@ -640,6 +642,9 @@ function exportToExcel() {
     'excel.plan.status.active': { zh: '进行中', en: 'Active' },
     'excel.plan.status.completed': { zh: '已完成', en: 'Completed' },
     'excel.plan.status.cancelled': { zh: '已放弃', en: 'Cancelled' },
+    'excel.plan.source.measured': { zh: '实测', en: 'Measured' },
+    'excel.plan.source.estimated': { zh: '推定', en: 'Estimated' },
+    'excel.plan.status.hasEstimates': { zh: '{0} 个月无收入记录，按计划推定', en: '{0} month(s) without income on record, assumed on schedule' },
     'excel.plan.status.done': { zh: '已完成', en: 'Completed' },
     'excel.plan.status.overdue': { zh: '逾期', en: 'Overdue' },
     'excel.header.seq': { zh: '序号', en: '#' },

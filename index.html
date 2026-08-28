@@ -4819,7 +4819,7 @@ function exportToExcel() {
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(remaining)}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="String">${esc(p.startMonth || '')}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="Number">${fmtNum(p.months || 0)}</Data></Cell>\n`;
-    xml += `    <Cell><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
+    xml += `    <Cell><Data ss:Type="String">${esc(st && st.hasEstimates ? status + ' · ' + __('excel.plan.status.hasEstimates', st.estimatedMonths) : status)}</Data></Cell>\n`;
     xml += '   </Row>\n';
 
     if (st && st.byMonth) {
@@ -4827,7 +4827,9 @@ function exportToExcel() {
         const per = st.byMonth[m];
         xml += '   <Row>\n';
         xml += `    <Cell><Data ss:Type="String">${esc('  ↳ ' + m)}</Data></Cell>\n`;
-        xml += `    <Cell><Data ss:Type="String"></Data></Cell>\n`;
+        // Months with no income on record are replayed optimistically; say so
+        // rather than letting a guessed repayment read as a measured one.
+        xml += `    <Cell><Data ss:Type="String">${esc(per.incomeKnown ? __('excel.plan.source.measured') : __('excel.plan.source.estimated'))}</Data></Cell>\n`;
         xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(per.due)}</Data></Cell>\n`;
         xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(per.actual)}</Data></Cell>\n`;
         xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(per.short)}</Data></Cell>\n`;
@@ -4879,6 +4881,9 @@ function exportToExcel() {
     'excel.plan.status.active': { zh: '进行中', en: 'Active' },
     'excel.plan.status.completed': { zh: '已完成', en: 'Completed' },
     'excel.plan.status.cancelled': { zh: '已放弃', en: 'Cancelled' },
+    'excel.plan.source.measured': { zh: '实测', en: 'Measured' },
+    'excel.plan.source.estimated': { zh: '推定', en: 'Estimated' },
+    'excel.plan.status.hasEstimates': { zh: '{0} 个月无收入记录，按计划推定', en: '{0} month(s) without income on record, assumed on schedule' },
     'excel.plan.status.done': { zh: '已完成', en: 'Completed' },
     'excel.plan.status.overdue': { zh: '逾期', en: 'Overdue' },
     'excel.header.seq': { zh: '序号', en: '#' },
@@ -5520,6 +5525,16 @@ const PlanMath = {
     const plans = DataStore.getPurchasePlans().filter(p => p && p.status !== 'cancelled');
     if (!plans.length) return result;
 
+    // Actual money moved for credit-mode plans, indexed by planId|planMonth.
+    // syncPlanRecords() writes one record per instalment, so this is the real
+    // ledger — not the theoretical monthly amount. Built once to stay O(n).
+    const creditPaid = {};
+    (DataStore.getRecords() || []).forEach(r => {
+      if (!r || !r.planId || !r.planMonth) return;
+      const k = r.planId + '|' + r.planMonth;
+      creditPaid[k] = (creditPaid[k] || 0) + (parseFloat(r.amount) || 0);
+    });
+
     let startIdx = Infinity;
     plans.forEach(p => {
       const s = monthToIndex(p.startMonth);
@@ -5559,8 +5574,14 @@ const PlanMath = {
           // Bank instalment: the amount is fixed and non-negotiable, and a real
           // record backs it — that record already consumed `surplus` via
           // getMonthTotal, so do NOT deduct it again here.
+          //
+          // `actual` comes from that record, not from the theoretical monthly
+          // amount. Assuming the instalment was paid meant a plan with zero
+          // backing records still reported itself fully repaid — deleting the
+          // instalment rows from 流水 left the debt showing as cleared.
           due = Math.min(p.totalAmount / p.months, st.remaining);
-          actual = due;
+          const booked = creditPaid[p.id + '|' + m];
+          actual = Math.max(0, Math.min(booked === undefined ? 0 : booked, st.remaining));
         } else {
           // Self-imposed: shortfalls roll into the remaining periods, so the due
           // amount climbs until the debt clears.
@@ -5606,6 +5627,13 @@ const PlanMath = {
         ? Math.max(0, p.months - (endIdx - sIdx) - 1)
         : p.months;
       st.progressPct = p.totalAmount > 0 ? Math.min(100, (st.paid / p.totalAmount) * 100) : 0;
+      // Months with no income on record are replayed as "assume on schedule"
+      // (see the !incomeKnown branch above). That keeps a plan from stalling,
+      // but it also means the repayment progress is partly guessed — surface
+      // how much of it, so neither the UI nor the Excel export can present a
+      //推定 figure as if it were measured.
+      st.estimatedMonths = Object.keys(st.byMonth).filter(m => st.byMonth[m] && !st.byMonth[m].incomeKnown).length;
+      st.hasEstimates = st.estimatedMonths > 0;
       const cur = st.byMonth[upToMonth];
       st.dueThisMonth = cur ? cur.due : 0;
       st.paidThisMonth = cur ? cur.actual : 0;

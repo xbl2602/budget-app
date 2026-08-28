@@ -579,6 +579,16 @@ const PlanMath = {
     const plans = DataStore.getPurchasePlans().filter(p => p && p.status !== 'cancelled');
     if (!plans.length) return result;
 
+    // Actual money moved for credit-mode plans, indexed by planId|planMonth.
+    // syncPlanRecords() writes one record per instalment, so this is the real
+    // ledger — not the theoretical monthly amount. Built once to stay O(n).
+    const creditPaid = {};
+    (DataStore.getRecords() || []).forEach(r => {
+      if (!r || !r.planId || !r.planMonth) return;
+      const k = r.planId + '|' + r.planMonth;
+      creditPaid[k] = (creditPaid[k] || 0) + (parseFloat(r.amount) || 0);
+    });
+
     let startIdx = Infinity;
     plans.forEach(p => {
       const s = monthToIndex(p.startMonth);
@@ -618,8 +628,14 @@ const PlanMath = {
           // Bank instalment: the amount is fixed and non-negotiable, and a real
           // record backs it — that record already consumed `surplus` via
           // getMonthTotal, so do NOT deduct it again here.
+          //
+          // `actual` comes from that record, not from the theoretical monthly
+          // amount. Assuming the instalment was paid meant a plan with zero
+          // backing records still reported itself fully repaid — deleting the
+          // instalment rows from 流水 left the debt showing as cleared.
           due = Math.min(p.totalAmount / p.months, st.remaining);
-          actual = due;
+          const booked = creditPaid[p.id + '|' + m];
+          actual = Math.max(0, Math.min(booked === undefined ? 0 : booked, st.remaining));
         } else {
           // Self-imposed: shortfalls roll into the remaining periods, so the due
           // amount climbs until the debt clears.
@@ -665,6 +681,13 @@ const PlanMath = {
         ? Math.max(0, p.months - (endIdx - sIdx) - 1)
         : p.months;
       st.progressPct = p.totalAmount > 0 ? Math.min(100, (st.paid / p.totalAmount) * 100) : 0;
+      // Months with no income on record are replayed as "assume on schedule"
+      // (see the !incomeKnown branch above). That keeps a plan from stalling,
+      // but it also means the repayment progress is partly guessed — surface
+      // how much of it, so neither the UI nor the Excel export can present a
+      //推定 figure as if it were measured.
+      st.estimatedMonths = Object.keys(st.byMonth).filter(m => st.byMonth[m] && !st.byMonth[m].incomeKnown).length;
+      st.hasEstimates = st.estimatedMonths > 0;
       const cur = st.byMonth[upToMonth];
       st.dueThisMonth = cur ? cur.due : 0;
       st.paidThisMonth = cur ? cur.actual : 0;
