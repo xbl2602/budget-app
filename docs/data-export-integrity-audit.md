@@ -3,7 +3,9 @@
 > **审计日期**：2026-08-28
 > **审计基线**：commit `fccd63f`（v3.2.0 之后的未发布状态）
 > **审计范围**：`exportJSON` / `importJSON` / 局域网同步 / Excel / CSV / 指纹码 / 刷新机制 / 手机版
-> **状态**：全部为**待修**，本次审计未改动任何源码
+> **状态**：✅ **全部 19 项已修复**（2026-08-28，8 个批次）
+> **修复计划**：[`data-export-fix-plan.md`](data-export-fix-plan.md)
+> **回归测试**：`tests/data-integrity-fixes-test.js`（98 项）
 
 ---
 
@@ -11,20 +13,19 @@
 
 **问：各类数据导出功能能否正确地导出并合并全部数据？**
 
-**答：不能。六条路径里只有一条是完好的。**
+**审计时的答案：不能 —— 六条路径只有一条完好。**
+**修复后的答案：能 —— 四条往返路径全部字段无损。**
 
-| 路径 | 能否完整还原 | 一句话 |
+| 路径 | 审计时 | 修复后 |
 |------|------|------|
-| `exportJSON` → `importJSON(replace)` | ✅ **完好** | 唯一可信的备份/恢复通道 |
-| `exportJSON` → `importJSON(merge)` | ❌ | 记录**不去重**，重复导入消费翻倍；丢 `tagColors` |
-| 局域网同步（replace） | ❌ **灾难性** | **消费记录 100% 被丢弃**，且本地已被清空 |
-| 局域网同步（merge） | ❌ **灾难性** | 同上，消费记录全部丢弃 |
-| Excel 导出 | ⚠️ | 数据齐全，但分摊子行**串列**；欠债数字是现算的、不可复现 |
-| CSV 导出 | ⚠️ | 设计上只导记录，但连子分类、分期归属都没有 |
-| 指纹码 | ❌ | 18 个字段里 **6 个是盲区**，包括决定金额口径的 `payer` |
-
-**唯一安全的备份方式**：设置页「导出 JSON」，恢复时选「替换」。
-**目前不可用**：局域网同步（会丢光记录）、JSON「合并」（会重复累加）。
+| `exportJSON` → `importJSON(replace)` | ✅ 完好 | ✅ 全部字段无损 |
+| `exportJSON` → `importJSON(merge)` | ❌ 不去重、丢 `tagColors` | ✅ 全部字段无损 |
+| 局域网同步（replace） | ❌ 消费记录 100% 丢弃 | ✅ 全部字段无损 |
+| 局域网同步（merge） | ❌ 消费记录 100% 丢弃 | ✅ 全部字段无损 |
+| Excel 导出 | ⚠️ 分摊子行串列 | ✅ 对齐正确，逐月标注实测/推定 |
+| CSV 导出 | ⚠️ 缺子分类、分期归属 | ✅ 已补齐（11 列） |
+| 指纹码 | ❌ 18 项中 6 项盲区 | ✅ 18 项全部察觉 |
+| 手机版往返 | ❌ 抹掉 15 个键 | ✅ 未知键全部保留 |
 
 可复现审计脚本：`tests/export-integrity-audit.js`
 跑法：`bash build.sh && node tests/export-integrity-audit.js`
@@ -87,7 +88,7 @@ whatIfParams  contacts  splitBills  purchasePlans
 
 # P0 — 会造成数据丢失或金额错误
 
-## P0-01 局域网同步丢弃 100% 的消费记录
+## P0-01 ✅ 已修复 · `70da9a6` 局域网同步丢弃 100% 的消费记录
 
 **严重度**：🔴 灾难性 —— replace 模式下本地记录先被清空，再导入 0 条
 
@@ -142,7 +143,7 @@ node tests/export-integrity-audit.js   →  G 节
 
 ---
 
-## P0-02 `importJSON` 合并模式不去重，重复导入消费翻倍
+## P0-02 ✅ 已修复 · `f35a92b` `importJSON` 合并模式不去重，重复导入消费翻倍
 
 **严重度**：🔴 数据错误且难以察觉
 
@@ -172,7 +173,7 @@ importJSON merge 同一份三次: 2 → 4 → 6  ❌ 记录重复累加
 
 ---
 
-## P0-03 `payer` 字段缺失 → 全部分摊统计归零，欠债消失
+## P0-03 ✅ 已修复 · `e2e642b` `payer` 字段缺失 → 全部分摊统计归零，欠债消失
 
 **严重度**：🔴 金额错误
 
@@ -210,7 +211,7 @@ if (b.payer !== 'self') return;   // 没有这个字段 → 整条账单被跳�
 
 ---
 
-## P0-04 「修复数据」静默删除记录
+## P0-04 ✅ 已修复 · `f133b8e` 「修复数据」静默删除记录
 
 **严重度**：🔴 不可逆数据丢失，违反 RULES「永不删除用户数据」
 
@@ -249,7 +250,7 @@ repairData 后 records=0 合计=0
 
 ---
 
-## P0-05 `reload()` 不跑迁移 → 刷新之后 Excel 导出直接崩
+## P0-05 ✅ 已修复 · `e2e642b` `reload()` 不跑迁移 → 刷新之后 Excel 导出直接崩
 
 **严重度**：🔴 功能完全失效且无任何提示
 
@@ -286,7 +287,7 @@ reload 后 exportToExcel 抛错: Cannot read properties of undefined (reading '2
 
 ---
 
-## P0-06 撤销窗口内点刷新 → 记录永久丢失
+## P0-06 ✅ 已修复 · `f133b8e` 撤销窗口内点刷新 → 记录永久丢失
 
 **严重度**：🔴 不可逆
 
@@ -311,7 +312,7 @@ if (pending) { DataStore._finalizeDelete(pending.id); }
 
 ---
 
-## P0-07 `Object.assign` 目标写成 `|| {}`，静默丢弃导入数据
+## P0-07 ✅ 已修复 · `e2e642b` `Object.assign` 目标写成 `|| {}`，静默丢弃导入数据
 
 **严重度**：🔴 静默数据丢失，且会连锁引爆 P1-09
 
@@ -342,7 +343,7 @@ Object.assign(this._data.monthlyIncome, data.monthlyIncome || {});
 
 ---
 
-## P0-08 手机版仍是 v1 schema，replace 导入抹掉 15 个键
+## P0-08 ✅ 已修复 · `2c3ab80` 手机版仍是 v1 schema，replace 导入抹掉 15 个键
 
 **严重度**：🔴 数据丢失
 
@@ -371,7 +372,7 @@ clearAll 后剩 6 个键，savingsTarget.type="both"  ❌ 桌面版不认识这�
 
 # P1 — 欠债 / 还款数据失真
 
-## P1-09 收入缺失 → 欠款凭空清零
+## P1-09 ✅ 已修复 · `0cc8600` 收入缺失 → 欠款凭空清零
 
 **严重度**：🟠 数字错得很离谱，但方向是「显得更好」，用户不易起疑
 
@@ -406,7 +407,7 @@ if (typeof ov === 'number' && isFinite(ov)) {
 
 ---
 
-## P1-10 credit 模式一分没扣也显示已还清
+## P1-10 ✅ 已修复 · `0cc8600` credit 模式一分没扣也显示已还清
 
 **严重度**：🟠
 
@@ -432,7 +433,7 @@ credit 模式的 `actual` 应当来自真实记录（`records.filter(r => r.plan
 
 ---
 
-## P1-11 归档账单的欠款死锁
+## P1-11 ✅ 已修复 · `4d48962` 归档账单的欠款死锁
 
 **严重度**：🟠 欠款永远清不掉
 
@@ -457,7 +458,7 @@ const control = b.archived ? '' : _splitPaidControl(...);
 
 ---
 
-## P1-12 Excel 分摊子行串列
+## P1-12 ✅ 已修复 · `4d48962` Excel 分摊子行串列
 
 **严重度**：🟠 导出文件观感错乱
 
@@ -485,7 +486,7 @@ node tests/export-integrity-audit.js   →  D 节
 
 ---
 
-## P1-13 指纹码 6 个盲区
+## P1-13 ✅ 已修复 · `4673f64` 指纹码 6 个盲区
 
 **严重度**：🟠 「指纹相同 = 数据一致」这个承诺不成立
 
@@ -528,7 +529,7 @@ categories: data.categories.map(c => ({ id: c.id, name: c.name, parentId: c.pare
 
 ---
 
-## P1-14 `allTags` / `tagColors` 过不了局域网同步
+## P1-14 ✅ 已修复 · `f35a92b` `allTags` / `tagColors` 过不了局域网同步
 
 **严重度**：🟠 附带一个误导性症状
 
@@ -543,11 +544,11 @@ categories: data.categories.map(c => ({ id: c.id, name: c.name, parentId: c.pare
 
 # P2 — 健壮性 / 文档
 
-## P2-15 `SplitEngine` 缺 typeof 守卫
+## P2-15 ✅ 已修复 · `4d48962` `SplitEngine` 缺 typeof 守卫
 
 [`03-excel-export.js:493`](../src/js/03-excel-export.js) 直接 `SplitEngine.partPaid(p)`，而同一文件 [`:549`](../src/js/03-excel-export.js) 对 `PlanMath` 是有 `typeof` 守卫的。`build.sh` 逐文件包 `try/catch`，`26-split-bills.js` 一旦抛错 `SplitEngine` 就是 undefined，Excel 导出整体静默失效。
 
-## P2-16 `_deleted` 是死代码，文档写反了
+## P2-16 ✅ 已修复 · `4d48962` `_deleted` 是死代码，文档写反了
 
 [`docs/ai/REFERENCE.md:225`](ai/REFERENCE.md) 写「软删除（设 `_deleted` 标记）」，并称数据层有 `softDeleteRecord()`／`undoDelete()`／`_finalizeDelete()` 三件套。
 
@@ -555,11 +556,11 @@ categories: data.categories.map(c => ({ id: c.id, name: c.name, parentId: c.pare
 
 导出不受影响，但文档会误导后续改动。
 
-## P2-17 锁定状态下导出会产出空备份
+## P2-17 ✅ 已修复 · `4d48962` 锁定状态下导出会产出空备份
 
 `lockData()`（[`02-datastore.js:978`](../src/js/02-datastore.js)）把 `_data` 设为 `null`，此后 `exportJSON()` 返回字符串 `"null"` —— 一个文件名正常、内容为空的「备份」。目前被 PIN 模态框挡着，属于加固项。
 
-## P2-18 CSV 覆盖面过窄
+## P2-18 ✅ 已修复 · `4d48962` CSV 覆盖面过窄
 
 表头：`ID,金额,分类,日期,备注,创建时间,不计日均,标签,分摊`
 
@@ -568,7 +569,7 @@ categories: data.categories.map(c => ({ id: c.id, name: c.name, parentId: c.pare
 
 CSV 定位为「只导流水」可以接受，但**子分类**和**分期归属**属于流水自身的属性，不应缺席。
 
-## P2-19 「导出 JSON = 完整备份」的说法不准确
+## P2-19 ✅ 已修复 · `4d48962` 「导出 JSON = 完整备份」的说法不准确
 
 [`25-page-guides.js:1232`](../src/js/25-page-guides.js) 称「完整数据备份，包含所有记录、分类、预算、设置」。
 实际不含 25 个 `localStorage` 键：主题、语言、PIN 哈希与盐、自动锁定时长、各页偏好等。换机恢复后这些都要重设。
@@ -588,13 +589,53 @@ CSV 定位为「只导流水」可以接受，但**子分类**和**分期归属*
 
 ---
 
-## 建议的修复顺序
+## 实施记录
 
-1. **P0-01**（局域网丢记录）—— 唯一会当场毁数据的，且用户以为同步成功了
-2. **P0-07 → P0-03 → P1-13** —— 三者互相放大：`P0-07` 丢收入触发 `P1-09` 欠债清零；`P0-03` 让金额口径出错；`P1-13` 让指纹**察觉不到**前两者
-3. **P0-02、P0-04、P0-06** —— 数据丢失/重复，各自独立，改动都很小
-4. **P0-05** —— 抽 `_normalize()`，顺带解决一批「缺键就崩」的隐患
-5. **P0-08** —— 需要先定手机版的产品定位
-6. **P1-09 / P1-10 / P1-11** —— 产品语义决策，需要先确认预期行为再改
+19 个问题收敛到 6 个根因后分 8 批完成，每批：改动 → `bash build.sh` →
+跑全部套件 → 跑审计脚本 → 提交。
 
-修每一条之前先补一个会失败的测试；`tests/export-integrity-audit.js` 里的对应小节可以直接改成断言式。
+| 批次 | commit | 内容 | 覆盖 |
+|---|---|---|---|
+| 1 | `e2e642b` | 抽出 `_normalize()` 数据规范化单一入口 | P0-03 P0-05 P0-07 |
+| 2 | `70da9a6` | 局域网日期校验 + 拒绝静默丢弃 | P0-01 |
+| 3 | `f35a92b` | `_mergeData()` 合并收敛，LAN replace 走 normalize | P0-02 P1-14 |
+| 4 | `4673f64` | 指纹改全量稳定序列化，白名单换排除名单 | P1-13 |
+| 5 | `f133b8e` | 孤儿记录改解除关联；待删项持久化 | P0-04 P0-06 |
+| 6 | `0cc8600` | credit 取真实记录；推定进度自报可信度 | P1-09 P1-10 |
+| 7 | `2c3ab80` | 手机版保留未知键 + merge 去重 | P0-08 |
+| 8 | `4d48962` | 归档欠款、Excel 串列、CSV 补列、死代码、文案 | P1-11 P1-12 P2-15..19 |
+
+### 最终验收
+
+| 编号 | 标准 | 结果 |
+|---|---|---|
+| F1 | 审计 A 节四条路径全部「✅ 全部字段无损」 | ✅ |
+| F2 | 审计 B/D/F/G/H 五节无 ❌ | ✅ 全脚本 0 个 ❌ |
+| F3 | 全部测试套件通过 | ✅ 9 个套件全绿（waffle 的轮询缺陷一并修掉） |
+| F4 | 每条问题标注修复与 commit | ✅ 见上表 |
+
+```
+category-treemap-test.js       41 PASS / 0 FAIL
+category-waffle-test.js        51 PASS / 0 FAIL
+data-integrity-fixes-test.js   98 通过 / 0 失败
+export-coverage-test.js        54 PASS / 0 FAIL
+hierarchy-test.js              36 PASS / 0 FAIL
+partial-repayment-test.js      60 PASS / 0 FAIL
+plan-editor-bounds-test.js     40 PASS / 0 FAIL
+plan-ui-test.js                53 PASS / 0 FAIL
+structure-fixes-test.js        53 PASS / 0 FAIL
+```
+
+### 升级后的一次性影响
+
+**所有现存设备的指纹码会变一次**（序列化方式变了）。两台设备都升到本版本
+之后重新比对即可，不代表数据不一致。
+
+### 仍然明确不做的事
+
+| 事项 | 理由 |
+|---|---|
+| 局域网 merge 更新已存在的 `splitBills` / `purchasePlans` | 需要冲突策略设计，`REFERENCE.md` 已记为已知限制 |
+| 把 `payer` 过滤彻底删除 | 已由 `_normalize` 补齐保证正确；语义清理另开 |
+| 把欠债金额改为存储值 | `PlanMath` 的重放模型是刻意设计，属架构级改动 |
+| 把 25 个 `localStorage` 偏好纳入导出 | 属设备偏好而非账本数据；已订正文案 |
