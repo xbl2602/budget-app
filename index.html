@@ -3934,24 +3934,47 @@ const DataStore = {
     return latest || __('datastore.noData');
   },
 
+  // Fields the fingerprint deliberately ignores: per-device state that drifts on
+  // its own and would report a false mismatch between two devices holding
+  // identical ledgers.
+  _FINGERPRINT_IGNORE: ['lastActiveMonth'],
+
+  // Order-independent, key-sorted serialisation. Two stores holding the same
+  // data must hash the same even if their keys or their record arrays are in a
+  // different order — merging and syncing both reorder things routinely.
+  _stableStringify(v) {
+    if (v === undefined) return 'null';
+    if (v === null || typeof v !== 'object') return JSON.stringify(v);
+    if (Array.isArray(v)) {
+      // Sort by id when every element has one, so array order stops mattering
+      let arr = v;
+      if (v.length && v.every(x => x && typeof x === 'object' && x.id !== undefined)) {
+        arr = v.slice().sort((a, b) => String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0);
+      }
+      return '[' + arr.map(x => this._stableStringify(x)).join(',') + ']';
+    }
+    const keys = Object.keys(v).filter(k => v[k] !== undefined).sort();
+    return '{' + keys.map(k => JSON.stringify(k) + ':' + this._stableStringify(v[k])).join(',') + '}';
+  },
+
   getDataHash() {
-    // Generate a simple hash from all data to detect sync mismatches
+    // Serialise EVERYTHING except an explicit ignore list.
+    //
+    // This used to be a hand-maintained whitelist of fields, last updated in
+    // v3.1.0. Every field added after that silently fell outside it: category
+    // icon and colour, splitBills.selfUnknown, splitBills.tag, tagColors — and
+    // worst of all `payer`, which gates the entire split-bill money maths. Two
+    // devices could differ by RM150 in net spending and still show the same
+    // fingerprint. A whitelist can only ever lag behind; an ignore list cannot.
     const data = this._data;
-    const fingerprint = JSON.stringify({
-      records: data.records.map(r => ({ id: r.id, amount: r.amount, categoryId: r.categoryId, date: r.date, note: r.note, tags: r.tags, splitBillId: r.splitBillId, excludeFromAvg: r.excludeFromAvg, planId: r.planId, planMonth: r.planMonth, _deleted: r._deleted, updatedAt: r.updatedAt })),
-      categories: data.categories.map(c => ({ id: c.id, name: c.name, parentId: c.parentId })),
-      budgets: data.budgets,
-      categoryBudgets: data.categoryBudgets,
-      savingsTarget: data.savingsTarget,
-      billCategories: data.billCategories,
-      billAmounts: data.billAmounts,
-      monthlyIncome: data.monthlyIncome,
-      percentBase: data.percentBase,
-      contacts: data.contacts,
-      allTags: data.allTags,
-      splitBills: (data.splitBills || []).map(b => ({ id: b.id, amount: b.amount, date: b.date, categoryId: b.categoryId, selfShare: b.selfShare, mode: b.mode, note: b.note, archived: b.archived, participants: (b.participants || []).map(p => ({ contactId: p.contactId, name: p.name, share: p.share, paid: p.paid, paidAmount: p.paidAmount, unknown: p.unknown })) })),
-      purchasePlans: (data.purchasePlans || []).map(p => ({ id: p.id, name: p.name, icon: p.icon, totalAmount: p.totalAmount, mode: p.mode, startMonth: p.startMonth, months: p.months, categoryId: p.categoryId, status: p.status, overrides: p.overrides, note: p.note }))
+    if (!data) return '------';
+    const subset = {};
+    Object.keys(data).sort().forEach(k => {
+      if (k.charAt(0) === '_') return;                    // _rev and friends
+      if (this._FINGERPRINT_IGNORE.indexOf(k) !== -1) return;
+      subset[k] = data[k];
     });
+    const fingerprint = this._stableStringify(subset);
     // DJB2 hash
     let hash = 5381;
     for (let i = 0; i < fingerprint.length; i++) {

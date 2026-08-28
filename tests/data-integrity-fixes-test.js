@@ -174,5 +174,56 @@ DS.importJSON(JSON.stringify({records:[],categories:[]}),'merge');
 ok('percentBase 未被默认值覆盖', DS._data.percentBase==='net', DS._data.percentBase);
 ok('savingsTarget 未被默认值覆盖', DS._data.savingsTarget.type==='percent', DS._data.savingsTarget.type);
 
+
+L('【P1-13】指纹改为全量序列化后的性质');
+const base={records:[{id:'h1',amount:50,categoryId:cat,date:'2026-08-01T10:00',note:'n',tags:['t'],createdAt:'2026-08-01T10:00:00.000Z'}],
+  categories:DS.getCategories(),contacts:[{id:'c1',name:'A'}],
+  splitBills:[{id:'b1',payer:'self',amount:50,date:'2026-08-01',categoryId:cat,selfShare:20,selfUnknown:false,tag:'x',mode:'equal',archived:false,
+    participants:[{contactId:'c1',name:'A',share:30,paid:false,paidAmount:10,unknown:false}]}],
+  purchasePlans:[],allTags:['t'],tagColors:{'t':'#111111'},monthlyIncome:{'2026-08':1000}};
+DS.clearAll();DS.importJSON(JSON.stringify(base),'replace');
+const H=DS.getDataHash();
+ok('同一份数据两次取值稳定', DS.getDataHash()===H);
+// 逐字段敏感度
+const sensitive=[
+  ['分类图标', d=>d.categories[0].icon='🔥'],
+  ['分类颜色', d=>d.categories[0].color='#123456'],
+  ['selfUnknown', d=>d.splitBills[0].selfUnknown=true],
+  ['账单 tag', d=>d.splitBills[0].tag='改了'],
+  ['payer 改值', d=>d.splitBills[0].payer='other'],
+  ['tagColors', d=>d.tagColors={'t':'#999999'}],
+  ['paidAmount', d=>d.splitBills[0].participants[0].paidAmount=25],
+  ['createdAt', d=>d.records[0].createdAt='2020-01-01T00:00:00.000Z'],
+];
+sensitive.forEach(([label,mut])=>{
+  const d=JSON.parse(JSON.stringify(base)); mut(d);
+  DS.clearAll();DS.importJSON(JSON.stringify(d),'replace');
+  ok('察觉 '+label, DS.getDataHash()!==H);
+});
+// 顺序无关性
+const shuffled=JSON.parse(JSON.stringify(base));
+shuffled.records.push({id:'h2',amount:70,categoryId:cat,date:'2026-08-03T10:00',note:'m',tags:[],createdAt:'2026-08-03T10:00:00.000Z'});
+DS.clearAll();DS.importJSON(JSON.stringify(shuffled),'replace');
+const Hs=DS.getDataHash();
+const reversed=JSON.parse(JSON.stringify(shuffled)); reversed.records.reverse();
+DS.clearAll();DS.importJSON(JSON.stringify(reversed),'replace');
+ok('记录数组顺序不影响指纹', DS.getDataHash()===Hs);
+// 键顺序无关
+const reKeyed={}; Object.keys(shuffled).reverse().forEach(k=>reKeyed[k]=shuffled[k]);
+DS.clearAll();DS.importJSON(JSON.stringify(reKeyed),'replace');
+ok('对象键顺序不影响指纹', DS.getDataHash()===Hs);
+// lastActiveMonth 是本机状态，不该计入
+DS.clearAll();DS.importJSON(JSON.stringify(base),'replace');
+const Hl=DS.getDataHash();
+DS._data.lastActiveMonth='1999-01';DS.save();
+ok('lastActiveMonth 不计入指纹（本机状态）', DS.getDataHash()===Hl);
+// 同步后两端指纹应一致
+DS.clearAll();DS.importJSON(JSON.stringify(base),'replace');
+const senderPayload=DS.exportJSON(); const senderHash=DS.getDataHash();
+DS.clearAll();
+await lan(senderPayload,'replace');
+ok('局域网同步后收发两端指纹一致', DS.getDataHash()===senderHash,
+   '发 '+senderHash+' 收 '+DS.getDataHash());
+
 console.log('\n验收: '+pass+' 通过 / '+fail+' 失败');
 process.exit(fail?1:0);},1500);
