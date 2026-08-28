@@ -75,76 +75,7 @@ const DataStore = {
   
     if (raw) {
       try {
-        this._data = JSON.parse(raw);
-        if (!this._data.categories || !this._data.categories.length) {
-          this._data.categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
-        }
-        if (!this._data.savingsTarget) {
-          this._data.savingsTarget = { type: 'fixed', fixedAmount: 0, percent: 0 };
-        }
-        if (!this._data.categoryBudgets) {
-          this._data.categoryBudgets = {};
-        }
-        if (!this._data.billCategories) {
-          this._data.billCategories = [];
-        }
-        if (!this._data.billAmounts) {
-          this._data.billAmounts = {};
-        }
-        if (!this._data.monthlyIncome) {
-          this._data.monthlyIncome = {};
-        }
-        if (!this._data.percentBase) {
-          this._data.percentBase = 'gross';
-        }
-        if (!this._data.lastActiveMonth) {
-          this._data.lastActiveMonth = '';
-        }
-        if (!this._data.whatIfParams) {
-          this._data.whatIfParams = null;
-        }
-        if (!this._data.contacts) {
-          this._data.contacts = [];
-        }
-        if (!this._data.splitBills) {
-          this._data.splitBills = [];
-        }
-        // Sanitize splitBills entries (forward-compat with mobile/older exports)
-        if (Array.isArray(this._data.splitBills)) {
-          const seen = new Set();
-          this._data.splitBills = this._data.splitBills.filter(b => {
-            if (!b || !b.id || seen.has(b.id)) return false;
-            if (typeof b.amount !== 'number' || !isFinite(b.amount)) return false;
-            if (!Array.isArray(b.participants)) return false;
-            seen.add(b.id);
-            return true;
-          });
-        }
-        if (!Array.isArray(this._data.contacts)) {
-          this._data.contacts = [];
-        }
-        if (!this._data.purchasePlans) {
-          this._data.purchasePlans = [];
-        }
-        // Sanitize purchasePlans (forward-compat with older/partial exports)
-        if (Array.isArray(this._data.purchasePlans)) {
-          const seenPlans = new Set();
-          this._data.purchasePlans = this._data.purchasePlans.filter(p => {
-            if (!p || !p.id || seenPlans.has(p.id)) return false;
-            if (typeof p.totalAmount !== 'number' || !isFinite(p.totalAmount) || p.totalAmount <= 0) return false;
-            if (typeof p.months !== 'number' || !isFinite(p.months) || p.months < 1) return false;
-            if (p.mode !== 'save' && p.mode !== 'borrow' && p.mode !== 'credit') return false;
-            if (!p.overrides || typeof p.overrides !== 'object') p.overrides = {};
-            if (!p.status) p.status = 'active';
-            seenPlans.add(p.id);
-            return true;
-          });
-        } else {
-          this._data.purchasePlans = [];
-        }
-        // Split-bill storage refactor (B): split records now carry the bill's REAL
-        // categoryId instead of the '__split__' pseudo-category. Migrate legacy data.
-        this._migrateSplitRecordCategories(this._data);
+        this._data = this._normalize(JSON.parse(raw));
       } catch(e) {
         this._data = this._defaults();
       }
@@ -152,21 +83,79 @@ const DataStore = {
       this._data = this._defaults();
     }
 
-    // Task 2: Migration — copy existing budget to monthlyIncome if present
-    const currentMonth = getMonthKey(new Date().toISOString());
-    if (this._data.budgets && this._data.budgets[currentMonth]) {
-      if (!this._data.monthlyIncome[currentMonth]) {
-        this._data.monthlyIncome[currentMonth] = this._data.budgets[currentMonth];
-      }
-    }
-    if (!this._data.lastActiveMonth) {
-      this._data.lastActiveMonth = currentMonth;
-    }
-
     // Process any expired pending deletes from previous sessions (M2)
     this._processPendingDeletes();
 
     this.save();
+  },
+
+  // Single entry point for making an arbitrary data object safe to use: fills in
+  // missing keys, drops malformed entries, and runs the historical migrations.
+  //
+  // Every path that brings data in from outside — init(), reload(), importJSON(),
+  // and LAN sync — MUST route through here. Keeping this logic inline in init()
+  // was the root cause of a family of bugs where a reloaded or imported store was
+  // missing keys that the rest of the app assumes exist (Excel export threw on a
+  // missing `budgets`, split stats silently returned 0 on a missing `payer`).
+  //
+  // Contract: only ever ADD what is missing or REMOVE what is malformed. Never
+  // rewrite a value that is already present and valid.
+  _normalize(data) {
+    if (!data || typeof data !== 'object') return this._defaults();
+
+    // 1. Backfill every key declared in _defaults()
+    const defaults = this._defaults();
+    Object.keys(defaults).forEach(k => {
+      const cur = data[k];
+      const missing = cur === undefined || cur === null
+        || (Array.isArray(defaults[k]) && !Array.isArray(cur))
+        || (defaults[k] !== null && typeof defaults[k] === 'object' && !Array.isArray(defaults[k]) && typeof cur !== 'object');
+      // whatIfParams legitimately defaults to null, so absence is not a defect
+      if (k === 'whatIfParams') { if (cur === undefined) data[k] = null; return; }
+      if (missing) data[k] = defaults[k];
+    });
+    if (!data.categories.length) {
+      data.categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
+    }
+
+    // 2. Drop malformed split bills (forward-compat with mobile/older exports)
+    const seenBills = new Set();
+    data.splitBills = data.splitBills.filter(b => {
+      if (!b || !b.id || seenBills.has(b.id)) return false;
+      if (typeof b.amount !== 'number' || !isFinite(b.amount)) return false;
+      if (!Array.isArray(b.participants)) return false;
+      seenBills.add(b.id);
+      // `payer` gates every split statistic (getSplitContrib / getSplitUnpaid /
+      // getSplitOthers). Only the add-record flow writes it, so bills arriving by
+      // import, LAN sync, the mobile build or an old backup have none — and the
+      // whole bill silently drops out of the money maths. Self-paid is the only
+      // shape the app has ever produced, so absence means 'self'.
+      if (!b.payer) b.payer = 'self';
+      return true;
+    });
+
+    // 3. Drop malformed purchase plans
+    const seenPlans = new Set();
+    data.purchasePlans = data.purchasePlans.filter(p => {
+      if (!p || !p.id || seenPlans.has(p.id)) return false;
+      if (typeof p.totalAmount !== 'number' || !isFinite(p.totalAmount) || p.totalAmount <= 0) return false;
+      if (typeof p.months !== 'number' || !isFinite(p.months) || p.months < 1) return false;
+      if (p.mode !== 'save' && p.mode !== 'borrow' && p.mode !== 'credit') return false;
+      if (!p.overrides || typeof p.overrides !== 'object') p.overrides = {};
+      if (!p.status) p.status = 'active';
+      seenPlans.add(p.id);
+      return true;
+    });
+
+    // 4. Historical migrations
+    this._migrateSplitRecordCategories(data);
+    const currentMonth = getMonthKey(new Date().toISOString());
+    if (data.budgets && data.budgets[currentMonth] && !data.monthlyIncome[currentMonth]) {
+      data.monthlyIncome[currentMonth] = data.budgets[currentMonth];
+    }
+    if (!data.lastActiveMonth) data.lastActiveMonth = currentMonth;
+
+    return data;
   },
 
   // Split-bill storage refactor (B): records were stored with the '__split__'
@@ -368,7 +357,9 @@ const DataStore = {
     const raw = localStorage.getItem('budgetAppData');
     if (raw) {
       try {
-        this._data = JSON.parse(raw);
+        // Same normalisation as init() — a reloaded store that skipped the
+        // backfill would crash Excel export and lose the __split__ migration.
+        this._data = this._normalize(JSON.parse(raw));
         this._rev = (this._rev || 0) + 1;
         this._log('reload', 'OK records=' + this._data.records.length);
         return true;
@@ -676,8 +667,8 @@ const DataStore = {
     try {
       const data = JSON.parse(jsonStr);
       if (!data.records || !data.categories) return false;
-      // Legacy '__split__' records → resolve to the linked bill's real category
-      this._migrateSplitRecordCategories(data);
+      // Backfill / sanitise / migrate before anything reads it (see _normalize)
+      this._normalize(data);
       if (mode === 'replace') {
         this._data = data;
       } else {
@@ -690,7 +681,7 @@ const DataStore = {
           }
         });
         Object.assign(this._data.budgets, data.budgets || {});
-        Object.assign(this._data.categoryBudgets || {}, data.categoryBudgets || {});
+        Object.assign(this._data.categoryBudgets, data.categoryBudgets || {});
         if (data.savingsTarget) this._data.savingsTarget = data.savingsTarget;
         if (data.whatIfParams) this._data.whatIfParams = data.whatIfParams;
         if (data.allTags && Array.isArray(data.allTags)) {
@@ -703,8 +694,8 @@ const DataStore = {
         if (data.billCategories) {
           this._data.billCategories = [...this._data.billCategories, ...data.billCategories];
         }
-        Object.assign(this._data.monthlyIncome || {}, data.monthlyIncome || {});
-        Object.assign(this._data.billAmounts || {}, data.billAmounts || {});
+        Object.assign(this._data.monthlyIncome, data.monthlyIncome || {});
+        Object.assign(this._data.billAmounts, data.billAmounts || {});
         if (data.percentBase) this._data.percentBase = data.percentBase;
         if (Array.isArray(data.contacts)) {
           if (!this._data.contacts) this._data.contacts = [];
