@@ -307,5 +307,47 @@ ok('Excel 逐月子行含「实测」', xmlX.indexOf('实测')!==-1);
 ok('Excel 逐月子行含「推定」', xmlX.indexOf('推定')!==-1);
 ok('Excel 状态列附注推定月数', /无收入记录/.test(xmlX));
 
+
+L('【P0-08】手机版不再抹掉主应用的数据');
+{
+  const mhtml=fs.readFileSync(path.join(__dirname,'..','money-wise-mobile.html'),'utf8');
+  const md=new JSDOM(mhtml,{runScripts:'dangerously',url:'http://localhost/',
+    beforeParse(mw){const q=()=>{};mw.console={log:q,warn:q,error:q,info:q,debug:q};}});
+  const mw=md.window;
+  await new Promise(r=>setTimeout(r,600));
+  const M=mw.DataStore;
+  const seedCats=JSON.parse(JSON.stringify(M.getCategories()));
+  const seed={records:[{id:'s1',amount:30,categoryId:seedCats[0].id,date:'2026-08-01',note:'手机记的',tags:[],createdAt:'2026-08-01T00:00:00.000Z'}],
+    categories:seedCats,budgets:{'2026-08':4000},categoryBudgets:{},savingsTarget:{type:'percent',fixedAmount:0,percent:20},
+    colorIndex:77,billCategories:[{id:'bc',name:'房租',icon:'🏠'}],billAmounts:{'bc:2026-08':1200},
+    monthlyIncome:{'2026-08':6000},percentBase:'net',lastActiveMonth:'2026-08',whatIfParams:{s:1},
+    contacts:[{id:'ct',name:'Alice'}],
+    splitBills:[{id:'sb',payer:'self',amount:300,date:'2026-08-01',categoryId:seedCats[0].id,selfShare:100,mode:'equal',archived:false,
+      participants:[{contactId:'ct',name:'Alice',share:200,paid:false,paidAmount:50,unknown:false}]}],
+    purchasePlans:[{id:'pp',name:'MacBook',icon:'💻',totalAmount:6000,mode:'borrow',startMonth:'2026-06',months:12,categoryId:'',status:'active',overrides:{},note:''}],
+    allTags:['聚餐'],tagColors:{'聚餐':'#ff8800'}};
+  const allKeys=Object.keys(seed);
+  mw.localStorage.setItem('budgetAppData',JSON.stringify(seed));
+  M.init();
+  M.importJSON(JSON.stringify({records:seed.records,categories:seedCats}),'replace');
+  let after=JSON.parse(mw.localStorage.getItem('budgetAppData'));
+  let lost=allKeys.filter(k=>!(k in after));
+  ok('replace 导入后未知键全部保留', lost.length===0, '丢失 '+lost.join(','));
+  ok('replace 后分摊账单仍在', (after.splitBills||[]).some(b=>b.id==='sb'));
+  ok('replace 后大额计划仍在', (after.purchasePlans||[]).some(p=>p.id==='pp'));
+  M.clearAll();
+  after=JSON.parse(mw.localStorage.getItem('budgetAppData'));
+  lost=allKeys.filter(k=>!(k in after));
+  ok('clearAll 后未知键全部保留', lost.length===0, '丢失 '+lost.join(','));
+  ok('clearAll 确实清空了记录', (after.records||[]).length===0);
+  ok('手机版默认 savingsTarget.type 为 fixed', after.savingsTarget.type==='fixed', after.savingsTarget.type);
+  // merge 去重
+  M.importJSON(JSON.stringify({records:seed.records,categories:seedCats}),'replace');
+  const before=M._data.records.length;
+  M.importJSON(JSON.stringify({records:seed.records,categories:seedCats}),'merge');
+  M.importJSON(JSON.stringify({records:seed.records,categories:seedCats}),'merge');
+  ok('手机版 merge 也按 id 去重', M._data.records.length===before, before+' → '+M._data.records.length);
+}
+
 console.log('\n验收: '+pass+' 通过 / '+fail+' 失败');
 process.exit(fail?1:0);},1500);
