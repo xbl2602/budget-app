@@ -225,5 +225,41 @@ await lan(senderPayload,'replace');
 ok('局域网同步后收发两端指纹一致', DS.getDataHash()===senderHash,
    '发 '+senderHash+' 收 '+DS.getDataHash());
 
+
+L('【P0-04】修复数据不再删除记录');
+const orphanFx={records:[{id:'k1',amount:250,categoryId:cat,date:'2026-08-03T10:00',note:'分期',tags:[],planId:'ghost',planMonth:'2026-08',createdAt:'2026-08-03T10:00:00.000Z'}],
+  categories:DS.getCategories(),purchasePlans:[]};
+DS.clearAll();DS.importJSON(JSON.stringify(orphanFx),'replace');
+const beforeTotal=S.getMonthTotal('2026-08');
+w.repairData();
+ok('孤儿记录仍在', DS._data.records.length===1, '剩 '+DS._data.records.length+' 条');
+ok('planId 已解除关联', DS._data.records[0] && !DS._data.records[0].planId);
+ok('planMonth 已解除关联', DS._data.records[0] && !DS._data.records[0].planMonth);
+ok('月度合计不变', S.getMonthTotal('2026-08')===beforeTotal, beforeTotal+' → '+S.getMonthTotal('2026-08'));
+const planFx={records:[],categories:DS.getCategories(),
+  purchasePlans:[{id:'pz',name:'旅行',icon:'✈️',totalAmount:600,mode:'save',startMonth:'2026-01',months:6,categoryId:cat,status:'active',overrides:{},note:''}]};
+DS.clearAll();DS.importJSON(JSON.stringify(planFx),'replace');
+w.repairData();
+ok('非 credit 计划的 categoryId 未被清空', DS._data.purchasePlans[0].categoryId===cat,
+   JSON.stringify(DS._data.purchasePlans[0].categoryId));
+
+L('【P0-06】撤销窗口跨刷新 / 跨重载存活');
+const delFx={records:[{id:'del1',amount:88,categoryId:cat,date:'2026-08-06T10:00',note:'要撤销的',tags:[],createdAt:'2026-08-06T10:00:00.000Z'}],
+  categories:DS.getCategories()};
+DS.clearAll();DS.importJSON(JSON.stringify(delFx),'replace');
+DS.softDeleteRecord('del1');
+ok('软删除后记录已移出', DS._data.records.length===0);
+w.refreshPageData();
+ok('点刷新后仍可撤销', !!DS.getPendingDelete());
+ok('撤销成功恢复记录', DS.undoDelete()===true && DS._data.records.some(r=>r.id==='del1'),
+   '剩 '+DS._data.records.length+' 条');
+// 跨「重新加载页面」（init 重跑）
+DS.clearAll();DS.importJSON(JSON.stringify(delFx),'replace');
+DS.softDeleteRecord('del1');
+DS._pendingDelete=null;          // 模拟页面重载：内存缓冲清空
+DS.init();                       // 重新初始化，应从 localStorage 恢复缓冲
+ok('重载后待删缓冲被恢复', !!DS.getPendingDelete(), '没有恢复');
+ok('重载后仍能撤销', DS.undoDelete()===true && DS._data.records.some(r=>r.id==='del1'));
+
 console.log('\n验收: '+pass+' 通过 / '+fail+' 失败');
 process.exit(fail?1:0);},1500);
