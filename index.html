@@ -5566,16 +5566,6 @@ const PlanMath = {
     const plans = DataStore.getPurchasePlans().filter(p => p && p.status !== 'cancelled');
     if (!plans.length) return result;
 
-    // Actual money moved for credit-mode plans, indexed by planId|planMonth.
-    // syncPlanRecords() writes one record per instalment, so this is the real
-    // ledger — not the theoretical monthly amount. Built once to stay O(n).
-    const creditPaid = {};
-    (DataStore.getRecords() || []).forEach(r => {
-      if (!r || !r.planId || !r.planMonth) return;
-      const k = r.planId + '|' + r.planMonth;
-      creditPaid[k] = (creditPaid[k] || 0) + (parseFloat(r.amount) || 0);
-    });
-
     let startIdx = Infinity;
     plans.forEach(p => {
       const s = monthToIndex(p.startMonth);
@@ -5616,13 +5606,16 @@ const PlanMath = {
           // record backs it — that record already consumed `surplus` via
           // getMonthTotal, so do NOT deduct it again here.
           //
-          // `actual` comes from that record, not from the theoretical monthly
-          // amount. Assuming the instalment was paid meant a plan with zero
-          // backing records still reported itself fully repaid — deleting the
-          // instalment rows from 流水 left the debt showing as cleared.
+          // `actual` is the instalment itself, NOT a lookup of the backing
+          // record. That is deliberate: syncPlanRecords() creates one record per
+          // elapsed instalment and re-creates any the user deletes, so "no
+          // record for this month" never means "the bank did not charge me" —
+          // it only means the sync has not run yet (it fires 800ms after boot).
+          // Reading the ledger here made the overview flash a wrong balance
+          // during those 800ms, and made a deleted instalment look like a
+          // restored debt right up until the next refresh put it back.
           due = Math.min(p.totalAmount / p.months, st.remaining);
-          const booked = creditPaid[p.id + '|' + m];
-          actual = Math.max(0, Math.min(booked === undefined ? 0 : booked, st.remaining));
+          actual = due;
         } else {
           // Self-imposed: shortfalls roll into the remaining periods, so the due
           // amount climbs until the debt clears.
