@@ -47,7 +47,12 @@ const DataStore = {
       whatIfParams: null,
       contacts: [],
       splitBills: [],
-      purchasePlans: []
+      purchasePlans: [],
+      // Declared here rather than created lazily on first write: being absent
+      // from _defaults() is exactly why these two fell out of LAN sync, the
+      // merge path and the fingerprint.
+      allTags: [],
+      tagColors: {}
     };
   },
 
@@ -89,6 +94,47 @@ const DataStore = {
     this.save();
   },
 
+  // Entity-level cleanup that is safe to run on ANY data object, including one
+  // that is only a partial payload. Split out from _normalize() because the
+  // merge path must clean incoming entities WITHOUT backfilling defaults —
+  // a backfilled `savingsTarget` would otherwise overwrite the local one.
+  _sanitizeEntities(data) {
+    if (!data || typeof data !== 'object') return data;
+
+    if (Array.isArray(data.splitBills)) {
+      const seen = new Set();
+      data.splitBills = data.splitBills.filter(b => {
+        if (!b || !b.id || seen.has(b.id)) return false;
+        if (typeof b.amount !== 'number' || !isFinite(b.amount)) return false;
+        if (!Array.isArray(b.participants)) return false;
+        seen.add(b.id);
+        // `payer` gates every split statistic (getSplitContrib / getSplitUnpaid /
+        // getSplitOthers). Only the add-record flow writes it, so bills arriving
+        // by import, LAN sync, the mobile build or an old backup have none — and
+        // the whole bill silently drops out of the money maths. Self-paid is the
+        // only shape the app has ever produced, so absence means 'self'.
+        if (!b.payer) b.payer = 'self';
+        return true;
+      });
+    }
+
+    if (Array.isArray(data.purchasePlans)) {
+      const seen = new Set();
+      data.purchasePlans = data.purchasePlans.filter(p => {
+        if (!p || !p.id || seen.has(p.id)) return false;
+        if (typeof p.totalAmount !== 'number' || !isFinite(p.totalAmount) || p.totalAmount <= 0) return false;
+        if (typeof p.months !== 'number' || !isFinite(p.months) || p.months < 1) return false;
+        if (p.mode !== 'save' && p.mode !== 'borrow' && p.mode !== 'credit') return false;
+        if (!p.overrides || typeof p.overrides !== 'object') p.overrides = {};
+        if (!p.status) p.status = 'active';
+        seen.add(p.id);
+        return true;
+      });
+    }
+
+    return data;
+  },
+
   // Single entry point for making an arbitrary data object safe to use: fills in
   // missing keys, drops malformed entries, and runs the historical migrations.
   //
@@ -118,36 +164,10 @@ const DataStore = {
       data.categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
     }
 
-    // 2. Drop malformed split bills (forward-compat with mobile/older exports)
-    const seenBills = new Set();
-    data.splitBills = data.splitBills.filter(b => {
-      if (!b || !b.id || seenBills.has(b.id)) return false;
-      if (typeof b.amount !== 'number' || !isFinite(b.amount)) return false;
-      if (!Array.isArray(b.participants)) return false;
-      seenBills.add(b.id);
-      // `payer` gates every split statistic (getSplitContrib / getSplitUnpaid /
-      // getSplitOthers). Only the add-record flow writes it, so bills arriving by
-      // import, LAN sync, the mobile build or an old backup have none — and the
-      // whole bill silently drops out of the money maths. Self-paid is the only
-      // shape the app has ever produced, so absence means 'self'.
-      if (!b.payer) b.payer = 'self';
-      return true;
-    });
+    // 2. Drop malformed entities
+    this._sanitizeEntities(data);
 
-    // 3. Drop malformed purchase plans
-    const seenPlans = new Set();
-    data.purchasePlans = data.purchasePlans.filter(p => {
-      if (!p || !p.id || seenPlans.has(p.id)) return false;
-      if (typeof p.totalAmount !== 'number' || !isFinite(p.totalAmount) || p.totalAmount <= 0) return false;
-      if (typeof p.months !== 'number' || !isFinite(p.months) || p.months < 1) return false;
-      if (p.mode !== 'save' && p.mode !== 'borrow' && p.mode !== 'credit') return false;
-      if (!p.overrides || typeof p.overrides !== 'object') p.overrides = {};
-      if (!p.status) p.status = 'active';
-      seenPlans.add(p.id);
-      return true;
-    });
-
-    // 4. Historical migrations
+    // 3. Historical migrations
     this._migrateSplitRecordCategories(data);
     const currentMonth = getMonthKey(new Date().toISOString());
     if (data.budgets && data.budgets[currentMonth] && !data.monthlyIncome[currentMonth]) {
@@ -658,6 +678,83 @@ const DataStore = {
     return plan;
   },
 
+  // The ONE merge implementation. importJSON('merge') and LAN sync's
+  // mergeIntoDataStore() both route through here.
+  //
+  // They used to be two independent hand-written merges that disagreed:
+  // importJSON did `records = [...incoming, ...local]` with no de-duplication
+  // at all, so importing the same backup twice doubled every expense, while
+  // LAN sync keyed on id. Neither carried allTags / tagColors / colorIndex.
+  //
+  // `incoming` must already have been through _sanitizeEntities().
+  _mergeData(incoming) {
+    if (!incoming || typeof incoming !== 'object') return this._data;
+    const cur = this._data;
+
+    // Records: keyed by id, newest timestamp wins. A missing stamp counts as
+    // oldest so an incoming row never silently discards a locally edited one.
+    const recMap = new Map();
+    (cur.records || []).forEach(r => { if (r && r.id) recMap.set(r.id, r); });
+    (incoming.records || []).forEach(r => {
+      if (!r || !r.id) return;
+      const exist = recMap.get(r.id);
+      if (!exist) { recMap.set(r.id, r); return; }
+      const stampA = exist.updatedAt || exist.createdAt || '';
+      const stampB = r.updatedAt || r.createdAt || '';
+      if (stampB >= stampA) recMap.set(r.id, r);
+    });
+    cur.records = [...recMap.values()].sort((a, b) => {
+      const da = (a && (a.date || a.createdAt)) || '';
+      const db = (b && (b.date || b.createdAt)) || '';
+      return da > db ? -1 : da < db ? 1 : 0;
+    });
+
+    // Id-keyed collections: add what is new, leave existing entries alone.
+    // (Updating existing splitBills / purchasePlans needs a conflict policy —
+    // see the known limitation in docs/ai/REFERENCE.md.)
+    ['categories', 'contacts', 'billCategories', 'splitBills', 'purchasePlans'].forEach(k => {
+      if (!Array.isArray(incoming[k])) return;
+      if (!Array.isArray(cur[k])) cur[k] = [];
+      const ids = new Set(cur[k].map(x => x && x.id).filter(Boolean));
+      incoming[k].forEach(x => {
+        if (!x || !x.id || ids.has(x.id)) return;
+        cur[k].push(x);
+        ids.add(x.id);
+      });
+    });
+
+    // Keyed maps: incoming wins per key.
+    ['budgets', 'categoryBudgets', 'monthlyIncome', 'billAmounts', 'tagColors'].forEach(k => {
+      if (!incoming[k] || typeof incoming[k] !== 'object') return;
+      if (!cur[k] || typeof cur[k] !== 'object') cur[k] = {};
+      Object.assign(cur[k], incoming[k]);
+    });
+
+    // Tag library: union, kept sorted the way addTagUsage() maintains it.
+    if (Array.isArray(incoming.allTags)) {
+      if (!Array.isArray(cur.allTags)) cur.allTags = [];
+      incoming.allTags.forEach(t => {
+        if (typeof t === 'string' && t && cur.allTags.indexOf(t) === -1) cur.allTags.push(t);
+      });
+      cur.allTags.sort();
+    }
+
+    // Scalars: only overwrite when the payload actually carries one.
+    if (incoming.savingsTarget) cur.savingsTarget = incoming.savingsTarget;
+    if (incoming.whatIfParams) cur.whatIfParams = incoming.whatIfParams;
+    if (incoming.percentBase) cur.percentBase = incoming.percentBase;
+    // Highest wins — rewinding it would hand the next new category a colour
+    // that is already in use.
+    if (typeof incoming.colorIndex === 'number' && isFinite(incoming.colorIndex)) {
+      cur.colorIndex = Math.max(cur.colorIndex || 0, incoming.colorIndex);
+    }
+    if (incoming.lastActiveMonth && incoming.lastActiveMonth > (cur.lastActiveMonth || '')) {
+      cur.lastActiveMonth = incoming.lastActiveMonth;
+    }
+
+    return cur;
+  },
+
   // Export / Import
   exportJSON() {
     return JSON.stringify(this._data, null, 2);
@@ -667,66 +764,15 @@ const DataStore = {
     try {
       const data = JSON.parse(jsonStr);
       if (!data.records || !data.categories) return false;
-      // Backfill / sanitise / migrate before anything reads it (see _normalize)
-      this._normalize(data);
+      // replace takes over the whole store, so it needs the full normalisation.
+      // merge only contributes entities — backfilling defaults into it would let
+      // a default savingsTarget / percentBase overwrite the local one.
+      if (mode === 'replace') this._normalize(data);
+      else this._sanitizeEntities(data);
       if (mode === 'replace') {
         this._data = data;
       } else {
-        this._data.records = [...data.records, ...this._data.records];
-        const existIds = new Set(this._data.categories.map(c => c.id));
-        data.categories.forEach(c => {
-          if (!existIds.has(c.id)) {
-            this._data.categories.push(c);
-            existIds.add(c.id);
-          }
-        });
-        Object.assign(this._data.budgets, data.budgets || {});
-        Object.assign(this._data.categoryBudgets, data.categoryBudgets || {});
-        if (data.savingsTarget) this._data.savingsTarget = data.savingsTarget;
-        if (data.whatIfParams) this._data.whatIfParams = data.whatIfParams;
-        if (data.allTags && Array.isArray(data.allTags)) {
-          if (!this._data.allTags) this._data.allTags = [];
-          data.allTags.forEach(t => {
-            if (typeof t === 'string' && t && !this._data.allTags.includes(t)) this._data.allTags.push(t);
-          });
-          this._data.allTags.sort();
-        }
-        if (data.billCategories) {
-          this._data.billCategories = [...this._data.billCategories, ...data.billCategories];
-        }
-        Object.assign(this._data.monthlyIncome, data.monthlyIncome || {});
-        Object.assign(this._data.billAmounts, data.billAmounts || {});
-        if (data.percentBase) this._data.percentBase = data.percentBase;
-        if (Array.isArray(data.contacts)) {
-          if (!this._data.contacts) this._data.contacts = [];
-          const contactIds = new Set(this._data.contacts.map(c => c.id));
-          data.contacts.forEach(c => {
-            if (c && c.id && !contactIds.has(c.id)) {
-              this._data.contacts.push(c);
-              contactIds.add(c.id);
-            }
-          });
-        }
-        if (Array.isArray(data.splitBills)) {
-          if (!this._data.splitBills) this._data.splitBills = [];
-          const billIds = new Set(this._data.splitBills.map(b => b.id));
-          data.splitBills.forEach(b => {
-            if (b && b.id && !billIds.has(b.id)) {
-              this._data.splitBills.push(b);
-              billIds.add(b.id);
-            }
-          });
-        }
-        if (Array.isArray(data.purchasePlans)) {
-          if (!this._data.purchasePlans) this._data.purchasePlans = [];
-          const planIds = new Set(this._data.purchasePlans.map(p => p.id));
-          data.purchasePlans.forEach(p => {
-            if (p && p.id && !planIds.has(p.id)) {
-              this._data.purchasePlans.push(p);
-              planIds.add(p.id);
-            }
-          });
-        }
+        this._mergeData(data);
       }
       this.save();
       return true;
@@ -1049,6 +1095,9 @@ const DataStore = {
   window.DataStore.setPin = DataStore.setPin.bind(DataStore);
   window.DataStore.changePin = DataStore.changePin.bind(DataStore);
   window.DataStore.clearPin = DataStore.clearPin.bind(DataStore);
+  window.DataStore._normalize = DataStore._normalize.bind(DataStore);
+  window.DataStore._sanitizeEntities = DataStore._sanitizeEntities.bind(DataStore);
+  window.DataStore._mergeData = DataStore._mergeData.bind(DataStore);
   window.DataStore.unlockData = DataStore.unlockData.bind(DataStore);
   window.DataStore.lockData = DataStore.lockData.bind(DataStore);
   window.DataStore.getAllTags = DataStore.getAllTags.bind(DataStore);

@@ -129,5 +129,50 @@ ok('合法的那条被导入', DS._data.records.length===1 && DS._data.records[0
 ok('跳过时有告警提示', !!warned && /1/.test(warned), warned===null?'完全没有提示':warned);
 w.showToast=origToast;
 
+
+L('【P0-02】importJSON merge 按 id 去重');
+const dupFx={records:[{id:'d1',amount:100,categoryId:cat,date:'2026-08-01',note:'a',tags:[],createdAt:'2026-08-01T00:00:00.000Z'}],
+  categories:DS.getCategories()};
+DS.clearAll();DS.importJSON(JSON.stringify(dupFx),'replace');
+const n0=DS._data.records.length;
+DS.importJSON(JSON.stringify(dupFx),'merge');DS.importJSON(JSON.stringify(dupFx),'merge');
+ok('同一份 merge 三次记录数不变', DS._data.records.length===n0, n0+' → '+DS._data.records.length);
+ok('月度合计不翻倍', S.getMonthTotal('2026-08')===100, '实际 '+S.getMonthTotal('2026-08'));
+// updatedAt 更新的同 id 记录应覆盖而非新增
+const newer=JSON.parse(JSON.stringify(dupFx));
+newer.records[0].amount=250; newer.records[0].note='改过了';
+newer.records[0].updatedAt='2026-08-09T00:00:00.000Z';
+DS.importJSON(JSON.stringify(newer),'merge');
+ok('updatedAt 较新的同 id 记录覆盖本地', DS._data.records.length===n0 && DS._data.records[0].amount===250,
+   '条数 '+DS._data.records.length+' 金额 '+DS._data.records[0].amount);
+// 更旧的不该覆盖
+const older=JSON.parse(JSON.stringify(dupFx));
+older.records[0].amount=1; older.records[0].updatedAt='2020-01-01T00:00:00.000Z';
+DS.importJSON(JSON.stringify(older),'merge');
+ok('updatedAt 较旧的不覆盖本地', DS._data.records[0].amount===250, '被改成 '+DS._data.records[0].amount);
+
+L('【P1-14】allTags / tagColors / colorIndex 过得了合并与同步');
+const tagFx={records:[],categories:DS.getCategories(),allTags:['旅行','聚餐'],tagColors:{'聚餐':'#ff8800'},colorIndex:88,lastActiveMonth:'2026-08'};
+DS.clearAll();DS.importJSON(JSON.stringify(tagFx),'replace');
+ok('replace 保住 tagColors', DS._data.tagColors && DS._data.tagColors['聚餐']==='#ff8800');
+ok('replace 保住 colorIndex', DS._data.colorIndex===88, String(DS._data.colorIndex));
+DS.clearAll();DS.importJSON(JSON.stringify(tagFx),'merge');
+ok('merge 保住 allTags', (DS._data.allTags||[]).includes('聚餐')&&(DS._data.allTags||[]).includes('旅行'));
+ok('merge 保住 tagColors', DS._data.tagColors && DS._data.tagColors['聚餐']==='#ff8800');
+ok('merge 的 colorIndex 取较大值', DS._data.colorIndex===88, String(DS._data.colorIndex));
+DS.clearAll();
+await lan(JSON.stringify(Object.assign({},tagFx,{records:[rec({date:'2026-08-01T19:30',createdAt:'2026-08-01T19:30:00.000Z'})]})),'replace');
+ok('局域网 replace 保住 allTags', (DS._data.allTags||[]).includes('聚餐'));
+ok('局域网 replace 保住 tagColors', DS._data.tagColors && DS._data.tagColors['聚餐']==='#ff8800');
+ok('局域网 replace 保住 colorIndex', DS._data.colorIndex===88, String(DS._data.colorIndex));
+ok('局域网 replace 保住 lastActiveMonth', DS._data.lastActiveMonth==='2026-08', DS._data.lastActiveMonth);
+
+L('【回归】merge 不会用默认值覆盖本地标量');
+DS.clearAll();
+DS.importJSON(JSON.stringify({records:[],categories:DS.getCategories(),percentBase:'net',savingsTarget:{type:'percent',fixedAmount:0,percent:20}}),'replace');
+DS.importJSON(JSON.stringify({records:[],categories:[]}),'merge');
+ok('percentBase 未被默认值覆盖', DS._data.percentBase==='net', DS._data.percentBase);
+ok('savingsTarget 未被默认值覆盖', DS._data.savingsTarget.type==='percent', DS._data.savingsTarget.type);
+
 console.log('\n验收: '+pass+' 通过 / '+fail+' 失败');
 process.exit(fail?1:0);},1500);

@@ -154,7 +154,16 @@ boot().then(async w => {
   function snap() { return JSON.parse(DS.exportJSON()); }
   function report(title, actual) {
     const out = [];
-    KEYS.forEach(k => deepDiff(FULL[k], actual ? actual[k] : undefined, k, out));
+    // allTags 是有序集合，addTagUsage() 与合并路径都会 .sort()。
+    // 顺序差异是既定行为，比对前统一排序，只看成员是否齐全。
+    const norm = o => {
+      if (!o) return o;
+      const c = JSON.parse(JSON.stringify(o));
+      if (Array.isArray(c.allTags)) c.allTags = c.allTags.slice().sort();
+      return c;
+    };
+    const exp = norm(FULL), act = norm(actual);
+    KEYS.forEach(k => deepDiff(exp[k], act ? act[k] : undefined, k, out));
     L('');
     L('### ' + title);
     if (!out.length) { L('    ✅ 全部字段无损'); return; }
