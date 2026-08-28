@@ -48,7 +48,18 @@
 
   var validators = {
     amount: function (v) { return typeof v === 'number' && isFinite(v) && v >= 0; },
-    date: function (v) { return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v); },
+    // A record's `date` is whatever the datetime-local input produced
+    // ('2026-08-01T19:30') and its `createdAt` is an ISO timestamp
+    // ('2026-08-28T13:33:57.536Z'). The old /^\d{4}-\d{2}-\d{2}$/ matched
+    // NEITHER, so validateRecord rejected every record the app has ever
+    // written and LAN sync silently transferred nothing. Require the
+    // YYYY-MM-DD prefix, allow an optional time part, and confirm the
+    // string actually parses as a date.
+    date: function (v) {
+      if (typeof v !== 'string') return false;
+      if (!/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(v)) return false;
+      return !isNaN(new Date(v).getTime());
+    },
     color: function (v) { return typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v); },
     id: function (v) { return typeof v === 'string' && v.length > 0 && v.length < 100; },
     name: function (v) { return typeof v === 'string' && v.length > 0 && v.length < 200; },
@@ -75,13 +86,24 @@
       typeof c.sortOrder === 'number';
   }
 
+  // Returns { error, srcRecords, droppedRecords, droppedCategories }.
+  // Dropping rows used to be invisible (a lone console.warn), which is how a
+  // validator that rejected 100% of real records went unnoticed — the caller
+  // must be able to see what was thrown away and refuse to proceed.
   function validateSyncData(data) {
-    if (!data || typeof data !== 'object') return __('lansync.error.invalidDataNotObject');
-    if (!Array.isArray(data.records)) return __('lansync.error.invalidDataNoRecords');
-    if (!Array.isArray(data.categories)) return __('lansync.error.invalidDataNoCategories');
+    if (!data || typeof data !== 'object') return { error: __('lansync.error.invalidDataNotObject') };
+    if (!Array.isArray(data.records)) return { error: __('lansync.error.invalidDataNoRecords') };
+    if (!Array.isArray(data.categories)) return { error: __('lansync.error.invalidDataNoCategories') };
+    var srcRecords = data.records.length;
+    var srcCategories = data.categories.length;
     data.records = data.records.filter(validateRecord);
     data.categories = data.categories.filter(validateCategory);
-    return null;
+    return {
+      error: null,
+      srcRecords: srcRecords,
+      droppedRecords: srcRecords - data.records.length,
+      droppedCategories: srcCategories - data.categories.length
+    };
   }
 
   function backupBeforeMerge() {
@@ -193,11 +215,25 @@
       if (onErrorCallback) onErrorCallback(__('lansync.error.jsonParseFailed'));
       return false;
     }
-    var err = validateSyncData(data);
-    if (err) console.warn('[Sync]', err);
+    var v = validateSyncData(data);
+    if (v.error) {
+      if (onErrorCallback) onErrorCallback(v.error);
+      return false;
+    }
+    // Every record rejected while the sender clearly had some => the two builds
+    // disagree on the data format. Replace mode would wipe the receiver clean,
+    // so refuse rather than destroy what is here.
+    if (v.srcRecords > 0 && data.records.length === 0) {
+      if (onErrorCallback) onErrorCallback(__('lansync.error.allRecordsRejected', v.srcRecords));
+      return false;
+    }
     if (data.records.length === 0 && data.categories.length === 0) {
       if (onErrorCallback) onErrorCallback(__('lansync.error.noValidData'));
       return false;
+    }
+    if (v.droppedRecords > 0 || v.droppedCategories > 0) {
+      if (typeof showToast === 'function')
+        showToast(__('lansync.warn.someRowsDropped', v.droppedRecords, v.droppedCategories), 'error');
     }
     backupBeforeMerge();
     if (mode === 'replace') {
@@ -541,6 +577,14 @@
     'lansync.error.jsonParseFailed': {
       zh: 'JSON 解析失败',
       en: 'JSON parse failed'
+    },
+    'lansync.error.allRecordsRejected': {
+      zh: '❌ 对方的 {0} 条记录全部无法识别，已中止同步（本机数据未改动）。请确认两台设备版本一致。',
+      en: 'All {0} incoming records were unrecognised — sync aborted, local data untouched. Check both devices run the same version.'
+    },
+    'lansync.warn.someRowsDropped': {
+      zh: '⚠️ 已跳过 {0} 条格式不符的记录、{1} 个分类',
+      en: 'Skipped {0} malformed record(s) and {1} categor(ies)'
     },
     'lansync.error.noValidData': {
       zh: '无有效数据',

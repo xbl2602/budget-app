@@ -100,6 +100,18 @@ function deepDiff(expect, actual, path, out) {
     if (Array.isArray(expect)) {
       if (!Array.isArray(actual)) { out.push(path + ': 不再是数组'); return; }
       if (expect.length !== actual.length) out.push(path + ': 长度 ' + expect.length + ' → ' + actual.length);
+      // 元素带 id 时按 id 对齐 —— 局域网同步会按日期重排 records，
+      // 那是正确行为，不该被当成字段丢失。
+      const keyed = expect.length && expect.every(e => e && typeof e === 'object' && e.id);
+      if (keyed) {
+        const byId = {};
+        actual.forEach(a => { if (a && a.id) byId[a.id] = a; });
+        expect.forEach(e => {
+          if (!(e.id in byId)) { out.push(path + '[id=' + e.id + ']: 整条丢失'); return; }
+          deepDiff(e, byId[e.id], path + '[id=' + e.id + ']', out);
+        });
+        return;
+      }
       const n = Math.min(expect.length, actual.length);
       for (let i = 0; i < n; i++) deepDiff(expect[i], actual[i], path + '[' + i + ']', out);
       return;
