@@ -845,11 +845,10 @@ function submitEditRecord(e, id) {
 function refreshPageData() {
   // Force-reload ALL data from localStorage, clearing any stale in-memory state
   const success = DataStore.reload();
-  // Also clear any pending soft-delete state
-  const pending = DataStore.getPendingDelete();
-  if (pending) {
-    DataStore._finalizeDelete(pending.id);
-  }
+  // The pending soft-delete is deliberately NOT finalised here. Refreshing is a
+  // "show me the truth" action, not a "commit my deletion" one — terminating the
+  // buffer meant clicking refresh inside the 5-second undo window destroyed the
+  // record with no way back. reload() re-reads it from localStorage instead.
   if (success) {
     showToast(__('records.refresh.success'), 'success');
   } else {
