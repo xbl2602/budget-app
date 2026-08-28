@@ -262,28 +262,43 @@ ok('重载后待删缓冲被恢复', !!DS.getPendingDelete(), '没有恢复');
 ok('重载后仍能撤销', DS.undoDelete()===true && DS._data.records.some(r=>r.id==='del1'));
 
 
-L('【P1-10】credit 计划的「已还」来自真实记录');
+L('【P1-10】credit 计划：按「银行自动扣款」语义，不受记录增删影响');
+// 信用卡分期的定义就是银行按月自动扣、不由用户决定，而 syncPlanRecords()
+// 会为每一期已到期的分期创建记录、并把用户删掉的重新建回来。所以
+// 「本月没有记录」永远不等于「银行没扣」，只等于同步还没跑（启动后 800ms）。
+// 这一组断言锁住的正是这个不变量。
 function creditFx(recs){return{records:recs,categories:DS.getCategories(),
   monthlyIncome:{'2026-01':3000,'2026-02':3000,'2026-03':3000},
   purchasePlans:[{id:'cp',name:'笔电',icon:'💻',totalAmount:900,mode:'credit',startMonth:'2026-01',months:3,categoryId:cat,status:'active',overrides:{},note:''}]};}
-DS.clearAll();DS.importJSON(JSON.stringify(creditFx([])),'replace');
-let cs=w.PlanMath.getState('cp','2026-03');
-ok('0 条扣款记录时已还为 0', cs && cs.paid===0, cs?'已还 '+cs.paid:'无状态');
-ok('0 条扣款记录时欠款为全额', cs && cs.remaining===900, cs?'剩 '+cs.remaining:'');
-ok('0 条扣款记录时不算完成', cs && cs.isComplete===false);
 const three=['2026-01','2026-02','2026-03'].map((m,i)=>({id:'cr'+i,amount:300,categoryId:cat,date:m+'-01T09:00',note:'分期',
   tags:[],excludeFromAvg:true,planId:'cp',planMonth:m,createdAt:m+'-01T09:00:00.000Z'}));
 DS.clearAll();DS.importJSON(JSON.stringify(creditFx(three)),'replace');
-cs=w.PlanMath.getState('cp','2026-03');
-ok('3 条记录时已还等于三条之和', cs && Math.abs(cs.paid-900)<0.01, cs?'已还 '+cs.paid:'');
-ok('3 条记录时欠款清零', cs && cs.remaining===0);
-DS.clearAll();DS.importJSON(JSON.stringify(creditFx(three.slice(0,2))),'replace');
-cs=w.PlanMath.getState('cp','2026-03');
-ok('删掉一期后欠款如实回升', cs && Math.abs(cs.paid-600)<0.01 && Math.abs(cs.remaining-300)<0.01,
-   cs?'已还 '+cs.paid+' 剩 '+cs.remaining:'');
-ok('credit 仍不计入虚拟月供（避免双重扣减）',
+const withRecs=w.PlanMath.getState('cp','2026-03');
+DS.clearAll();DS.importJSON(JSON.stringify(creditFx([])),'replace');
+const noRecs=w.PlanMath.getState('cp','2026-03');
+ok('有记录 / 无记录 的进度完全一致（同步是否跑过不影响读数）',
+   withRecs.paid===noRecs.paid && withRecs.remaining===noRecs.remaining,
+   '有记录 '+withRecs.paid+'/'+withRecs.remaining+'  无记录 '+noRecs.paid+'/'+noRecs.remaining);
+ok('每期应付等于月供', Math.abs(withRecs.byMonth['2026-01'].due-300)<0.01, String(withRecs.byMonth['2026-01'].due));
+ok('每期实付等于月供（银行不由你选择）', Math.abs(withRecs.byMonth['2026-01'].actual-300)<0.01, String(withRecs.byMonth['2026-01'].actual));
+ok('credit 不计入虚拟月供（真实记录已经挤占预算，避免双重扣减）',
    w.StatsEngine.getSpendablePlan('2026-02').planDueVirtual===0,
    String(w.StatsEngine.getSpendablePlan('2026-02').planDueVirtual));
+// syncPlanRecords 会把删掉的那期建回来 —— 所以「删记录」不是一种持久状态
+{
+  const nowD=new Date();
+  const d2=new Date(nowD.getFullYear(),nowD.getMonth()-2,1);
+  const m0=d2.getFullYear()+'-'+String(d2.getMonth()+1).padStart(2,'0');
+  DS.clearAll();DS.importJSON(JSON.stringify({records:[],categories:DS.getCategories(),monthlyIncome:{},
+    purchasePlans:[{id:'cx',name:'相机',icon:'📷',totalAmount:900,mode:'credit',startMonth:m0,months:3,categoryId:cat,status:'active',overrides:{},note:''}]}),'replace');
+  w.syncPlanRecords();
+  const n1=DS.getRecords().filter(r=>r.planId==='cx').length;
+  const victim=DS.getRecords().find(r=>r.planId==='cx');
+  DS.forceDeleteRecord(victim.id);
+  w.syncPlanRecords();
+  ok('被删掉的分期会被同步重建', DS.getRecords().filter(r=>r.planId==='cx').length===n1,
+     n1+' → 删后 → '+DS.getRecords().filter(r=>r.planId==='cx').length);
+}
 
 L('【P1-09】推定月份自报可信度');
 const borrowFx={records:[],categories:DS.getCategories(),monthlyIncome:{'2026-01':2000},
