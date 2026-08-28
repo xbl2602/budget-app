@@ -769,6 +769,9 @@ const DataStore = {
 
   // Export / Import
   exportJSON() {
+    // lockData() sets _data to null. Serialising that produced the string
+    // "null" — a normally-named backup file containing nothing at all.
+    if (!this._data) return null;
     return JSON.stringify(this._data, null, 2);
   },
 
@@ -800,19 +803,36 @@ const DataStore = {
     const splitBills = Array.isArray(this._data.splitBills) ? this._data.splitBills : [];
     const splitMap = {};
     splitBills.forEach(b => { if (b && b.id) splitMap[b.id] = b; });
+    const planMap = {};
+    (this._data.purchasePlans || []).forEach(p => { if (p && p.id) planMap[p.id] = p; });
+    // Root of a subcategory, so the 分类 column stays comparable with Excel's
+    const rootOf = id => {
+      let cur = catMap[id];
+      const guard = new Set();
+      while (cur && cur.parentId && catMap[cur.parentId] && !guard.has(cur.id)) { guard.add(cur.id); cur = catMap[cur.parentId]; }
+      return cur || null;
+    };
     const header = __('datastore.csvHeader');
     const rows = this._data.records.map(r => {
       const cat = catMap[r.categoryId] || { name: __('datastore.unknown'), icon: '❓' };
+      const root = cat.parentId ? rootOf(r.categoryId) : cat;
       const amount = r.amount.toFixed(2);
       const date = r.date || '';
       // Fixed (m3): escape newlines in text fields for valid CSV
       const safeNote = String(r.note || '').replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
-      const safeCatName = String(cat.icon + cat.name).replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
-      const safeTags = String(Array.isArray(r.tags) ? r.tags.join('、') : '').replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
+      const clean = v => String(v == null ? '' : v).replace(/"/g, '""').replace(/\n/g, ' ').replace(/\r/g, ' ');
+      const safeCatName = clean((root ? root.icon + ' ' + root.name : cat.icon + ' ' + cat.name));
+      const safeSubName = clean(cat.parentId ? cat.icon + ' ' + cat.name : '');
+      const safeTags = clean(Array.isArray(r.tags) ? r.tags.join('、') : '');
       const splitMark = r.splitBillId ? (splitMap[r.splitBillId]
-        ? __('datastore.splitMark', splitMap[r.splitBillId].selfShare || 0)
+        ? __('datastore.splitMark', (parseFloat(splitMap[r.splitBillId].selfShare) || 0).toFixed(2))
         : __('datastore.splitBillOnly')) : '';
-      return `${r.id},"${amount}","${safeCatName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}","${safeTags}","${splitMark}"`;
+      // Instalment rows are ordinary expenses in every other column; without
+      // this you cannot tell which of them belong to a 大额计划.
+      const planMark = r.planId ? clean(planMap[r.planId]
+        ? ((planMap[r.planId].icon || '') + ' ' + (planMap[r.planId].name || '') + (r.planMonth ? ' · ' + r.planMonth : '')).trim()
+        : __('datastore.planGone')) : '';
+      return `${r.id},"${amount}","${safeCatName}","${safeSubName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}","${safeTags}","${splitMark}","${planMark}"`;
     });
     return '\uFEFF' + header + '\n' + rows.join('\n');
   },
@@ -1068,7 +1088,7 @@ const DataStore = {
     }
   },
   getRecordsByTag(tag) {
-    return this._data.records.filter(r => r.tags && r.tags.includes(tag) && !r._deleted);
+    return this._data.records.filter(r => r.tags && r.tags.includes(tag));
   },
   getTagStats(tag) {
     const records = this.getRecordsByTag(tag);
@@ -1109,7 +1129,8 @@ const DataStore = {
   // i18n translations
   addI18nEntries({
     'datastore.saveFailed': { zh: '❌ 数据保存失败: {0}', en: '❌ Save failed: {0}' },
-    'datastore.csvHeader': { zh: 'ID,金额,分类,日期,备注,创建时间,不计日均,标签,分摊', en: 'ID,Amount,Category,Date,Note,CreatedAt,ExcludeFromAvg,Tags,Split' },
+    'datastore.csvHeader': { zh: 'ID,金额,分类,子分类,日期,备注,创建时间,不计日均,标签,分摊,所属计划', en: 'ID,Amount,Category,Subcategory,Date,Note,CreatedAt,ExcludeFromAvg,Tags,Split,Plan' },
+    'datastore.planGone': { zh: '（计划已删除）', en: '(plan deleted)' },
     'datastore.unknown': { zh: '未知', en: 'Unknown' },
     'datastore.yes': { zh: '是', en: 'Yes' },
     'datastore.splitBillOnly': { zh: '🧾 分摊账单', en: '🧾 Split bill' },

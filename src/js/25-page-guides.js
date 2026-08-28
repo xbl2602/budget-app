@@ -1229,7 +1229,7 @@ addI18nEntries({
   'guide.settings.detailed.row3_2_label': { zh: '两者', en: 'Both' },
   'guide.settings.detailed.row3_3_desc': { zh: '纯收入（总收入）或净收入（总收入 − 账单总额）', en: 'Gross income (total income) or net income (total income − total bills)' },
   'guide.settings.detailed.row3_3_label': { zh: '百分比基准', en: 'Percentage Base' },
-  'guide.settings.detailed.row4_0_desc': { zh: '完整数据备份，包含所有记录、分类、预算、设置', en: 'Full data backup including all records, categories, budgets, and settings' },
+  'guide.settings.detailed.row4_0_desc': { zh: '账本完整备份：记录、分类、预算、收入、分摊账单、大额计划、标签。不含主题/语言/PIN 等本机偏好', en: 'Full ledger backup: records, categories, budgets, income, split bills, plans and tags. Device preferences (theme, language, PIN) are not included' },
   'guide.settings.detailed.row4_0_label': { zh: '导出 JSON', en: 'Export JSON' },
   'guide.settings.detailed.row4_1_desc': { zh: '可替换当前全部数据，或合并到现有数据中', en: 'Replace all current data or merge into existing data' },
   'guide.settings.detailed.row4_1_label': { zh: '导入 JSON', en: 'Import JSON' },

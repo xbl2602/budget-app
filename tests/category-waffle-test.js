@@ -359,9 +359,10 @@ async function run() {
   DataStore._data.records = [{ id: 'r9', categoryId: 'catB', amount: 40, date: month + '-09', tags: ['旅行'] }];
   DataStore.save();
   window.renderStats();
-  // The legend paints only when the ~1s pop-in finishes. A fixed wait goes flaky
-  // when the machine is loaded, so poll for it instead.
-  await waitFor(() => ($('waffleLegend') || {}).textContent, 6000);
+  // The legend paints only when the ~1s pop-in finishes. Polling for "any text"
+  // was satisfied instantly by the PREVIOUS render's leftover legend, so the
+  // assertion below read stale content — wait for this render's tag to show up.
+  await waitFor(() => ((($('waffleLegend') || {}).textContent) || '').indexOf('旅行') !== -1, 6000);
   assert('tag waffle canvas still rendered', !!$('waffleChart'));
   const tagOpts = $('waffleChart')._waffleOpts;
   assert('tag waffle still targets its own legend', !!tagOpts && tagOpts.legendId === 'waffleLegend');

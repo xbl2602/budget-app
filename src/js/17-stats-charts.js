@@ -2234,7 +2234,7 @@ function drawWaffleChart(canvasId, records) {
   var filteredRecords = records;
   if (waffleSelectedMonth) {
     filteredRecords = records.filter(function(r) {
-      return getMonthKey(r.date || r.createdAt) === waffleSelectedMonth && !r._deleted;
+      return getMonthKey(r.date || r.createdAt) === waffleSelectedMonth;
     });
   }
 

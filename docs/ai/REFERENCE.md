@@ -207,7 +207,12 @@ splitBills: (data.splitBills || []).map(b => ({
 
 **常见错误：**
 - ❌ 新增字段后未在 merge 模式中处理 → 导入的数据缺少该字段
-- ❌ 新增字段未加进 `getDataFingerprint()` 白名单 → 局域网同步察觉不到改动
+- ❌ 绕过 `DataStore._normalize()` 直接给 `_data` 赋值 → 缺键会让 Excel 导出崩、
+  分摊统计归零。所有外部数据入口（init / reload / importJSON / 局域网同步）
+  必须过这一关
+- ❌ 自己写第二份合并逻辑 → 用 `DataStore._mergeData()`，它是唯一实现
+- ✅ `getDataHash()` 已改为「全量序列化 + 排除名单」，新增字段自动纳入指纹，
+  不再需要手工维护白名单；只有确属本机状态的字段才加进 `_FINGERPRINT_IGNORE`
 - ❌ 数据格式变化（如字段重命名）→ 旧 JSON 导入失败
 - ✅ `exportJSON()` 全量导出，新增字段自动包含
 - ✅ merge 模式中新增字段通过 `Object.assign()` 或显式赋值处理
@@ -222,18 +227,26 @@ splitBills: (data.splitBills || []).map(b => ({
 **流程：**
 ```
 deleteRecordConfirm(id)  →  弹窗确认
-  → confirmDeleteRecord(id)  →  软删除（设 _deleted 标记）
-    → showToast("删除成功 撤销")  →  5 秒倒计时
-      → undoDelete()  →  恢复记录，清除倒计时
-      → _finalizeDelete(id)  →  从数组中删除
+  → confirmDeleteRecord(id)
+    → softDeleteRecord(id)  →  记录移出数组，暂存到 _pendingDelete
+                               （同时连 record 本体持久化到 localStorage）
+      → showToast("删除成功 撤销")  →  5 秒倒计时
+        → undoDelete()      →  从缓冲区放回数组，清除倒计时
+        → _finalizeDelete() →  丢弃缓冲区，删除成为永久
 ```
 
+> ⚠️ **没有 `_deleted` 标记。** 早期文档描述的是「打标记」式软删除，实现从来
+> 不是这样：`softDeleteRecord()` 直接把记录从 `_data.records` 里摘出来，唯一
+> 的副本在 `_pendingDelete` 缓冲区里。所以**不要写 `!r._deleted` 这类过滤**
+> ——数组里的记录全都是活的。
+
 **实现位置：** `15-render-records.js` 中的 `deleteRecordConfirm()`、`confirmDeleteRecord()`、`undoDelete()`
-**数据层：** `02-datastore.js` 中的 `softDeleteRecord()`、`undoDelete()`、`_finalizeDelete()`
+**数据层：** `02-datastore.js` 中的 `softDeleteRecord()`、`undoDelete()`、`_finalizeDelete()`、`_savePendingDelete()`、`_processPendingDeletes()`
 
 **常见错误：**
 - ❌ 新功能中直接 `DataStore.deleteRecord()` 绕过软删除 → 用户无法撤销
 - ❌ 忘记处理 `_pendingDelete` 状态 → 并发删除冲突
+- ❌ 在撤销窗口内调 `_finalizeDelete()` 「顺手清理」→ 记录永久丢失
 - ✅ 所有记录删除操作必须走软删除流程
 
 ### 规则 #13：PIN 加密生命周期
