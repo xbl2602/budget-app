@@ -261,5 +261,51 @@ DS.init();                       // 重新初始化，应从 localStorage 恢复
 ok('重载后待删缓冲被恢复', !!DS.getPendingDelete(), '没有恢复');
 ok('重载后仍能撤销', DS.undoDelete()===true && DS._data.records.some(r=>r.id==='del1'));
 
+
+L('【P1-10】credit 计划的「已还」来自真实记录');
+function creditFx(recs){return{records:recs,categories:DS.getCategories(),
+  monthlyIncome:{'2026-01':3000,'2026-02':3000,'2026-03':3000},
+  purchasePlans:[{id:'cp',name:'笔电',icon:'💻',totalAmount:900,mode:'credit',startMonth:'2026-01',months:3,categoryId:cat,status:'active',overrides:{},note:''}]};}
+DS.clearAll();DS.importJSON(JSON.stringify(creditFx([])),'replace');
+let cs=w.PlanMath.getState('cp','2026-03');
+ok('0 条扣款记录时已还为 0', cs && cs.paid===0, cs?'已还 '+cs.paid:'无状态');
+ok('0 条扣款记录时欠款为全额', cs && cs.remaining===900, cs?'剩 '+cs.remaining:'');
+ok('0 条扣款记录时不算完成', cs && cs.isComplete===false);
+const three=['2026-01','2026-02','2026-03'].map((m,i)=>({id:'cr'+i,amount:300,categoryId:cat,date:m+'-01T09:00',note:'分期',
+  tags:[],excludeFromAvg:true,planId:'cp',planMonth:m,createdAt:m+'-01T09:00:00.000Z'}));
+DS.clearAll();DS.importJSON(JSON.stringify(creditFx(three)),'replace');
+cs=w.PlanMath.getState('cp','2026-03');
+ok('3 条记录时已还等于三条之和', cs && Math.abs(cs.paid-900)<0.01, cs?'已还 '+cs.paid:'');
+ok('3 条记录时欠款清零', cs && cs.remaining===0);
+DS.clearAll();DS.importJSON(JSON.stringify(creditFx(three.slice(0,2))),'replace');
+cs=w.PlanMath.getState('cp','2026-03');
+ok('删掉一期后欠款如实回升', cs && Math.abs(cs.paid-600)<0.01 && Math.abs(cs.remaining-300)<0.01,
+   cs?'已还 '+cs.paid+' 剩 '+cs.remaining:'');
+ok('credit 仍不计入虚拟月供（避免双重扣减）',
+   w.StatsEngine.getSpendablePlan('2026-02').planDueVirtual===0,
+   String(w.StatsEngine.getSpendablePlan('2026-02').planDueVirtual));
+
+L('【P1-09】推定月份自报可信度');
+const borrowFx={records:[],categories:DS.getCategories(),monthlyIncome:{'2026-01':2000},
+  purchasePlans:[{id:'bp',name:'手机',icon:'📱',totalAmount:600,mode:'borrow',startMonth:'2026-01',months:3,categoryId:'',status:'active',overrides:{},note:''}]};
+DS.clearAll();DS.importJSON(JSON.stringify(borrowFx),'replace');
+let bs=w.PlanMath.getState('bp','2026-03');
+ok('暴露 estimatedMonths', bs && typeof bs.estimatedMonths==='number', JSON.stringify(bs&&bs.estimatedMonths));
+ok('缺 2 个月收入 → estimatedMonths 为 2', bs && bs.estimatedMonths===2, bs?String(bs.estimatedMonths):'');
+ok('hasEstimates 为真', bs && bs.hasEstimates===true);
+const fullIncome=JSON.parse(JSON.stringify(borrowFx));
+fullIncome.monthlyIncome={'2026-01':2000,'2026-02':2000,'2026-03':2000};
+DS.clearAll();DS.importJSON(JSON.stringify(fullIncome),'replace');
+bs=w.PlanMath.getState('bp','2026-03');
+ok('收入齐全时 hasEstimates 为假', bs && bs.hasEstimates===false, bs?String(bs.estimatedMonths):'');
+// Excel 里能看到实测/推定
+DS.clearAll();DS.importJSON(JSON.stringify(borrowFx),'replace');
+let capX=null; const oc=w.URL.createObjectURL;
+w.URL.createObjectURL=b=>{capX=b;return 'x';}; w.HTMLAnchorElement.prototype.click=function(){};
+w.exportToExcel(); const xmlX=await capX.text(); w.URL.createObjectURL=oc;
+ok('Excel 逐月子行含「实测」', xmlX.indexOf('实测')!==-1);
+ok('Excel 逐月子行含「推定」', xmlX.indexOf('推定')!==-1);
+ok('Excel 状态列附注推定月数', /无收入记录/.test(xmlX));
+
 console.log('\n验收: '+pass+' 通过 / '+fail+' 失败');
 process.exit(fail?1:0);},1500);
