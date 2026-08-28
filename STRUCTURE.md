@@ -212,13 +212,22 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `unlockData(pin)` | 解锁并载入数据 |
 | `lockData()` | 锁定并清除明文 |
 
+**数据规范化与合并（所有外部数据入口的必经之路）：**
+| 方法 | 说明 |
+|------|------|
+| `_normalize(data)` | **唯一入口**：补齐缺失键 + 清洗非法条目 + 历史迁移。`init()` / `reload()` / `importJSON('replace')` / 局域网 replace 都走它。契约：只补缺失、只剔非法，绝不改写已有合法值 |
+| `_sanitizeEntities(data)` | 只做实体清洗（丢弃畸形 splitBills / purchasePlans、补 `payer`），不补默认键 —— merge 路径专用 |
+| `_mergeData(incoming)` | **唯一合并实现**：记录按 id + `updatedAt` 新者胜；id 集合只新增；键值表逐键覆盖；`allTags` 并集；`colorIndex` 取大。`importJSON('merge')` 与局域网 merge 共用 |
+
 **导出/导入：**
 | 方法 | 说明 |
 |------|------|
-| `exportJSON()` | JSON 字符串 |
+| `exportJSON()` | JSON 字符串；`_data` 为 null（PIN 锁定）时返回 `null` 而非字符串 `"null"` |
 | `importJSON(jsonStr, mode)` | 导入（replace / merge） |
-| `exportCSV()` | CSV 字符串（UTF-8 BOM） |
+| `exportCSV()` | CSV 字符串（UTF-8 BOM），11 列含子分类与所属计划 |
 | `clearAll()` | 重置为默认值 |
+| `getDataHash()` | 指纹码：**全量稳定序列化 + 排除名单**（`_FINGERPRINT_IGNORE`），非白名单。新增字段自动纳入 |
+| `_stableStringify(v)` | 键排序 + 带 id 的数组按 id 排序，使指纹与顺序无关 |
 
 **假设分析：**
 | 方法 | 说明 |
@@ -234,6 +243,10 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | 符号 | 说明 |
 |------|------|
 | `function exportToExcel()` | 生成 XML Spreadsheet 2003（7 个工作表：消费记录 / 分类统计 / 月度统计 / 预算跟踪 / 储蓄统计 / 分摊账单 / 大额计划，含 SUMIF/AVERAGE/IF 公式） |
+
+> ⚠️ 分摊账单 sheet 的参与人子行必须用 `ss:Index` 显式指定列（份额→D、已还→G、状态→H）。
+> SpreadsheetML 的 `<Cell>` 默认顺序填充，漏掉 `ss:Index` 会让金额落进「分类」文字列。
+> 大额计划 sheet 的逐月子行带「实测 / 推定」列 —— 无收入记录的月份按计划乐观推定，必须标出来。
 
 ---
 
@@ -751,6 +764,10 @@ IIFE 自执行，暴露 `window.SyncUI` 和 `window.LANSync`。
 | `openSplitCenter` / `closeSplitCenter` | 追账中心（按人员/按账单双视图、归档区、增量更新已还状态） |
 | 配套样式 | `src/css/14-split.css`（分摊表单/追账中心/编辑器/部分还款） |
 
+**归档语义**——`archived` 的账单不再计入 `getSplitUnpaid()`（待收回总额），因为卡片一归档就移除了还款控件，挂在那里的欠款再也无法结清；但**已收回**的金额（`getSplitContrib`）与他人份额（`getSplitOthers`）保持不变——收到的钱是既成事实，月度净支出的口径不能追溯变化。想继续追账就点「恢复」。
+
+**`payer` 字段**——目前恒为 `'self'`，五处分摊统计都硬过滤 `b.payer !== 'self'`。任何非「记账页新建」来源的账单都没有这个字段，所以 `_normalize()` 会补齐它。将来若真要支持「别人垫付」，再启用过滤语义。
+
 **部分还款（金额模型）**——参与人记 `share`（应还）+ `paidAmount`（已还）；`paid` 布尔值变成派生值但**仍然写入**，所以 Excel 导出、局域网同步和任何旧读取点看到的 `paid` 依旧正确。只有布尔值的老账单读作「全有或全无」，无需迁移。
 
 | 符号 | 说明 |
@@ -883,7 +900,9 @@ for t in tests/*.js; do node "$t"; done
 
 | 文件 | 覆盖范围 |
 |------|----------|
-| `tests/export-coverage-test.js` | Excel / CSV / JSON 导出与导入合并的字段覆盖 |
+| `tests/export-coverage-test.js` | Excel / CSV / JSON 导出与导入合并的字段覆盖（E3/E7 用 RTCPeerConnection 桩驱动真实局域网路径） |
+| `tests/data-integrity-fixes-test.js` | 导出/导入/同步 19 项修复的回归网，对应 `docs/data-export-fix-plan.md` §5 验收标准 |
+| `tests/export-integrity-audit.js` | **审计报告生成器**（非断言测试，退出码恒为 0）：把铺满字段的数据推过六条路径逐字段 diff |
 | `tests/hierarchy-test.js` | 统计页分类层级展开（1 层 / 2 层 / 全部）、饼图明细表 |
 | `tests/plan-ui-test.js` | 大额计划：`PlanMath` 结算瀑布、预测、卡片渲染、图标选择器 |
 | `tests/plan-editor-bounds-test.js` | 大额计划编辑器：月份选择器与全部边界校验（13 月 / 期数 / 金额） |
