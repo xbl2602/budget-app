@@ -247,7 +247,9 @@ boot().then(async w => {
     ['categories[0].name 分类名',           d => d.categories[0].name = '新名'],
     ['categories[0].icon 分类图标',         d => d.categories[0].icon = '🔥'],
     ['categories[0].color 分类颜色',        d => d.categories[0].color = '#123456'],
-    ['splitBills[0].payer 付款人',          d => delete d.splitBills[0].payer],
+    // payer 被删掉时 _normalize 会补回 'self'，数据实际相同，指纹相同才是对的。
+    // 真正该察觉的是它被改成了「别的值」。
+    ['splitBills[0].payer 付款人（改值）',   d => d.splitBills[0].payer = 'someone-else'],
     ['splitBills[0].selfUnknown 自己金额不明', d => d.splitBills[0].selfUnknown = false],
     ['splitBills[0].tag 账单标签',          d => d.splitBills[0].tag = '改了'],
     ['participants[0].paidAmount 已还金额', d => d.splitBills[0].participants[0].paidAmount = 999],
@@ -266,6 +268,19 @@ boot().then(async w => {
     DS.clearAll(); DS.importJSON(JSON.stringify(d), 'replace');
     L('    ' + (DS.getDataHash() !== h0 ? '✅ 察觉' : '❌ 盲区') + '  ' + label);
   });
+
+  L('');
+  L('===== F2. payer 缺失自愈（批次1 之后「缺 payer」已不是一种可达状态）=====');
+  {
+    const noPayer = JSON.parse(JSON.stringify(FULL));
+    delete noPayer.splitBills[0].payer;
+    DS.clearAll(); DS.importJSON(JSON.stringify(noPayer), 'replace');
+    const a = [w.StatsEngine.getSplitContrib('2026-08'), w.StatsEngine.getSplitUnpaid('2026-08'), w.StatsEngine.getSplitOthers('2026-08')];
+    DS.clearAll(); DS.importJSON(JSON.stringify(FULL), 'replace');
+    const b = [w.StatsEngine.getSplitContrib('2026-08'), w.StatsEngine.getSplitUnpaid('2026-08'), w.StatsEngine.getSplitOthers('2026-08')];
+    L('    ' + (DS._data.splitBills[0].payer === 'self' ? '✅' : '❌') + ' 导入后 payer 被补为 self');
+    L('    ' + (JSON.stringify(a) === JSON.stringify(b) ? '✅' : '❌') + ' 缺 payer 与带 payer 的分摊统计完全一致  ' + JSON.stringify(a));
+  }
 
   L('');
   L('===== G. 局域网校验器接受的日期格式 =====');
