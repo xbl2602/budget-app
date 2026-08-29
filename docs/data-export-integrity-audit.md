@@ -211,44 +211,31 @@ if (b.payer !== 'self') return;   // 没有这个字段 → 整条账单被跳�
 
 ---
 
-## P0-04 ✅ 已修复 · `f133b8e` 「修复数据」静默删除记录
+## P0-04 ❌ 误判 · 已回滚 · `<本次提交>`
 
-**严重度**：🔴 不可逆数据丢失，违反 RULES「永不删除用户数据」
+**原判断**：`repairData()` 把「带 `planId` 但计划已不存在」的记录直接删掉，属于无声销毁用户数据。
 
-**现象**
-点一次设置页的「修复数据」，某些消费记录消失，无提示、无确认、无撤销。
+**这个判断是错的。** 三条证据推翻：
 
-**机理**
-[`18-render-settings.js:607-612`](../src/js/18-render-settings.js)：
+**① `planId` 全项目只有一处写入** —— [`27-purchase-plans.js:200`](../src/js/27-purchase-plans.js)（`syncPlanRecords`）。所以带 `planId` 的记录 100% 是计划托管的自动流水，**不可能是用户手记的消费**。
 
-```js
-const orphans = (DataStore._data.records || []).filter(r => r && r.planId && !planIds.has(r.planId));
-if (orphans.length) {
-  DataStore._data.records = (DataStore._data.records || []).filter(r => !r || !r.planId || planIds.has(r.planId));
-  fixed += orphans.length;
-}
-```
+**② 「孤儿分期记录必须清除」是代码里显式表达的设计**，三处一致：
 
-只要记录带 `planId` 而对应的大额计划不在 `purchasePlans` 里，记录**直接删除**。
+| 位置 | 时机 |
+|---|---|
+| [`27-purchase-plans.js:728`](../src/js/27-purchase-plans.js) | 模式从 credit 切走时，注释写明 `Switching away from credit leaves its generated records orphaned — clear them` |
+| [`02-datastore.js:676`](../src/js/02-datastore.js) | `deletePurchasePlan` 删计划时连带清 |
+| `repairData()` | 前两者漏网的兜底 |
 
-**触发条件**
-- AI 批量导入（规范明说不生成 `purchasePlans`）后点「修复数据」
-- 局域网 merge 只同步过记录、没同步过计划
-- 用户删过计划但记录通过备份回来了
+**③ 历史审计已判定此行为正确**：`technical/purchase-plans-audit-technical-20260815.md` 第 770 行 —— 「`repairData()` 对负数总额/非法期数/越界 override/残留分类/**孤儿流水** ｜ ✅ **修复正确且零误伤**」，配套脚本 `verify-repair.js` 的 D10 断言 `orphaned instalment record removed, normal record kept` 为 **PASS**。
 
-**复现**
-```
-repairData 前 records=1 合计=250
-repairData 后 records=0 合计=0
-```
+**我的论据「AI 批量导入会产生带 planId 的孤儿记录」前提是假的**：`docs/ai-data-import-spec.md` §3.2 的 `records[]` 白名单只有 8 个字段（id / amount / categoryId / date / note / tags / excludeFromAvg / createdAt），**没有 `planId`**。
 
-**同一函数的第二个问题**：[`:604`](../src/js/18-render-settings.js) `if (p.mode !== 'credit' && p.categoryId) { p.categoryId = ''; }`
-实测「先攒后买」计划的 `categoryId` 从 `"cat-root-1"` 被清成 `""`。
+**改成「解除关联」反而有害**：删掉 `planId` 后它变成一条普通消费记录，永久虚增月度合计，而且再也无法被识别清理——比原来更糟。
 
-**修复方向**
-孤儿记录应当**解除 `planId` 关联**而不是删除记录；若确实要删，必须弹确认框并列出条目。
+**同一条里的第二处也是误判**：`if (p.mode !== 'credit' && p.categoryId) p.categoryId = ''` 不是「没有正当理由的清空」——[`27-purchase-plans.js:722`](../src/js/27-purchase-plans.js) 的 `savePlanEditor` 本身就是 `categoryId: mode === 'credit' ? categoryId : ''`，repairData 是在对齐这个既定不变量。
 
----
+**处理**：整条回滚。测试改为锁定正确不变量（孤儿清除 / 普通记录保留 / 计划仍在时不误删 / credit 的 categoryId 保留）。
 
 ## P0-05 ✅ 已修复 · `e2e642b` `reload()` 不跑迁移 → 刷新之后 Excel 导出直接崩
 
@@ -287,30 +274,19 @@ reload 后 exportToExcel 抛错: Cannot read properties of undefined (reading '2
 
 ---
 
-## P0-06 ✅ 已修复 · `f133b8e` 撤销窗口内点刷新 → 记录永久丢失
+## P0-06 ⚠️ 部分修复（已收窄）· `f133b8e` + `<本次提交>`
 
-**严重度**：🔴 不可逆
+**核心问题成立**：5 秒撤销窗口内点「刷新页面数据」，记录永久消失。`refreshPageData()` 会主动调 `_finalizeDelete()`，而记录的唯一副本只在内存 `_pendingDelete` 里。实测确认。
 
-**机理**
-`softDeleteRecord`（[`02-datastore.js:293`](../src/js/02-datastore.js)）是把记录**从数组里摘出来**、暂存在内存 `_pendingDelete`（**并不写 `_deleted` 标记**，见 P2-16）。而 [`15-render-records.js:850`](../src/js/15-render-records.js) 的 `refreshPageData()` 一上来就把它终结：
+**保留的修法**：`refreshPageData()` 不再终结待删缓冲。刷新是「让我看到真相」，不是「确认我的删除」；5 秒计时器照常跑，到点自己终结。
 
-```js
-const pending = DataStore.getPendingDelete();
-if (pending) { DataStore._finalizeDelete(pending.id); }
-```
+**撤下的部分**：原修复还持久化了 record 本体、并让 `init()` 把缓冲恢复回内存（＝跨会话撤销）。复核后撤下，两个理由：
 
-`_pendingDelete` 只在内存里，`localStorage['budgetPendingDeletes']` 只存了 id 和过期时间、**不存记录本身**，所以刷新页面同样会丢。
+**① 超出「修 bug」范围** —— 那是新增功能。`budgetPendingDeletes` 里的 `deleteAt: +24h` 原本只是一道防御性清理，不是「24 小时可撤销」的承诺。
 
-**复现**
-```
-软删除后  records=0  可撤销=true
-点刷新后  可撤销=false  undoDelete()=false  records=0
-```
+**② 重新引入了当初被修掉的状态** —— 恢复出来的缓冲没有计时器，永远不会自己过期。而 [`18-render-settings.js`](../src/js/18-render-settings.js) 的 `repairData()` 里有两处清扫，注释分别是 `clear any pending delete state which might be stale` 和 `verify pending delete is not **stuck**`，提交 `142ea5c` 的说明也明写「刷新时清除 pendingDelete 状态」——「pending 卡住」是有过实际困扰、被专门修过的。
 
-**修复方向**
-`_savePendingDelete()` 一并持久化 record 本体；`refreshPageData` 改为**保留**而不是终结待删项。
-
----
+**边界**：5 秒内按 F5 刷新浏览器，记录仍会丢失。这是「5 秒撤销窗口是内存态」的固有设计，维持原状。
 
 ## P0-07 ✅ 已修复 · `e2e642b` `Object.assign` 目标写成 `|| {}`，静默丢弃导入数据
 
@@ -621,8 +597,43 @@ CSV 定位为「只导流水」可以接受，但**子分类**和**分期归属*
 | F3 | 全部测试套件通过 | ✅ 9 个套件全绿（waffle 的轮询缺陷一并修掉） |
 | F4 | 每条问题标注修复与 commit | ✅ 见上表 |
 
-> **修正记录**：19 项中的 **P1-10 经复验为误判**，已回滚（详见该条）。
-> 实际修复 18 项，第 19 项确认为「原实现正确」。
+> **复核记录**（2026-08-29，对照 `technical/purchase-plans-audit-technical-20260815.md`
+> 及其 `audit-20260815-scripts/` 独立验证脚本逐条复查）：
+>
+> | 编号 | 结论 | 依据 |
+> |---|---|---|
+> | **P1-10** | ❌ 误判，已回滚 | credit 不回看流水是「防双重计算」的刻意设计；`syncPlanRecords` 会重建被删记录；改后引入 800ms 冷启动数字跳变 |
+> | **P0-04** | ❌ 误判，已回滚 | 孤儿分期记录清除是三处一致的既定设计；历史审计判定「修复正确且零误伤」；我的论据前提（AI 导入产生 planId）是假的 |
+> | **P0-06** | ⚠️ 收窄 | 核心问题成立，但跨会话撤销部分超范围且重新引入「卡住的 pending」 |
+> | 其余 16 项 | ✅ 确认为真缺陷 | 见下表 |
+>
+> **最终：修复 16 项 + 1 项部分修复，2 项确认为原设计正确。**
+
+### 逐项定性依据
+
+| 编号 | 是真缺陷的依据 |
+|---|---|
+| P0-01 | 实测 App 写入的 `date` / `createdAt` 格式均不匹配校验器；用 RTC 桩驱动真实路径复现（`sanitizeHtml` 生效可证不是副本） |
+| P0-02 | 代码为 `[...incoming, ...local]` 无任何去重；实测 2→4→6 |
+| P0-03 | **过滤代码 `a84bbeb` 先于写入代码 `0ed4503` 落地，且无补齐迁移** —— 2026-08-12 前建的分摊账单永久缺 `payer`，属历史数据的必然状态 |
+| P0-05 | 历史审计建议第 6 条明写「`repairData()` 对齐 `init()` 检查强度」 |
+| P0-06 | 实测：撤销窗口内点刷新，记录不可恢复 |
+| P0-07 | 空对象兜底写在了 `Object.assign` 的**目标**位置；相邻的 `budgets` 一行写法正确，可证是笔误而非设计 |
+| P0-08 | 实测手机版 replace / clearAll 后 15 个键丢失 |
+| P1-09 | 只新增标注，不改任何计算；`orch-verify-waterfall.js` 全绿 |
+| P1-11 | ⚠️ 无决策记录，属**设计缺口**而非实现 bug（行为自相矛盾：归档移除还款控件却仍计入待收）。修法为产品判断，另一种选择是保留归档卡片的还款入口 |
+| P1-12 | 代码与自身注释矛盾（注释写 A/B/D/H，实际落 A/B/C/D） |
+| P1-13 | 历史审计 B-5 已确认同族字段丢失；实测 6 类改动指纹无感 |
+| P1-14 | 历史审计 **B-5「确认（转录复现）」**，原文记为「属既有缺陷」 |
+| P2-15 | 纯防御性，与同文件 `PlanMath` 的守卫对称 |
+| P2-16 | `grep -rn "_deleted" src/` 确认零写入点 |
+| P2-17 | 实测 `lockData()` 后 `exportJSON()` 返回字符串 `"null"` |
+| P2-18 | 历史审计 **B-6「确认」**，原文点名缺 `planId`/`planMonth` 列 |
+| P2-19 | 文案与实际导出内容不符 |
+
+> **独立验证**：`technical/audit-20260815-scripts/` 的 `orch-verify-waterfall.js`（瀑布算法 / 还债优先 / 预算挤压 / credit 防双重计算）与 `attack-destructive-credit-delete.js` 在本次改动后**全部 PASS**。
+> `verify-lan-sync-direct.js` 的 A3/A4/A5 仍报 FAIL，但该脚本第 29 行自述是 `verbatim transcription of receiveAndMerge's REPLACE branch` —— 跑的是 2026-08-15 的代码副本，不反映本次修改；同样场景走真实路径（RTC 桩）已验证全部 PASS。
+> `attack-status-transitions.js` 的 1 条 FAIL 在基线 `fccd63f` 同样存在，属既有缺陷、非本次引入。
 
 ```
 category-treemap-test.js       41 PASS / 0 FAIL

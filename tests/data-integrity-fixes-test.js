@@ -226,22 +226,34 @@ ok('局域网同步后收发两端指纹一致', DS.getDataHash()===senderHash,
    '发 '+senderHash+' 收 '+DS.getDataHash());
 
 
-L('【P0-04】修复数据不再删除记录');
-const orphanFx={records:[{id:'k1',amount:250,categoryId:cat,date:'2026-08-03T10:00',note:'分期',tags:[],planId:'ghost',planMonth:'2026-08',createdAt:'2026-08-03T10:00:00.000Z'}],
+L('【P0-04 复核】孤儿分期记录被清除 —— 这是既定设计，不是缺陷');
+// planId 全项目只有 syncPlanRecords() 一处写入，所以带 planId 的记录一定是
+// 计划托管的自动流水。计划没了它就是账面垃圾，留着会永久虚增月度合计。
+// 同一条规则在另外两处也成立：savePlanEditor 从 credit 切走时清、
+// deletePurchasePlan 删计划时清 —— repairData 是这两者漏网的兜底。
+const orphanFx={records:[
+   {id:'k1',amount:250,categoryId:cat,date:'2026-08-03T10:00',note:'分期',tags:[],planId:'ghost',planMonth:'2026-08',createdAt:'2026-08-03T10:00:00.000Z'},
+   {id:'k2',amount:60,categoryId:cat,date:'2026-08-04T10:00',note:'普通消费',tags:[],createdAt:'2026-08-04T10:00:00.000Z'}],
   categories:DS.getCategories(),purchasePlans:[]};
 DS.clearAll();DS.importJSON(JSON.stringify(orphanFx),'replace');
-const beforeTotal=S.getMonthTotal('2026-08');
 w.repairData();
-ok('孤儿记录仍在', DS._data.records.length===1, '剩 '+DS._data.records.length+' 条');
-ok('planId 已解除关联', DS._data.records[0] && !DS._data.records[0].planId);
-ok('planMonth 已解除关联', DS._data.records[0] && !DS._data.records[0].planMonth);
-ok('月度合计不变', S.getMonthTotal('2026-08')===beforeTotal, beforeTotal+' → '+S.getMonthTotal('2026-08'));
-const planFx={records:[],categories:DS.getCategories(),
+ok('孤儿分期记录被清除', !DS.getRecords().some(r=>r.id==='k1'));
+ok('普通消费记录保留', DS.getRecords().some(r=>r.id==='k2'));
+ok('清除后月度合计只剩普通消费', S.getMonthTotal('2026-08')===60, String(S.getMonthTotal('2026-08')));
+// 计划还在时不得误删
+const liveFx=JSON.parse(JSON.stringify(orphanFx));
+liveFx.purchasePlans=[{id:'ghost',name:'手机',icon:'📱',totalAmount:900,mode:'credit',startMonth:'2026-08',months:3,categoryId:cat,status:'active',overrides:{},note:''}];
+DS.clearAll();DS.importJSON(JSON.stringify(liveFx),'replace');
+w.repairData();
+ok('计划仍存在时分期记录不被误删', DS.getRecords().some(r=>r.id==='k1'));
+ok('credit 计划的 categoryId 保留', DS.getPurchasePlan('ghost').categoryId===cat);
+// 非 credit 的 categoryId 清空 —— 对齐 savePlanEditor 的 `mode==='credit'?categoryId:''`
+const saveFx={records:[],categories:DS.getCategories(),
   purchasePlans:[{id:'pz',name:'旅行',icon:'✈️',totalAmount:600,mode:'save',startMonth:'2026-01',months:6,categoryId:cat,status:'active',overrides:{},note:''}]};
-DS.clearAll();DS.importJSON(JSON.stringify(planFx),'replace');
+DS.clearAll();DS.importJSON(JSON.stringify(saveFx),'replace');
 w.repairData();
-ok('非 credit 计划的 categoryId 未被清空', DS._data.purchasePlans[0].categoryId===cat,
-   JSON.stringify(DS._data.purchasePlans[0].categoryId));
+ok('非 credit 计划的残留 categoryId 被清空（对齐编辑器不变量）',
+   DS.getPurchasePlan('pz').categoryId==='', JSON.stringify(DS.getPurchasePlan('pz').categoryId));
 
 L('【P0-06】撤销窗口跨刷新 / 跨重载存活');
 const delFx={records:[{id:'del1',amount:88,categoryId:cat,date:'2026-08-06T10:00',note:'要撤销的',tags:[],createdAt:'2026-08-06T10:00:00.000Z'}],
@@ -253,13 +265,20 @@ w.refreshPageData();
 ok('点刷新后仍可撤销', !!DS.getPendingDelete());
 ok('撤销成功恢复记录', DS.undoDelete()===true && DS._data.records.some(r=>r.id==='del1'),
    '剩 '+DS._data.records.length+' 条');
-// 跨「重新加载页面」（init 重跑）
+// 刷新之后计时器仍在跑，不会留下「卡住」的待删缓冲（142ea5c 修过这个）
 DS.clearAll();DS.importJSON(JSON.stringify(delFx),'replace');
 DS.softDeleteRecord('del1');
-DS._pendingDelete=null;          // 模拟页面重载：内存缓冲清空
-DS.init();                       // 重新初始化，应从 localStorage 恢复缓冲
-ok('重载后待删缓冲被恢复', !!DS.getPendingDelete(), '没有恢复');
-ok('重载后仍能撤销', DS.undoDelete()===true && DS._data.records.some(r=>r.id==='del1'));
+w.refreshPageData();
+const pend=DS.getPendingDelete();
+ok('待删缓冲仍带着计时器（不会卡住）', !!pend && pend.timeoutId!==null && pend.timeoutId!==undefined,
+   pend?'timeoutId='+String(pend.timeoutId):'没有缓冲');
+DS._finalizeDelete('del1');
+ok('终结后缓冲清空', !DS.getPendingDelete());
+// 「修复数据」仍然负责清扫卡住的缓冲 —— 这是它的职责，未改动
+DS.clearAll();DS.importJSON(JSON.stringify(delFx),'replace');
+DS.softDeleteRecord('del1');
+w.repairData();
+ok('修复数据仍会清扫待删缓冲（职责未变）', !DS.getPendingDelete());
 
 
 L('【P1-10】credit 计划：按「银行自动扣款」语义，不受记录增删影响');
