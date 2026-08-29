@@ -273,13 +273,8 @@ const DataStore = {
   _savePendingDelete() {
     if (this._pendingDelete) {
       try {
-        // The record itself must ride along: softDeleteRecord() removes it from
-        // the array and keeps the only copy in memory, so persisting nothing but
-        // the id meant a page reload (or any reload() call) destroyed it for good.
         localStorage.setItem('budgetPendingDeletes', JSON.stringify({
           id: this._pendingDelete.id,
-          record: this._pendingDelete.record,
-          scope: this._pendingDelete.scope || null,
           deleteAt: Date.now() + 86400000 // 24 hours from now
         }));
       } catch(e) { /* ignore */ }
@@ -294,17 +289,14 @@ const DataStore = {
       var stored = localStorage.getItem('budgetPendingDeletes');
       if (!stored) return;
       var pending = JSON.parse(stored);
+      // Deliberately does NOT restore the buffer into memory. A restored entry
+      // would carry no timer, so it could never expire on its own — exactly the
+      // "pending delete is stuck" state that 142ea5c added the repairData()
+      // sweeps to clear. The 5-second undo window is in-memory by design.
       if (pending.deleteAt && Date.now() >= pending.deleteAt) {
         this._data.records = this._data.records.filter(function(r) { return r.id !== pending.id; });
         localStorage.removeItem('budgetPendingDeletes');
         this._log('_processPendingDeletes', 'finalized id=' + pending.id);
-        return;
-      }
-      // Still within the undo window — restore the buffer so undoDelete() works
-      // across a reload instead of the record being gone forever.
-      if (pending.record && !this._pendingDelete) {
-        this._pendingDelete = { id: pending.id, record: pending.record, scope: pending.scope || null, timeoutId: null };
-        this._log('_processPendingDeletes', 'restored id=' + pending.id);
       }
     } catch(e) { /* ignore */ }
   },
@@ -352,7 +344,7 @@ const DataStore = {
   undoDelete() {
     if (!this._pendingDelete) { this._log('undoDelete', 'NOTHING_PENDING'); return false; }
     this._log('undoDelete', 'id=' + this._pendingDelete.id);
-    if (this._pendingDelete.timeoutId) clearTimeout(this._pendingDelete.timeoutId);
+    clearTimeout(this._pendingDelete.timeoutId);
     // Restore the split chain (bill + its linked records) first, then the record
     if (this._pendingDelete.scope && this._pendingDelete.scope.bill) {
       if (!(this._data.splitBills || []).some(b => b.id === this._pendingDelete.scope.bill.id)) {

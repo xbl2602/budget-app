@@ -602,18 +602,22 @@ function repairData() {
         if (typeof v !== 'number' || !isFinite(v) || v < 0) { delete p.overrides[m]; fixed++; }
         else if (v > p.totalAmount) { p.overrides[m] = p.totalAmount; fixed++; }
       });
+      // savePlanEditor stores `categoryId: mode === 'credit' ? categoryId : ''`,
+      // so a non-credit plan carrying one is leftover state from a mode switch.
+      // This realigns with that invariant rather than inventing a new rule.
+      if (p.mode !== 'credit' && p.categoryId) { p.categoryId = ''; fixed++; }
     });
-    // An instalment record whose plan is gone is still a real expense the user
-    // paid for — losing the plan does not un-spend the money. Previously these
-    // were DELETED outright (no confirmation, no undo), which meant a single
-    // click of 修复数据 could silently erase records that arrived by AI import
-    // or by a sync that carried records but not plans. Detach instead.
-    (DataStore._data.records || []).forEach(r => {
-      if (!r || !r.planId || planIds.has(r.planId)) return;
-      delete r.planId;
-      delete r.planMonth;
-      fixed++;
-    });
+    // Instalment records are created ONLY by syncPlanRecords(), so a record whose
+    // planId points at a plan that no longer exists is orphaned bookkeeping, not
+    // a user-entered expense. Leaving it behind permanently inflates the month
+    // total. Deleting it is the same rule savePlanEditor applies when switching
+    // away from credit, and deletePurchasePlan applies when removing a plan —
+    // this is the backstop for records that escaped both.
+    const orphans = (DataStore._data.records || []).filter(r => r && r.planId && !planIds.has(r.planId));
+    if (orphans.length) {
+      DataStore._data.records = (DataStore._data.records || []).filter(r => !r || !r.planId || planIds.has(r.planId));
+      fixed += orphans.length;
+    }
 
     if (fixed > 0) DataStore.save();
 

@@ -848,7 +848,9 @@ function refreshPageData() {
   // The pending soft-delete is deliberately NOT finalised here. Refreshing is a
   // "show me the truth" action, not a "commit my deletion" one — terminating the
   // buffer meant clicking refresh inside the 5-second undo window destroyed the
-  // record with no way back. reload() re-reads it from localStorage instead.
+  // record with no way back. The 5s timer keeps running and still finalises on
+  // its own, so nothing gets stuck; repairData() remains the place that sweeps
+  // a genuinely stuck buffer (see 142ea5c).
   if (success) {
     showToast(__('records.refresh.success'), 'success');
   } else {
