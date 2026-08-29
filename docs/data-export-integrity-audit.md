@@ -631,6 +631,10 @@ CSV 定位为「只导流水」可以接受，但**子分类**和**分期归属*
 | P2-18 | 历史审计 **B-6「确认」**，原文点名缺 `planId`/`planMonth` 列 |
 | P2-19 | 文案与实际导出内容不符 |
 
+> **方法论沉淀**：这次复核抓出 2 项误判 + 1 项过度修复，判定准则已写成
+> [`docs/ai/RULES.md`](ai/RULES.md) 规则 **#20「判定『缺陷』还是『设计』」**——
+> 动手前先过三问：状态可达吗 / 代码里有无相反的显式不变量 / 历史记录说过相反的话吗。
+>
 > **独立验证**：`technical/audit-20260815-scripts/` 的 `orch-verify-waterfall.js`（瀑布算法 / 还债优先 / 预算挤压 / credit 防双重计算）与 `attack-destructive-credit-delete.js` 在本次改动后**全部 PASS**。
 > `verify-lan-sync-direct.js` 的 A3/A4/A5 仍报 FAIL，但该脚本第 29 行自述是 `verbatim transcription of receiveAndMerge's REPLACE branch` —— 跑的是 2026-08-15 的代码副本，不反映本次修改；同样场景走真实路径（RTC 桩）已验证全部 PASS。
 > `attack-status-transitions.js` 的 1 条 FAIL 在基线 `fccd63f` 同样存在，属既有缺陷、非本次引入。

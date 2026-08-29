@@ -903,6 +903,9 @@ for t in tests/*.js; do node "$t"; done
 | `tests/export-coverage-test.js` | Excel / CSV / JSON 导出与导入合并的字段覆盖（E3/E7 用 RTCPeerConnection 桩驱动真实局域网路径） |
 | `tests/data-integrity-fixes-test.js` | 导出/导入/同步 19 项修复的回归网，对应 `docs/data-export-fix-plan.md` §5 验收标准 |
 | `tests/export-integrity-audit.js` | **审计报告生成器**（非断言测试，退出码恒为 0）：把铺满字段的数据推过六条路径逐字段 diff |
+
+> 另有一套**不在版本库**的独立验证脚本：`technical/audit-20260815-scripts/`（`technical/` 在 `.gitignore` 里，只存在本机）。
+> 2026-08-29 的复核靠它抓出 2 项误判，其 README 记录了当前结果与「如何驱动被 IIFE 关住的函数」的做法。丢了可惜，值得考虑纳入版本管理。
 | `tests/hierarchy-test.js` | 统计页分类层级展开（1 层 / 2 层 / 全部）、饼图明细表 |
 | `tests/plan-ui-test.js` | 大额计划：`PlanMath` 结算瀑布、预测、卡片渲染、图标选择器 |
 | `tests/plan-editor-bounds-test.js` | 大额计划编辑器：月份选择器与全部边界校验（13 月 / 期数 / 金额） |
