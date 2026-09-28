@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.2.0
+# 记账软件 · Budget App v3.3.0
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -14,7 +14,7 @@
 
 ## 📖 Brief Description
 
-**记账软件 · Budget App** is a personal budget tracking tool designed for everyday use. It stores all your records, categories, budgets, and savings targets entirely in your browser's localStorage — no server, no sign-up, no data leaving your machine. Packaged as a single offline HTML file with zero external dependencies, it is ready to run the moment you open it in a modern browser.
+**记账软件 · Budget App** is a personal budget tracking tool designed for everyday use. It stores all your records, categories, budgets, and savings targets entirely in your browser's localStorage — no server, no sign-up, and by default no data leaves your machine (an opt-in, end-to-end-encrypted cloud sync lives in Settings and does nothing until you turn it on). Packaged as a single offline HTML file with zero external dependencies, it is ready to run the moment you open it in a modern browser.
 
 ---
 
@@ -58,10 +58,12 @@
 - 所有数据以**明文形式**存储在浏览器 `localStorage` 中，**不提供加密保护**
 - 虽然设计上以本地存储为框架且经过了 AI Agent 的代码审查，但因代码由 AI 生成，**仍不保证数据绝对不外泄**
 - **请勿在本软件中保存任何关键、敏感或涉密信息**
+- 若你开启可选的「云端同步」：账本在本机用 AES-GCM-256 加密后才上传，服务器只看到密文；但**恢复码和一份账本副本会以明文保存在本机**（所以云端同步与 PIN 锁互斥）。**这套加密实现同样由 AI 编写，未经专业密码学审计**
+- 云端后端是一个固定的 Supabase 项目，其地址与「公开 key」写在开源代码里；数据表对外全部锁死（行级安全 RLS 全开、零策略），只能通过 5 个凭密钥访问的函数读写。**丢失恢复码 = 云端那份无人能解开（包括作者）**，本机数据不受影响
 
 ### 6. 数据丢失风险
 - 清除浏览器缓存、Cookie、站点数据或历史记录将**永久删除所有记录与设置**，且**无法恢复**
-- 数据**仅存在于单一设备**上，**不支持跨设备同步**
+- 数据默认**仅存在于单一设备**上。局域网同步与可选的云端同步能在设备间复制数据，但**同步不是备份**——它会把改动（包括删除）传给其他设备
 - **用户须自行定期通过「设置」页面的 JSON 导出功能备份数据**
 
 ### 7. 无担保
@@ -107,11 +109,22 @@ Mark a record as a split bill, pick who was in on it, and let the total divide e
 Plan a large purchase in three modes: save up first (先攒后买), buy now and repay (先买后还), or a credit-card instalment (信用卡分期, which backfills real repayment records). The monthly instalment is deducted from your spendable budget, and the ledger is **replayed month by month** rather than stored — so skipping a month or editing an old record recalculates automatically. Overdue plans prompt to extend, pay off, or abandon. Custom emoji icon per plan.
 
 ### ⚙️ 设置 Settings
-Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fixed amount or percentage). Export and import data via JSON (replace or merge), CSV, or Excel (XML Spreadsheet 2003 with 7 sheets and live formulas). Clear all data option available. LAN sync via WebRTC (same Wi-Fi, zero server).
+Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fixed amount or percentage). Export and import data via JSON (replace or merge), CSV, or Excel (XML Spreadsheet 2003 with 7 sheets and live formulas). Clear all data option available. LAN sync via WebRTC (same Wi-Fi, zero server). **Optional cloud sync** (off by default): no account — one recovery code; the ledger is encrypted on your device before upload; edits made on several devices are merged record-by-record instead of overwritten; the last few cloud versions are kept.
 
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
+
+### v3.3.0 新增功能
+
+- **☁️ 可选云端同步（默认关闭，不需要账号）**：设置 →「云端同步」。启用时生成一串 28 位**恢复码**（4 位一组，含校验位），换设备时点「已有恢复码？登录」粘贴即可。只有登录后才会出现同步状态、立即同步、历史版本等功能；未启用时**不发任何网络请求、不启动任何定时器**。
+  - **端到端加密**：恢复码经 HKDF 派生出「鉴权钥」与「加密钥」；账本 gzip 压缩后用 AES-GCM-256 加密再上传，服务器只保存密文。
+  - **三方合并，不互相覆盖**：每台设备记着「上次同步时的样子」。两台设备各自离线改动后再同步，按记录逐条合并——只有一边改的采用改动方；一边删一边改则保留修改并记入冲突；分摊还款金额累加；两边各自新增的都保留。
+  - **安全网**：账本为空不上传；一次删除 ≥20 条或 ≥50% 需确认；「清除所有数据」「导入（替换）」「局域网替换」后同步前先问「以本机为准 / 以云端为准 / 稍后」；云端版本回退检测；写入后读回校验；启用前自动备份本机，备份失败则不启用。
+  - **历史版本**：云端保留当前版本 + 最近 5 个历史版本，可导出为 JSON 后用「导入」恢复。
+  - **限制**：云端同步与 PIN 锁互斥；创建云端账本需要一次性邀请码（向作者索取）；单份账本加密压缩后上限 4 MiB；压缩需要 `CompressionStream`（Chrome 80+ / Safari 16.4+ / Firefox 113+，缺失时自动不压缩，但无法读取他人压缩过的版本）。
+- **🔐 PIN 锁数据丢失修复**：过去密文只在「设置 / 修改 PIN」那一刻写入，之后记的账只写明文——设 PIN → 继续记账 → 自动锁定 → 输 PIN 解锁，设 PIN 之后的记录全部丢失；修改 / 关闭 PIN 时同样会拿旧密文覆盖新数据。现在锁定时先用内存中的密钥重新加密并**读回校验**，通过后才清除明文；解锁不再用旧密文覆盖较新的明文；改 / 关 PIN 以内存中的最新账本为准。
+- **🧩 唯一合并实现新增三方模式**：`DataStore._mergeData` 现在也支持「有共同祖先」的三方合并（云端同步使用）；无祖先时行为不变。
 
 ### v3.2.0 新增功能
 
@@ -122,9 +135,7 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 - **▦ 分类格子图**：把金额画成方块阵（一格 = 固定金额），比饼图更容易比较相近的占比。分类支出卡片现为「🥧 饼图 / ▦ 格子图 / ▤ 矩形图」三选一，三者共用同一份数据，下钻、层级（1 层 / 2 层 / 全部）、排除账单开关、配色全部通用，展开弹窗同样支持切换。
 - **📈 统计页可读性**：分类明细表默认收起（可折叠并记忆状态）；饼图深层展开时标签不再重叠、不越过图例栏，图例按画布高度封顶；热力图格子间距恢复均匀。
 
-### 未发布（v3.2.0 之后）
-
-> 以下改动已在当前构建中，但版本号仍停在 v3.2.0——下次发版时并入。
+### 并入 v3.3.0：v3.2.0 之后的其他改动
 
 - **▤ 分类矩形图（treemap）**：面积正比于金额，子分类的框**嵌套**在父分类框里——一眼看出「餐饮花得多」是被哪个子分类拉高的。层级控件直接决定嵌套几层，点框下钻。分类卡片的第三种视图。
 - **📅 自定义日期范围修复**：统计页选日期范围一直没生效——`useCustomRange()` 以「月份为空」作标记，而 `renderStats()` 开头会无条件把月份填回去，标记当场被冲掉。现已修复，范围内的统计、图表、明细表口径一致。
@@ -153,8 +164,8 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 🔥 Highlights
 
 - **Zero external dependencies** — Pure HTML, CSS, and JavaScript. No CDN, no frameworks, no libraries.
-- **Modular source structure** — 15 CSS + 27 JS files organized by domain in `src/`, built into a single deployable HTML via `build.sh`.
-- **IIFE scope isolation** — 27 JS files each wrapped in an IIFE, only explicitly exported symbols (`window.*`) are shared across files, preventing global namespace pollution.
+- **Modular source structure** — 16 CSS + 28 JS files organized by domain in `src/`, built into a single deployable HTML via `build.sh`.
+- **IIFE scope isolation** — 28 JS files each wrapped in an IIFE, only explicitly exported symbols (`window.*`) are shared across files, preventing global namespace pollution.
 - **Elastic animated pie chart** — Smooth hover pop-out effects and full drill-down navigation.
 - **Calendar heatmap** — Spending ratio visualized with a 6-color gradient across the month.
 - **Soft delete with 5-second undo** — Accidentally deleted a record? Undo it within 5 seconds.
@@ -162,7 +173,7 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 - **Page guide system** — Each page has a ❓ guide button explaining features, usage, and parameters. Supports simple/detailed toggle mode.
 - **Responsive design** — Desktop sidebar layout with a mobile bottom tab navigation bar, including safe-area support.
 - **Dark mode throughout** — All Canvas charts, UI elements, and exports adapt automatically.
-- **CSP & XSS protection** — Content Security Policy headers and HTML injection sanitization (`escHtml`) built in.
+- **CSP & XSS protection** — Content Security Policy headers and HTML injection sanitization (`escHtml`) built in. The only network exception is `connect-src` for the single Supabase host used by the optional cloud sync.
 
 ---
 
@@ -220,7 +231,7 @@ See the 测试 section in [`STRUCTURE.md`](./STRUCTURE.md) for what each suite c
 
 **假设分析 (What-If)** — Run spending simulations by adjusting per-category assumptions. Compare projected savings against current trends with visual charts and detailed breakdowns.
 
-**设置 (Settings)** — Configure your monthly budget, choose a savings target mode, toggle dark mode, and manage your data through JSON, CSV, or Excel export/import. Use LAN sync to transfer data between devices on the same Wi-Fi.
+**设置 (Settings)** — Configure your monthly budget, choose a savings target mode, toggle dark mode, and manage your data through JSON, CSV, or Excel export/import. Use LAN sync to transfer data between devices on the same Wi-Fi, or turn on the optional end-to-end-encrypted cloud sync (Settings → 云端同步) to keep several devices in step with one recovery code.
 
 ---
 
@@ -231,7 +242,7 @@ See the 测试 section in [`STRUCTURE.md`](./STRUCTURE.md) for what each suite c
 - **Charts**: Canvas 2D API with requestAnimationFrame
 - **Storage**: Browser localStorage
 - **Export**: Native JSON, CSV, XML Spreadsheet 2003 (SpreadsheetML)
-- **Sync**: WebRTC P2P (LAN sync, zero server)
+- **Sync**: WebRTC P2P (LAN sync, zero server); optional cloud sync — Web Crypto (HKDF + AES-GCM-256, client side) over `fetch` to a Supabase Postgres RPC backend (`supabase/migrations/`), three-way merge on the client
 - **Build**: Simple bash script (concatenation)
 - **Dependencies**: None — zero external libraries
 
@@ -245,8 +256,8 @@ budget-app/
 ├── build.sh                 # 构建脚本：拼接 src/ → index.html
 ├── src/
 │   ├── index.html           # HTML 骨架（含 <!--build:css--> / <!--build:js--> 标记）
-│   ├── css/                 # 13 个 CSS 文件（变量、布局、组件、动画、响应式、引导…）
-│   └── js/                  # 24 个 JS 文件（按功能域拆分）
+│   ├── css/                 # 16 个 CSS 文件（变量、布局、组件、动画、响应式、引导、云同步…）
+│   └── js/                  # 28 个 JS 文件（按功能域拆分）
 │       ├── 01-constants.js       # 颜色表、默认分类
 │       ├── 02-datastore.js       # DataStore（localStorage CRUD）
 │       ├── 03-excel-export.js    # Excel XML 导出
@@ -272,7 +283,10 @@ budget-app/
 │       ├── 24-diagnostics.js    # 数据诊断工具（一致性检查、存储用量、审计日志）
 │       ├── 25-page-guides.js    # 页面引导系统（8 页简明/详尽双模式引导文案）
 │       ├── 26-split-bills.js    # 分摊收款系统（追账中心/分摊编辑器/部分还款/归档与转普通记账）
-│       └── 27-purchase-plans.js # 大额分期消费计划（先攒后买/先买后还/信用卡分期）
+│       ├── 27-purchase-plans.js # 大额分期消费计划（先攒后买/先买后还/信用卡分期）
+│       └── 28-cloud-sync.js     # 可选云端同步（恢复码/端到端加密/三方合并/防护/界面）
+├── supabase/migrations/     # 云端同步的数据库定义（私有 schema + RLS + 5 个 RPC）
+├── tests/                   # jsdom 测试套件（见 STRUCTURE.md 的「测试」章节）
 ├── money-wise-mobile.html   # 手机版：轻量记账，支持导入导出JSON (~1,384 lines)
 ├── STRUCTURE.md             # 完整函数地图（供 AI Agent 使用）
 ├── features/                # Feature docs (v2.0.0-era snapshots — see each file's header)
@@ -293,7 +307,7 @@ budget-app/
 | Safari         | ✅ Full     |
 | Internet Explorer | ❌ Not supported |
 
-Requires ES2020+ support. Modern browsers only.
+Requires ES2020+ support. Modern browsers only. The optional cloud sync additionally needs Web Crypto (`crypto.subtle`, available on secure origins such as https or localhost); it is checked at run time and the toggle simply refuses to start where it is missing.
 
 ---
 

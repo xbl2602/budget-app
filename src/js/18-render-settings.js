@@ -191,6 +191,9 @@ function renderSettings() {
       </div>
     </div>
 
+    <!-- Cloud sync (optional; off by default) -->
+    ${window.CloudSync ? CloudSync.renderCard() : ''}
+
     <!-- Data Sync Verification -->
     <div class="card mb-16" style="border-left:4px solid #818CF8">
       <div class="card-title" style="display:flex;align-items:center;gap:8px">
@@ -219,7 +222,7 @@ function renderSettings() {
     <div style="text-align:center;padding:12px 0 4px">
       <button class="btn btn-ghost btn-sm" onclick="refreshPageData()" style="font-size:0.8rem">🔄 ${__('settings.refreshPage')}</button>
     </div>
-    <div style="text-align:center;padding:8px 0 8px;font-size:0.65rem;color:var(--text-muted);opacity:0.5">v3.2.0</div>
+    <div style="text-align:center;padding:8px 0 8px;font-size:0.65rem;color:var(--text-muted);opacity:0.5">v3.3.0</div>
   `;
   // Set current locale in language switcher
   var sel = document.getElementById('localeSelect');
@@ -360,7 +363,7 @@ function exportDiagnosticLog() {
   }
   let text = '=== Budget App Diagnostic Log ===\n';
   text += 'Exported: ' + new Date().toISOString() + '\n';
-  text += 'Version: v3.2.0\n';
+  text += 'Version: v3.3.0\n';
   text += 'Records: ' + DataStore.getRecords().length + '\n';
   text += 'Pending Delete: ' + (DataStore.getPendingDelete() ? DataStore.getPendingDelete().id : 'none') + '\n';
   text += 'LocalStorage: ' + (localStorage.getItem('budgetAppData') || '').length + ' bytes\n';

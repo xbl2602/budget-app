@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
-  <title data-i18n="app.name">记账软件 v3.2.0</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://sfwnpwchujslqfnmdyxo.supabase.co;">
+  <title data-i18n="app.name">记账软件 v3.3.0</title>
   <style>
 /* ===== CSS DESIGN SYSTEM ===== */
 :root {
@@ -2721,6 +2721,93 @@ body.modal-open {
 @media (max-width: 480px) {
   .plan-when-row { flex-wrap: wrap; }
 }
+/* ============================================================
+   Cloud sync (optional). Nothing here is visible unless sync is on, apart from
+   the single settings card. Colours come from the theme variables in 01-base.css,
+   so light and dark both work without a second set of rules (RULES #3).
+   ============================================================ */
+
+/* Status pill in the top header — only created once sync is on */
+.cloud-pill {
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1;
+  white-space: nowrap;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: var(--transition-fast);
+}
+.cloud-pill:active { transform: scale(0.96); }
+.cloud-pill-ok   { color: var(--success); border-color: var(--success); }
+.cloud-pill-busy { color: var(--primary); border-color: var(--primary); }
+.cloud-pill-warn { color: var(--warning); border-color: var(--warning); }
+.cloud-pill-bad  { color: var(--danger);  border-color: var(--danger); }
+
+/* Status line in the settings card */
+.cloud-status { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 600; color: var(--text-secondary); }
+.cloud-dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.cloud-status-ok   { color: var(--success); }
+.cloud-status-busy { color: var(--primary); }
+.cloud-status-warn { color: var(--warning); }
+.cloud-status-bad  { color: var(--danger); }
+.cloud-status-busy .cloud-dot { animation: cloudPulse 1s ease-in-out infinite; }
+@keyframes cloudPulse { 50% { opacity: 0.3; } }
+
+/* Recovery code */
+.cloud-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-align: center;
+  word-break: break-all;
+  user-select: all;
+  -webkit-user-select: all;
+  padding: 12px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.cloud-points { margin: 0 0 4px; padding-left: 18px; font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary); }
+.cloud-points li { margin-bottom: 6px; }
+
+.cloud-error {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.cloud-summary { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.cloud-summary > div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
+.cloud-summary > div:last-child { border-bottom: 0; background: var(--bg-secondary); }
+.cloud-summary span { color: var(--text-secondary); }
+
+.cloud-history-row, .cloud-conflict-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.78rem;
+}
+.cloud-conflict-row { display: block; line-height: 1.5; }
+.cloud-conflicts summary { cursor: pointer; font-size: 0.85rem; font-weight: 600; padding: 4px 0; }
+
+@media (max-width: 480px) {
+  .cloud-code { font-size: 0.9rem; letter-spacing: 1px; }
+  .cloud-pill { max-width: 40vw; }
+}
 
 </style>
 </head>
@@ -3094,6 +3181,10 @@ try{
 
 const DataStore = {
   _data: null,
+  // AES key derived from the PIN, in memory only: set by setPin / unlockData, dropped
+  // by lockApp / clearPin. It exists so that locking can re-encrypt the ledger — see
+  // sealForLock(). It is a non-extractable CryptoKey, never the PIN itself.
+  _pinKey: null,
   _pendingDelete: null, // { id, record, timeoutId }
   __log: [],            // Diagnostic log entries
 
@@ -3289,6 +3380,9 @@ const DataStore = {
       this._rev = (this._rev || 0) + 1;
       localStorage.setItem('budgetAppData', JSON.stringify(this._data));
       this._log('save', 'records=' + this._data.records.length);
+      // Optional cloud sync. Guarded and swallowed: it must never be able to fail a save,
+      // and with sync off (the default) this is one property read.
+      try { if (window.CloudSync) window.CloudSync.notify(); } catch (e2) { /* never break saving */ }
     } catch(e) {
       this._log('save_error', e.message);
       // Try to notify user via toast if available
@@ -3779,8 +3873,23 @@ const DataStore = {
   // LAN sync keyed on id. Neither carried allTags / tagColors / colorIndex.
   //
   // `incoming` must already have been through _sanitizeEntities().
-  _mergeData(incoming) {
+  //
+  // Second mode (cloud sync): pass `{ base }` — the ledger as it was at the last
+  // successful sync — and this becomes a THREE-way merge. Without `base` the union
+  // below cannot tell "the other side never had it" from "the other side deleted
+  // it", so a delete on one device is resurrected by the next merge. With it, both
+  // are distinguishable and no timestamp or tombstone needs to be added to the
+  // ledger. `{ base, dryRun: true }` computes the result without touching the store.
+  // Returns { data, conflicts } in this mode. Without `base` nothing here changed.
+  _mergeData(incoming, opts) {
     if (!incoming || typeof incoming !== 'object') return this._data;
+    if (opts && Object.prototype.hasOwnProperty.call(opts, 'base')) {
+      const result = this._merge3(opts.base || null, this._data, incoming);
+      if (opts.dryRun) return result;
+      this._data = this._normalize(result.data);
+      this._rev = (this._rev || 0) + 1;
+      return result;
+    }
     const cur = this._data;
 
     // Records: keyed by id, newest timestamp wins. A missing stamp counts as
@@ -3847,6 +3956,185 @@ const DataStore = {
     return cur;
   },
 
+  // Canonical serialisation for CHANGE DETECTION and merge equality. Unlike
+  // _stableStringify (whose output is the fingerprint users compare across devices
+  // and must not change) every array is order-free here: elements are identified by
+  // their id or their content, so ordering differences alone never look like an edit.
+  // Two devices holding the same data must hash the same however merging ordered it.
+  _canonStringify(v, cache) {
+    if (v === undefined) return 'null';
+    if (v === null || typeof v !== 'object') return JSON.stringify(v);
+    if (cache && cache.has(v)) return cache.get(v);
+    let out;
+    if (Array.isArray(v)) {
+      out = '[' + v.map(x => this._canonStringify(x, cache)).sort().join(',') + ']';
+    } else {
+      const keys = Object.keys(v).filter(k => v[k] !== undefined).sort();
+      out = '{' + keys.map(k => JSON.stringify(k) + ':' + this._canonStringify(v[k], cache)).join(',') + '}';
+    }
+    if (cache) cache.set(v, out);
+    return out;
+  },
+
+  // Pure three-way merge of whole ledgers: base = the ledger at the last sync,
+  // local = this device now, remote = the other side now. Never mutates its inputs.
+  // Returns { data, conflicts }.
+  //
+  //   both sides equal                    -> that value
+  //   only one side changed vs base       -> that side (including a deletion)
+  //   both changed, both are objects      -> merge key by key
+  //   both changed, both are arrays       -> align by id (strings/other: by content)
+  //   both changed a repayment amount     -> base + local delta + remote delta
+  //   one side deleted, the other edited  -> keep the edit, report a conflict
+  //   same field edited to two values     -> newer `updatedAt` wins, else this device
+  //
+  // With base == null everything counts as "added on both sides": a plain union
+  // that deletes nothing — the safe first merge when a device joins a cloud ledger.
+  _merge3(base, local, remote) {
+    const self = this;
+    const cache = new WeakMap();
+    const S = v => v === undefined ? '\u0001' : self._canonStringify(v, cache);
+    const same = (a, b) => S(a) === S(b);
+    const isObj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
+    const isNum = x => typeof x === 'number' && isFinite(x);
+    const conflicts = [];
+    const keptBills = new Set();
+    // Preferences the user never set deliberately: this device's value wins, quietly.
+    const SILENT = ['.savingsTarget', '.whatIfParams', '.percentBase'];
+    // Composite settings that only make sense as a whole: two devices each changing a
+    // different field would otherwise be stitched into a combination nobody chose.
+    const ATOMIC = { '.savingsTarget': true, '.whatIfParams': true };
+    const brief = v => v === undefined ? '—' : (v !== null && typeof v === 'object') ? '{…}' : String(v).slice(0, 60);
+    const labelOf = x => (x && typeof x === 'object' && (x.name || x.note || (x.amount !== undefined ? String(x.amount) : ''))) || '';
+    function note(path, kind, ctx, l, r) {
+      if (SILENT.some(k => path === k || path.indexOf(k + '.') === 0)) return;
+      if (conflicts.length < 200) conflicts.push({ path, kind, label: ctx.label || '', local: brief(l), remote: brief(r) });
+    }
+    function index(path, arr) {
+      const map = new Map(), seen = {};
+      arr.forEach(x => {
+        let key;
+        if (typeof x === 'string') key = 's:' + x;
+        else if (isObj(x) && /participants$/.test(path)) key = 'p:' + (x.contactId || 'n:' + (x.name || ''));
+        else if (isObj(x) && x.id !== undefined && x.id !== null) key = 'id:' + x.id;
+        else key = 'h:' + S(x);
+        // Two anonymous items can share a key; number them rather than lose one
+        if (seen[key] === undefined) seen[key] = 0; else key += '#' + (++seen[key]);
+        map.set(key, x);
+      });
+      return map;
+    }
+    function m(b, l, r, path, ctx) {
+      if (same(l, r)) return l;
+      if (same(b, l)) return r;                    // only the remote changed (or deleted it)
+      if (same(b, r)) return l;                    // only this device changed (or deleted it)
+      // Both changed, and differently.
+      if (/\.updatedAt$/.test(path) && typeof l === 'string' && typeof r === 'string') return l > r ? l : r;
+      if (path === '.colorIndex' && isNum(l) && isNum(r)) return Math.max(l, r);
+      if (path === '.lastActiveMonth' && typeof l === 'string' && typeof r === 'string') return l > r ? l : r;
+      if (l === undefined || r === undefined) {
+        // One side deleted it, the other edited it. Money data: keep the edit.
+        const bill = /^\.splitBills\[id:([^\]]+)\]$/.exec(path);
+        if (bill) keptBills.add(bill[1]);
+        note(path, 'delete-vs-edit', ctx, l, r);
+        return l === undefined ? r : l;
+      }
+      if (!ATOMIC[path] && isObj(l) && isObj(r)) {
+        const bo = isObj(b) ? b : {};
+        // An entry stamped on both sides: the more recently edited copy wins a true clash
+        const prefer = ('updatedAt' in l || 'updatedAt' in r)
+          ? ((r.updatedAt || '') > (l.updatedAt || '') ? 'r' : 'l') : ctx.prefer;
+        const child = { prefer, label: ctx.label };
+        const out = {};
+        new Set([...Object.keys(bo), ...Object.keys(l), ...Object.keys(r)]).forEach(k => {
+          const v = m(bo[k], l[k], r[k], path + '.' + k, child);
+          if (v !== undefined) out[k] = v;
+        });
+        return out;
+      }
+      if (!ATOMIC[path] && Array.isArray(l) && Array.isArray(r)) {
+        const B = index(path, Array.isArray(b) ? b : []), L = index(path, l), R = index(path, r);
+        const out = [];
+        new Set([...L.keys(), ...R.keys()]).forEach(key => {
+          const lv = L.get(key), rv = R.get(key);
+          const v = m(B.get(key), lv, rv, path + '[' + key + ']',
+            { prefer: ctx.prefer, label: labelOf(lv !== undefined ? lv : rv) || ctx.label });
+          if (v !== undefined) out.push(v);
+        });
+        return out;
+      }
+      // A running total (money repaid): each side's increment counts, not just one of them.
+      if (/\.paidAmount$/.test(path) && isNum(l) && isNum(r)) {
+        const b0 = isNum(b) ? b : 0;
+        return b0 + (l - b0) + (r - b0);
+      }
+      note(path, 'edit-vs-edit', ctx, l, r);
+      return ctx.prefer === 'r' ? r : l;
+    }
+
+    const merged = m(base || {}, local, remote, '', { prefer: 'l', label: '' });
+    // Detach from the inputs: the closing steps below edit in place.
+    const res = JSON.parse(JSON.stringify(merged));
+
+    // 1. Repayment totals are clamped into [0, share] and `paid` follows them. Only
+    //    participants that carry paidAmount — a legacy boolean-only one is left alone.
+    if (typeof SplitEngine !== 'undefined' && Array.isArray(res.splitBills)) {
+      res.splitBills.forEach(bill => {
+        if (!bill || !Array.isArray(bill.participants)) return;
+        bill.participants = bill.participants.map(p =>
+          p && p.paidAmount !== undefined && p.paidAmount !== null ? SplitEngine.withPaidAmount(p, p.paidAmount) : p);
+      });
+    }
+
+    // 2. A split bill and its linked records travel as one chain (deleting one record
+    //    cascades to the whole chain). If the bill survived a delete-vs-edit clash,
+    //    bring its records back; if records survived without their bill, bring the
+    //    bill back. Either way nothing is silently lost.
+    if (Array.isArray(res.records) && Array.isArray(res.splitBills)) {
+      const pool = (arr, key) => (arr && Array.isArray(arr[key])) ? arr[key] : [];
+      const inputs = [local, remote, base];
+      const haveRec = new Set(res.records.filter(r => r && r.id).map(r => r.id));
+      const haveBill = new Set(res.splitBills.filter(b => b && b.id).map(b => b.id));
+      keptBills.forEach(billId => {
+        inputs.forEach(src => pool(src, 'records').forEach(r => {
+          if (r && r.id && r.splitBillId === billId && !haveRec.has(r.id)) {
+            res.records.push(JSON.parse(JSON.stringify(r))); haveRec.add(r.id);
+          }
+        }));
+      });
+      res.records.slice().forEach(r => {
+        if (!r || !r.splitBillId || haveBill.has(r.splitBillId)) return;
+        for (const src of inputs) {
+          const bill = pool(src, 'splitBills').find(b => b && b.id === r.splitBillId);
+          if (bill) {
+            res.splitBills.push(JSON.parse(JSON.stringify(bill))); haveBill.add(bill.id);
+            note('.splitBills[id:' + bill.id + ']', 'orphan-record', { label: labelOf(bill) }, bill, undefined);
+            break;
+          }
+        }
+      });
+    }
+
+    // 3. Each device back-fills the current month's instalment records on launch, with
+    //    fresh ids, so two devices that both launched produce the same period twice.
+    //    Keep one per (plan, month): the smallest id, which both sides agree on.
+    if (Array.isArray(res.records)) {
+      const winner = new Map();
+      res.records.forEach(r => {
+        if (!r || !r.planId || !r.planMonth) return;
+        const k = r.planId + '|' + r.planMonth, cur = winner.get(k);
+        if (cur === undefined || String(r.id) < String(cur)) winner.set(k, r.id);
+      });
+      res.records = res.records.filter(r => !r || !r.planId || !r.planMonth || winner.get(r.planId + '|' + r.planMonth) === r.id);
+      res.records.sort((a, b) => {
+        const da = (a && (a.date || a.createdAt)) || '', db = (b && (b.date || b.createdAt)) || '';
+        return da > db ? -1 : da < db ? 1 : (String(a && a.id) < String(b && b.id) ? -1 : 1);
+      });
+    }
+
+    return { data: res, conflicts };
+  },
+
   // Export / Import
   exportJSON() {
     // lockData() sets _data to null. Serialising that produced the string
@@ -3866,6 +4154,7 @@ const DataStore = {
       else this._sanitizeEntities(data);
       if (mode === 'replace') {
         this._data = data;
+        this._markBulk('import-replace');
       } else {
         this._mergeData(data);
       }
@@ -3919,7 +4208,15 @@ const DataStore = {
 
   clearAll() {
     this._data = this._defaults();
+    this._markBulk('clear');
     this.save();
+  },
+
+  // Whole-ledger replacement (clear / replace-import / LAN replace). With cloud sync on,
+  // the next sync must ASK before propagating it: a three-way merge reads "everything is
+  // gone" as a mass deletion and would push it to every device. No-op with sync off.
+  _markBulk(kind) {
+    try { if (window.CloudSync) window.CloudSync.markBulk(kind); } catch (e) { /* never break the operation */ }
   },
 
   // What-If Analysis
@@ -4056,86 +4353,125 @@ const DataStore = {
     const hash = await this._hashPin(pin, salt);
     return hash === storedHash;
   },
+  // The ciphertext in budgetAppDataEncrypted is only as fresh as the last moment it
+  // was written, while save() only ever writes the plaintext. So the ciphertext can
+  // be arbitrarily stale, and every path that trusted it over the live ledger lost
+  // data: lockApp() removed the plaintext, then unlock restored the stale copy;
+  // changePin() re-encrypted the stale copy; clearPin() overwrote the plaintext with
+  // it. The rules that keep it safe:
+  //   - a plaintext ledger in storage is never older than the ciphertext (it is only
+  //     removed after a verified re-seal), so it wins whenever both exist;
+  //   - the live in-memory ledger is the freshest of all;
+  //   - the plaintext is only removed once the ciphertext provably holds the same data.
   async setPin(pin, plainData) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const hash = await this._hashPin(pin, salt);
+    // Fixed (C1): if plainData is passed directly, use it instead of reading from localStorage.
+    // Otherwise seal what is live in memory — the stored plaintext is only as new as the last save().
+    if (plainData === undefined) {
+      plainData = this._data ? JSON.stringify(this._data) : localStorage.getItem('budgetAppData');
+    }
+    // Everything that can fail runs before anything is written, so a failure cannot
+    // leave a new PIN hash next to a ciphertext that was sealed with the old key.
+    const key = await this._deriveKey(pin, salt);
+    const blob = plainData ? await this._encryptWithKey(key, plainData) : null;
     localStorage.setItem('budgetAppSalt', this._arrayBufferToHex(salt));
     localStorage.setItem('budgetAppPinHash', hash);
-    // Fixed (C1): if plainData is passed directly, use it instead of reading from localStorage
-    if (plainData !== undefined) {
-      await this._encryptData(pin, salt, plainData);
-    } else {
-      await this._encryptData(pin, salt);
+    if (blob) {
+      localStorage.setItem('budgetAppDataEncrypted', blob);
+      // Remove plaintext data — only once the ciphertext holds it
+      localStorage.removeItem('budgetAppData');
     }
-    // Remove plaintext data
-    localStorage.removeItem('budgetAppData');
+    this._pinKey = key;
   },
   async changePin(oldPin, newPin) {
     const valid = await this.verifyPin(oldPin);
     if (!valid) return false;
-    // Fixed (C1): keep plaintext in memory, do NOT write to localStorage
-    const saltHex = localStorage.getItem('budgetAppSalt');
-    const salt = this._hexToArrayBuffer(saltHex);
-    const plaintext = await this._decryptData(oldPin, salt);
-    // Remove old encrypted data
-    localStorage.removeItem('budgetAppDataEncrypted');
-    // Set new pin with plaintext passed directly in memory (C1)
-    if (plaintext) {
-      await this.setPin(newPin, plaintext);
-    } else {
-      await this.setPin(newPin);
+    // Fixed (C1): keep plaintext in memory, do NOT write to localStorage.
+    // The live ledger is the truth; the old ciphertext is the fallback of last resort
+    // (it is stale by construction — it was only written when the PIN was set/changed).
+    let plaintext = this._data ? JSON.stringify(this._data) : localStorage.getItem('budgetAppData');
+    if (!plaintext) {
+      const salt = this._hexToArrayBuffer(localStorage.getItem('budgetAppSalt'));
+      plaintext = await this._decryptData(oldPin, salt);
     }
+    // setPin() overwrites the ciphertext only after the new one is ready
+    await this.setPin(newPin, plaintext || undefined);
     return true;
   },
   async clearPin(oldPin) {
     const valid = await this.verifyPin(oldPin);
     if (!valid) return false;
-    const saltHex = localStorage.getItem('budgetAppSalt');
-    const salt = this._hexToArrayBuffer(saltHex);
-    const plaintext = await this._decryptData(oldPin, salt);
+    // Freshest wins: live memory > plaintext in storage > (stale) ciphertext
+    let plaintext = this._data ? JSON.stringify(this._data) : localStorage.getItem('budgetAppData');
+    if (!plaintext) {
+      const salt = this._hexToArrayBuffer(localStorage.getItem('budgetAppSalt'));
+      plaintext = await this._decryptData(oldPin, salt);
+    }
     localStorage.removeItem('budgetAppSalt');
     localStorage.removeItem('budgetAppPinHash');
     localStorage.removeItem('budgetAppDataEncrypted');
+    this._pinKey = null;
     if (plaintext) {
       localStorage.setItem('budgetAppData', plaintext);
     }
     return true;
+  },
+  async _encryptWithKey(key, data) {
+    // Note (i2): AES-GCM IV must be 12 bytes (96 bits) — crypto.getRandomValues ensures uniqueness.
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key, new TextEncoder().encode(data)
+    );
+    // Store iv + ciphertext together
+    return this._arrayBufferToHex(new Uint8Array([...iv, ...new Uint8Array(encrypted)]));
+  },
+  async _decryptWithKey(key, combinedHex) {
+    if (!combinedHex) return null;
+    const combined = new Uint8Array(this._hexToArrayBuffer(combinedHex));
+    try {
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: combined.slice(0, 12) },
+        key, combined.slice(12)
+      );
+      return new TextDecoder().decode(decrypted);
+    } catch(e) {
+      return null; // wrong pin or corrupted data
+    }
   },
   async _encryptData(pin, salt, data) {
     // Fixed (C1): accept optional data parameter; fall back to localStorage
     if (data === undefined) {
       data = localStorage.getItem('budgetAppData');
     }
-    if (!data) return;
     const key = await this._deriveKey(pin, salt);
-    // Note (i2): AES-GCM IV must be 12 bytes (96 bits) — crypto.getRandomValues ensures uniqueness.
-    // For production, consider checking iv.length === 12 or storing iv separately from ciphertext.
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoded = new TextEncoder().encode(data);
-    const encrypted = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      key, encoded
-    );
-    // Store iv + ciphertext together
-    const combined = new Uint8Array([...iv, ...new Uint8Array(encrypted)]);
-    localStorage.setItem('budgetAppDataEncrypted', this._arrayBufferToHex(combined));
+    this._pinKey = key;
+    if (!data) return;
+    localStorage.setItem('budgetAppDataEncrypted', await this._encryptWithKey(key, data));
   },
   async _decryptData(pin, salt) {
     const key = await this._deriveKey(pin, salt);
-    const combinedHex = localStorage.getItem('budgetAppDataEncrypted');
-    if (!combinedHex) return null;
-    const combined = new Uint8Array(this._hexToArrayBuffer(combinedHex));
-    const iv = combined.slice(0, 12);
-    const ciphertext = combined.slice(12);
-    try {
-      const decrypted = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv },
-        key, ciphertext
-      );
-      return new TextDecoder().decode(decrypted);
-    } catch(e) {
-      return null; // wrong pin or corrupted data
+    const plaintext = await this._decryptWithKey(key, localStorage.getItem('budgetAppDataEncrypted'));
+    if (plaintext !== null) this._pinKey = key;   // a correct PIN: keep the key so lock can re-seal
+    return plaintext;
+  },
+  // Re-encrypt the LIVE ledger with the key kept since unlock, so that removing the
+  // plaintext can never strand newer data behind a stale ciphertext. Resolves true
+  // only when the new ciphertext was written AND reads back to exactly the same JSON.
+  // Resolves false (touching nothing that matters) when there is no key or no data —
+  // the caller must then leave the plaintext where it is.
+  async sealForLock() {
+    if (!this._data || !this._pinKey) return false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const rev = this._rev;
+      const json = JSON.stringify(this._data);
+      const blob = await this._encryptWithKey(this._pinKey, json);
+      if (this._rev !== rev) continue;            // edited while encrypting — seal again
+      localStorage.setItem('budgetAppDataEncrypted', blob);
+      return (await this._decryptWithKey(this._pinKey, localStorage.getItem('budgetAppDataEncrypted'))) === json;
     }
+    return false;
   },
   async unlockData(pin) {
     const saltHex = localStorage.getItem('budgetAppSalt');
@@ -4143,8 +4479,15 @@ const DataStore = {
     const salt = this._hexToArrayBuffer(saltHex);
     const plaintext = await this._decryptData(pin, salt);
     if (!plaintext) return false;
-    localStorage.setItem('budgetAppData', plaintext);
+    // A plaintext ledger already in storage is newer than the ciphertext (see above):
+    // it is only left behind when a lock could not re-seal. Never overwrite it with
+    // the older copy.
+    if (localStorage.getItem('budgetAppData') === null) {
+      localStorage.setItem('budgetAppData', plaintext);
+    }
     this.init();
+    // We hold the key again: refresh the ciphertext right away instead of waiting for the next lock
+    try { await this.sealForLock(); } catch(e) { this._log('seal_error', e.message); }
     return true;
   },
   lockData() {
@@ -6613,6 +6956,12 @@ async function submitPin() {
 }
 
 function showSetPinModal() {
+  // Cloud sync keeps its key (and a copy of the ledger) in plain text on this device,
+  // which would make a PIN lock decorative. The two are mutually exclusive.
+  if (window.CloudSync && CloudSync.isEnabled()) {
+    showToast(__('ui.pin.blockedBySync'), 'warning');
+    return;
+  }
   showModal(`
     <div class="modal-title">🔐 ${__('ui.pin.setPinTitle')}</div>
     <div style="padding:12px 0">
@@ -6911,15 +7260,33 @@ function stopInactivityCheck() {
   }
 }
 
-function lockApp() {
-  if (window._pinRequired) return;
+let _lockInFlight = false;
+async function lockApp() {
+  if (window._pinRequired || _lockInFlight) return;
   const hasPinHash = localStorage.getItem('budgetAppPinHash');
   if (!hasPinHash) return;
-
-  // Save current state then clear plaintext
-  if (DataStore._data) DataStore.save();
-  localStorage.removeItem('budgetAppData');
-
+  _lockInFlight = true;
+  try {
+    if (DataStore._data) {
+      // Plaintext first: if sealing turns out to be impossible it must hold the latest state.
+      DataStore.save();
+      // Re-encrypt the live ledger before the plaintext goes away. The ciphertext used to
+      // be written only when the PIN was set/changed, so removing the plaintext here and
+      // unlocking later restored that stale copy and silently dropped everything recorded
+      // in between. The plaintext is removed only once the new ciphertext reads back intact.
+      if (await DataStore.sealForLock()) {
+        localStorage.removeItem('budgetAppData');
+        DataStore._pinKey = null;   // no need to keep the key around while locked
+      }
+      // No key (e.g. the tab was reopened without entering the PIN) or seal failed: leave
+      // the plaintext where it is. Locking the screen still works, and unlockData()
+      // prefers that plaintext over the older ciphertext, so nothing is lost.
+    }
+  } catch (e) {
+    if (typeof logEvent === 'function') logEvent('lockApp_seal_error', e && e.message);
+  } finally {
+    _lockInFlight = false;
+  }
   window._pinRequired = true;
   showPinModal();
 }
@@ -6970,6 +7337,7 @@ function bindActivityListeners() {
     'ui.pin.enterPinPlaceholder': { zh: '输入PIN码', en: 'Enter PIN' },
     'ui.pin.wrongPin': { zh: 'PIN码错误，请重试', en: 'Wrong PIN, please try again' },
     'ui.pin.unlockButton': { zh: '解锁', en: 'Unlock' },
+    'ui.pin.blockedBySync': { zh: '云端同步已开启，暂时不能设置 PIN 锁（同步密钥以明文保存在本机，会让 PIN 形同虚设）。请先在「云端同步」里关闭同步。', en: 'Cloud sync is on, so a PIN lock cannot be set (the sync key is kept in plain text on this device, which would defeat the PIN). Turn sync off first.' },
     'ui.pin.setPinTitle': { zh: '设置PIN锁', en: 'Set PIN Lock' },
     'ui.pin.setPinLabel': { zh: '设置PIN码 (6位数字)', en: 'Set PIN (6 digits)' },
     'ui.pin.digitPlaceholder': { zh: '输入6位数字', en: 'Enter 6 digits' },
@@ -13829,6 +14197,9 @@ function renderSettings() {
       </div>
     </div>
 
+    <!-- Cloud sync (optional; off by default) -->
+    ${window.CloudSync ? CloudSync.renderCard() : ''}
+
     <!-- Data Sync Verification -->
     <div class="card mb-16" style="border-left:4px solid #818CF8">
       <div class="card-title" style="display:flex;align-items:center;gap:8px">
@@ -13857,7 +14228,7 @@ function renderSettings() {
     <div style="text-align:center;padding:12px 0 4px">
       <button class="btn btn-ghost btn-sm" onclick="refreshPageData()" style="font-size:0.8rem">🔄 ${__('settings.refreshPage')}</button>
     </div>
-    <div style="text-align:center;padding:8px 0 8px;font-size:0.65rem;color:var(--text-muted);opacity:0.5">v3.2.0</div>
+    <div style="text-align:center;padding:8px 0 8px;font-size:0.65rem;color:var(--text-muted);opacity:0.5">v3.3.0</div>
   `;
   // Set current locale in language switcher
   var sel = document.getElementById('localeSelect');
@@ -13998,7 +14369,7 @@ function exportDiagnosticLog() {
   }
   let text = '=== Budget App Diagnostic Log ===\n';
   text += 'Exported: ' + new Date().toISOString() + '\n';
-  text += 'Version: v3.2.0\n';
+  text += 'Version: v3.3.0\n';
   text += 'Records: ' + DataStore.getRecords().length + '\n';
   text += 'Pending Delete: ' + (DataStore.getPendingDelete() ? DataStore.getPendingDelete().id : 'none') + '\n';
   text += 'LocalStorage: ' + (localStorage.getItem('budgetAppData') || '').length + ' bytes\n';
@@ -16091,6 +16462,8 @@ try{
       // instead, so new keys are carried automatically.
       sortRecordsDesc(data.records);
       DataStore._data = DataStore._normalize(data);
+      // Cloud sync (if on) must ask before treating this as "everything else was deleted"
+      if (DataStore._markBulk) DataStore._markBulk('lan-replace');
     } else {
       DataStore._mergeData(data);
     }
@@ -16807,7 +17180,7 @@ const DIAG = {
     
     let text = '=== Budget App Diagnostic Report ===\n';
     text += 'Generated: ' + new Date().toISOString() + '\n';
-    text += 'Version: v3.2.0\n';
+    text += 'Version: v3.3.0\n';
     text += '\n--- Memory vs LocalStorage ---\n';
     text += 'Memory records: ' + compare.memRecords + '\n';
     text += 'LocalStorage records: ' + compare.lsRecords + '\n';
@@ -21663,6 +22036,1216 @@ if (document.readyState === 'loading') {
 })();
 
 }catch(e){console.error('[27-purchase-plans.js] failed:', e)}
+try{
+// === 28-cloud-sync.js ===
+/* ============================================================
+   CLOUD SYNC — optional, end-to-end encrypted, OFF by default
+   ------------------------------------------------------------
+   Design: docs/superpowers/specs/2026-09-28-cloud-sync-design-v2.md
+
+   The hard constraints, in the order they bite:
+   * N1  Existing data never disappears. The ledger shape is untouched; every piece
+         of sync state lives in its own `budgetSync*` keys. Enabling snapshots the
+         ledger first (and aborts if it cannot); any failure leaves the local ledger
+         exactly as it was.
+   * N2  Works without logging in, exactly as before. Disabled (the default) means
+         zero network requests, zero timers, zero listeners and no secret ever read.
+         "Logging in" is pasting one recovery code; there is no account.
+   * E2E The server only ever holds ciphertext. A 16-byte secret (the recovery code)
+         is split by HKDF into an auth key (sent, hashed server-side) and an
+         encryption key (never leaves the device, non-extractable).
+
+   Everything here is defensive about failing: it is loaded inside build.sh's
+   per-file try/catch, and DataStore.save() only reaches it through a guarded call.
+   ============================================================ */
+(function() {
+'use strict';
+
+const CFG = {
+  // Public values by design: the table access is closed to anon, and every RPC
+  // authenticates with the secret-derived key, not with this one.
+  URL: 'https://sfwnpwchujslqfnmdyxo.supabase.co',
+  KEY: 'sb_publishable_ZwBzyVpFzgH_QiAoewoM2Q_p5Efrx68',
+  DEBOUNCE_MS: 3000,        // quiet time after an edit before syncing
+  MAX_WAIT_MS: 30000,       // ...but never wait longer than this under constant editing
+  LAUNCH_DELAY_MS: 2000,
+  FETCH_TIMEOUT_MS: 20000,
+  RETRIES: 3,               // conflict retries per sync
+  MAX_BLOB_CHARS: 4 * 1024 * 1024,   // must match the server's limit
+  MAX_CONFLICTS: 20,
+  MASS_DELETE_RATIO: 0.5,   // G2: a merge that would remove this share...
+  MASS_DELETE_COUNT: 20     // ...or this many records asks first
+};
+
+const K = {
+  secret: 'budgetSyncSecret', meta: 'budgetSyncMeta', base: 'budgetSyncBase',
+  backup: 'budgetSyncBackup', backupTime: 'budgetSyncBackupTime',
+  premerge: 'budgetSyncPremerge', premergeTime: 'budgetSyncPremergeTime',
+  conflicts: 'budgetSyncConflicts', bulk: 'budgetSyncBulk', lock: 'budgetSyncLock'
+};
+
+class SyncError extends Error {
+  constructor(code, detail) { super(code + (detail ? ': ' + detail : '')); this.code = code; this.detail = detail || ''; }
+}
+
+/* ---------- small helpers ---------- */
+const enc = s => new TextEncoder().encode(s);
+const dec = b => new TextDecoder().decode(b);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const clone = x => JSON.parse(JSON.stringify(x));
+function bytesToB64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function b64ToBytes(b64) {
+  const s = atob(b64), out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+function bytesToHex(bytes) { return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join(''); }
+function concat() {
+  const parts = Array.prototype.slice.call(arguments);
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0; parts.forEach(p => { out.set(p, o); o += p.length; });
+  return out;
+}
+function u64be(n) {
+  const b = new Uint8Array(8), dv = new DataView(b.buffer);
+  dv.setUint32(0, Math.floor(n / 4294967296)); dv.setUint32(4, n >>> 0);
+  return b;
+}
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+// Writes and READS BACK. A silent quota failure must never look like success (G6).
+function lsSet(k, v) { try { localStorage.setItem(k, v); return localStorage.getItem(k) === v; } catch (e) { return false; } }
+function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
+function hasLocalPin() { return !!lsGet('budgetAppPinHash'); }
+
+/* ============================================================
+   RECOVERY CODE — 16 random bytes as Crockford Base32 (26 chars) plus a
+   2-char CRC-8, shown as 7 groups of 4. A typo is caught at paste time, not
+   later as a mysterious decryption failure.
+   ============================================================ */
+const B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+function crc8(bytes) {
+  let c = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    c ^= bytes[i];
+    for (let j = 0; j < 8; j++) c = (c & 0x80) ? (((c << 1) ^ 0x07) & 0xFF) : ((c << 1) & 0xFF);
+  }
+  return c;
+}
+function b32encode(bytes) {
+  let bits = 0, val = 0, out = '';
+  for (let i = 0; i < bytes.length; i++) {
+    val = (val << 8) | bytes[i]; bits += 8;
+    while (bits >= 5) { out += B32[(val >>> (bits - 5)) & 31]; bits -= 5; }
+    val &= (1 << bits) - 1;
+  }
+  if (bits > 0) out += B32[(val << (5 - bits)) & 31];
+  return out;
+}
+function encodeSecret(bytes) {
+  const crc = crc8(bytes);
+  const s = b32encode(bytes) + B32[crc >> 5] + B32[crc & 31];
+  return s.match(/.{4}/g).join('-');
+}
+// -> { ok:true, bytes } | { ok:false, reason: 'length' | 'chars' | 'padding' | 'checksum' }
+function decodeSecret(input) {
+  let s = String(input || '').toUpperCase().replace(/[\s\-_]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+  if (s.length !== 28) return { ok: false, reason: 'length' };
+  const vals = [];
+  for (let i = 0; i < s.length; i++) {
+    const v = B32.indexOf(s[i]);
+    if (v < 0) return { ok: false, reason: 'chars' };
+    vals.push(v);
+  }
+  const bytes = new Uint8Array(16);
+  let bits = 0, val = 0, o = 0;
+  for (let i = 0; i < 26; i++) {
+    val = (val << 5) | vals[i]; bits += 5;
+    if (bits >= 8) { bytes[o++] = (val >>> (bits - 8)) & 0xFF; bits -= 8; }
+    val &= (1 << bits) - 1;
+  }
+  if (val !== 0) return { ok: false, reason: 'padding' };      // the 2 spare bits must be zero
+  if (vals[26] > 7) return { ok: false, reason: 'checksum' };
+  if (((vals[26] << 5) | vals[27]) !== crc8(bytes)) return { ok: false, reason: 'checksum' };
+  return { ok: true, bytes };
+}
+
+/* ============================================================
+   KEYS AND BLOBS (WebCrypto primitives only — nothing home-made)
+   ============================================================ */
+let keyCache = null;   // { code, keys } — the derived keys for the current secret
+async function deriveKeys(secretBytes) {
+  const subtle = crypto.subtle, salt = enc('budget-sync/v1');
+  const km = await subtle.importKey('raw', secretBytes, 'HKDF', false, ['deriveBits', 'deriveKey']);
+  const authKey = new Uint8Array(await subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info: enc('auth') }, km, 256));
+  const encKey = await subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt, info: enc('enc') }, km,
+    { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  const keyHash = new Uint8Array(await subtle.digest('SHA-256', authKey));
+  return { authHex: bytesToHex(authKey), keyHash, keyHashHex: bytesToHex(keyHash), encKey };
+}
+async function getKeys() {
+  const code = lsGet(K.secret);
+  if (!code) throw new SyncError('nosecret');
+  if (keyCache && keyCache.code === code) return keyCache.keys;
+  const d = decodeSecret(code);
+  if (!d.ok) throw new SyncError('nosecret', d.reason);
+  const keys = await deriveKeys(d.bytes);
+  keyCache = { code, keys };
+  return keys;
+}
+
+async function gzip(bytes) {
+  if (typeof CompressionStream === 'undefined') return null;
+  try {
+    return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+  } catch (e) { return null; }
+}
+async function gunzip(bytes) {
+  if (typeof DecompressionStream === 'undefined') throw new SyncError('format', 'gzip unsupported here');
+  try {
+    return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+  } catch (e) { throw new SyncError('format', 'gunzip failed'); }
+}
+
+// blob = base64( 0x01 | flags(bit0 = gzip) | IV(12) | AES-GCM ciphertext+tag )
+// AAD  = "budget-sync/v1" | keyHash(32) | version(uint64 BE). The server stores the
+// version in the clear AND it is bound here, so a server that lies about the version
+// (or moves v3's ciphertext onto v5) makes decryption fail instead of being believed.
+async function sealLedger(json, keys, version) {
+  let plain = enc(json), flags = 0;
+  const z = await gzip(plain);
+  if (z && z.length < plain.length) { plain = z; flags |= 1; }
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const aad = concat(enc('budget-sync/v1'), keys.keyHash, u64be(version));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad }, keys.encKey, plain));
+  return bytesToB64(concat(new Uint8Array([1, flags]), iv, ct));
+}
+async function openLedger(b64, keys, version) {
+  let bytes;
+  try { bytes = b64ToBytes(String(b64)); } catch (e) { throw new SyncError('format', 'not base64'); }
+  if (bytes.length < 2 + 12 + 16) throw new SyncError('format', 'too short');
+  if (bytes[0] !== 1) throw new SyncError('format', 'unknown blob version ' + bytes[0]);
+  const flags = bytes[1];
+  if (flags & ~1) throw new SyncError('format', 'unknown flags');
+  const aad = concat(enc('budget-sync/v1'), keys.keyHash, u64be(version));
+  let plain;
+  try {
+    plain = new Uint8Array(await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: bytes.slice(2, 14), additionalData: aad }, keys.encKey, bytes.slice(14)));
+  } catch (e) { throw new SyncError('decrypt'); }
+  if (flags & 1) plain = await gunzip(plain);
+  return dec(plain);
+}
+
+// Local snapshots (pre-enable backup, pre-merge snapshot, sync base). Compressed when possible.
+async function packSnapshot(json) {
+  const z = await gzip(enc(json));
+  return z ? 'g1:' + bytesToB64(z) : 'r1:' + json;
+}
+async function unpackSnapshot(s) {
+  if (!s) return null;
+  if (s.indexOf('r1:') === 0) return s.slice(3);
+  if (s.indexOf('g1:') === 0) return dec(await gunzip(b64ToBytes(s.slice(3))));
+  return null;
+}
+
+async function contentHash(obj) {
+  const h = await crypto.subtle.digest('SHA-256', enc(DataStore._canonStringify(obj)));
+  return bytesToHex(new Uint8Array(h));
+}
+let hashCache = { rev: -1, data: null, hash: '' };
+async function localHash() {
+  const d = DataStore._data;
+  if (hashCache.data === d && hashCache.rev === DataStore._rev) return hashCache.hash;
+  const rev = DataStore._rev, hash = await contentHash(d);
+  hashCache = { rev, data: d, hash };
+  return hash;
+}
+
+/* ---------- transport ---------- */
+async function rpc(name, body) {
+  if (typeof fetch !== 'function') throw new SyncError('unsupported', 'fetch');
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), CFG.FETCH_TIMEOUT_MS) : null;
+  let res;
+  try {
+    res = await fetch(CFG.URL + '/rest/v1/rpc/' + name, {
+      method: 'POST',
+      headers: { 'apikey': CFG.KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl ? ctrl.signal : undefined
+    });
+  } catch (e) {
+    throw new SyncError('network', e && e.message);
+  } finally { if (timer) clearTimeout(timer); }
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.text()).slice(0, 160); } catch (e) { /* ignore */ }
+    throw new SyncError(res.status >= 500 ? 'server' : 'http', 'HTTP ' + res.status + ' ' + detail);
+  }
+  try { return await res.json(); } catch (e) { throw new SyncError('server', 'bad JSON'); }
+}
+
+/* ============================================================
+   STATE
+   ============================================================ */
+let meta = null;              // parsed budgetSyncMeta; null = sync off
+let active = false;           // listeners + timers registered
+let applying = false;         // we are writing merged data into the store: don't re-trigger
+let inflight = false, rerun = false;
+let debounceTimer = null, dirtySince = 0;
+let lastFinished = 0;
+const st = { phase: 'idle', error: null, awaiting: null };
+const approvals = { merge: null, empty: false, bulk: null };
+
+function loadMeta() {
+  try { const s = lsGet(K.meta); meta = s ? JSON.parse(s) : null; } catch (e) { meta = null; }
+  if (meta && typeof meta !== 'object') meta = null;
+  return meta;
+}
+function saveMeta() { return lsSet(K.meta, JSON.stringify(meta)); }
+function isEnabled() { return !!(meta && meta.state === 'enabled'); }
+function supported() { return typeof fetch === 'function' && !!(window.crypto && crypto.subtle) && typeof TextEncoder !== 'undefined'; }
+
+function getConflicts() { try { const c = JSON.parse(lsGet(K.conflicts) || '[]'); return Array.isArray(c) ? c : []; } catch (e) { return []; } }
+function addConflicts(list) {
+  if (!list || !list.length) return;
+  const at = new Date().toISOString();
+  const all = list.map(c => Object.assign({ at }, c)).concat(getConflicts()).slice(0, CFG.MAX_CONFLICTS);
+  lsSet(K.conflicts, JSON.stringify(all));
+}
+
+function pausedReason() {
+  if (window._pinRequired || hasLocalPin()) return 'pin';
+  if (!DataStore._data) return 'nodata';
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'offline';
+  return null;
+}
+
+function setPhase(phase, extra) {
+  st.phase = phase;
+  if (phase === 'ok' || phase === 'syncing') st.error = null;
+  if (extra && extra.error) st.error = extra.error;
+  renderPill();
+  refreshCard();
+}
+function recordError(err) {
+  const e = { code: err.code, detail: err.detail, at: new Date().toISOString() };
+  if (meta) { meta.lastError = e; saveMeta(); }
+  setPhase(err.code === 'network' && typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'error', { error: e });
+}
+
+/* ---------- single flight: one sync at a time, across tabs where we can ---------- */
+async function withLock(fn) {
+  if (inflight) { rerun = true; return { status: 'busy' }; }
+  inflight = true;
+  try {
+    if (typeof navigator !== 'undefined' && navigator.locks && navigator.locks.request) {
+      return await navigator.locks.request('budget-cloud-sync', { ifAvailable: true },
+        async lock => lock ? fn() : { status: 'busy' });
+    }
+    const now = Date.now(), held = parseInt(lsGet(K.lock) || '0', 10);
+    if (held && now - held < 60000) return { status: 'busy' };
+    const token = String(now);
+    lsSet(K.lock, token);
+    try { return await fn(); } finally { if (lsGet(K.lock) === token) lsDel(K.lock); }
+  } finally {
+    inflight = false;
+    if (rerun) { rerun = false; setTimeout(() => { syncOnce('rerun'); }, 500); }
+  }
+}
+
+/* ============================================================
+   LEDGER VALIDATION (structure only — see spec §7.5 on why NOT sanitizeIncoming)
+   ============================================================ */
+function parseRemote(json) {
+  let data;
+  try { data = JSON.parse(json); } catch (e) { throw new SyncError('format', 'not JSON'); }
+  if (!data || typeof data !== 'object' || !Array.isArray(data.records) || !Array.isArray(data.categories))
+    throw new SyncError('format', 'not a ledger');
+  const src = data.records.length;
+  data.records = data.records.filter(r => r && r.id !== undefined && r.id !== null && r.id !== ''
+    && typeof r.amount === 'number' && isFinite(r.amount));
+  data.categories = data.categories.filter(c => c && c.id && typeof c.name === 'string');
+  // Every record rejected while the sender clearly had some: the formats disagree. Refuse
+  // the whole payload rather than "merge" it into nothing.
+  if (src > 0 && data.records.length === 0) throw new SyncError('format', 'all records rejected');
+  const dropped = src - data.records.length;
+  DataStore._sanitizeEntities(data);
+  return { ledger: DataStore._normalize(data), dropped };
+}
+
+function isPristine(d) {
+  if (!d) return true;
+  const empty = o => !o || (Array.isArray(o) ? o.length === 0 : Object.keys(o).length === 0);
+  return empty(d.records) && empty(d.contacts) && empty(d.splitBills) && empty(d.purchasePlans) && empty(d.billCategories)
+    && empty(d.allTags) && empty(d.billAmounts) && empty(d.budgets) && empty(d.categoryBudgets) && empty(d.monthlyIncome)
+    && DataStore._canonStringify(d.categories) === DataStore._canonStringify(DataStore._defaults().categories);
+}
+
+function counts(d) { return { records: (d.records || []).length, bills: (d.splitBills || []).length, plans: (d.purchasePlans || []).length }; }
+
+/* ============================================================
+   APPLYING + COMMITTING
+   ============================================================ */
+// Make the page on screen show the data a sync just changed. navigateTo() is no use for
+// this: it returns early when you are already on that page. The add page is left alone —
+// it is a form, and re-rendering it would wipe whatever is being typed.
+function refreshUI() {
+  try {
+    if (window.currentTab === 'add') return;
+    if (typeof refreshCurrentPage === 'function') refreshCurrentPage();
+  } catch (e) { /* cosmetic */ }
+}
+
+// Replace the live ledger, verifying the write really landed; otherwise put it back.
+function applyToLocal(ledger) {
+  const prev = DataStore._data;
+  applying = true;
+  try {
+    DataStore._data = DataStore._normalize(clone(ledger));
+    DataStore._rev = (DataStore._rev || 0) + 1;
+    DataStore.save();
+    if (lsGet('budgetAppData') !== JSON.stringify(DataStore._data)) {
+      DataStore._data = prev; DataStore._rev = (DataStore._rev || 0) + 1;
+      throw new SyncError('quota', 'could not write the merged ledger');
+    }
+  } finally { applying = false; }
+  refreshUI();
+}
+
+async function snapshot(key, timeKey) {
+  const json = JSON.stringify(DataStore._data);
+  const packed = await packSnapshot(json);
+  if (!lsSet(key, packed)) throw new SyncError('quota', 'snapshot');
+  if ((await unpackSnapshot(lsGet(key))) !== json) throw new SyncError('quota', 'snapshot verify');
+  if (timeKey) lsSet(timeKey, new Date().toISOString());
+}
+
+// Record "the cloud now holds exactly `ledger` at `version`". Base first, meta second:
+// if the base cannot be stored we keep the old version, and the next sync simply pulls
+// our own push back and merges it into itself — harmless, unlike a version that
+// outruns its base.
+async function commitSynced(ledger, json, version) {
+  const packed = await packSnapshot(json);
+  if (!lsSet(K.base, packed)) throw new SyncError('quota', 'base');
+  meta.version = version;
+  meta.baseHash = await contentHash(ledger);
+  meta.baseRecords = (ledger.records || []).length;
+  meta.lastSyncAt = new Date().toISOString();
+  meta.lastError = null;
+  if (!saveMeta()) throw new SyncError('quota', 'meta');
+}
+async function loadBase() {
+  const s = lsGet(K.base);
+  if (!s) return null;
+  try { return JSON.parse(await unpackSnapshot(s)); } catch (e) { return null; }
+}
+
+/* ============================================================
+   PUSH
+   ============================================================ */
+async function pushLedger(keys, ledger, expected, invite) {
+  const json = JSON.stringify(ledger);
+  const blob = await sealLedger(json, keys, expected + 1);
+  if (blob.length > CFG.MAX_BLOB_CHARS) throw new SyncError('toolarge');
+  const body = { p_auth_key: keys.authHex, p_expected_version: expected, p_blob: blob, p_invite: invite || null };
+  let res = await rpc('ledger_push', body);
+  if (res.status === 'too_fast') { await sleep(2100); res = await rpc('ledger_push', body); }
+  return { res, json };
+}
+
+/* ============================================================
+   SYNC ONE ROUND
+   ============================================================ */
+async function syncOnce(reason) {
+  if (!isEnabled()) return { status: 'disabled' };
+  const paused = pausedReason();
+  if (paused) { setPhase(paused === 'offline' ? 'offline' : 'paused'); return { status: 'paused', reason: paused }; }
+  return withLock(async () => {
+    setPhase('syncing');
+    try {
+      const out = await runSync(reason);
+      lastFinished = Date.now();
+      setPhase(out.status === 'awaiting' ? 'awaiting' : out.status === 'paused' ? 'paused' : 'ok');
+      return out;
+    } catch (e) {
+      const err = e instanceof SyncError ? e : new SyncError('internal', e && e.message);
+      recordError(err);
+      return { status: 'error', code: err.code };
+    }
+  });
+}
+
+async function runSync(reason) {
+  const keys = await getKeys();
+  const bulk = readBulk();
+  if (bulk && !approvals.bulk) return requestBulk(bulk);
+  if (bulk && approvals.bulk === 'later') return { status: 'paused', reason: 'bulk-later' };
+  const useCloud = !!bulk && approvals.bulk === 'use-cloud';
+
+  for (let attempt = 0; attempt < CFG.RETRIES; attempt++) {
+    // "Use the cloud's copy" needs the blob even when the version has not moved
+    const pull = await rpc('ledger_pull', { p_auth_key: keys.authHex, p_known_version: useCloud ? null : meta.version });
+    if (pull.status === 'none') throw new SyncError('gone');
+    if (pull.status !== 'ok' && pull.status !== 'unchanged') throw new SyncError('server', 'pull ' + pull.status);
+    const cloudVersion = pull.version;
+    if (cloudVersion < meta.version) throw new SyncError('rollback', cloudVersion + ' < ' + meta.version);   // G4
+    const local = DataStore._data;
+
+    // The user chose "keep this device's data" after a bulk replace: overwrite the cloud with it.
+    if (bulk && approvals.bulk === 'keep-local') {
+      const { res, json } = await pushLedger(keys, local, cloudVersion);
+      if (res.status === 'conflict') continue;
+      if (res.status !== 'ok') throw pushError(res);
+      await commitSynced(local, json, res.version);
+      clearBulk();
+      return { status: 'ok', pushed: true };
+    }
+
+    // The user chose the cloud's copy after a bulk replace: take it wholesale (snapshot first).
+    if (useCloud) {
+      const remoteJson = await openLedger(pull.blob, keys, cloudVersion);                                  // G5
+      const remote = parseRemote(remoteJson).ledger;
+      await snapshot(K.premerge, K.premergeTime);                                                          // G6
+      applyToLocal(remote);
+      await commitSynced(remote, remoteJson, cloudVersion);
+      clearBulk();
+      return { status: 'ok', restored: true };
+    }
+
+    const changed = (await localHash()) !== meta.baseHash;
+    if (cloudVersion === meta.version) {
+      if (!changed) return { status: 'ok', unchanged: true };
+      if ((local.records || []).length === 0 && (meta.baseRecords || 0) > 0 && !approvals.empty)
+        throw new SyncError('emptyguard');                                                                 // G1
+      const { res, json } = await pushLedger(keys, local, cloudVersion);
+      if (res.status === 'conflict') continue;
+      if (res.status !== 'ok') throw pushError(res);
+      await commitSynced(local, json, res.version);
+      approvals.empty = false;
+      return { status: 'ok', pushed: true };
+    }
+
+    // The cloud is ahead of what we last saw: bring it in.
+    const remoteJson = await openLedger(pull.blob, keys, cloudVersion);                                   // G5
+    const parsed = parseRemote(remoteJson);
+    const remote = parsed.ledger;
+    if (parsed.dropped > 0 && typeof showToast === 'function') showToast(__('cloud.warn.dropped', parsed.dropped), 'warning');
+
+    const base = await loadBase();
+    const merge = DataStore._mergeData(remote, { base, dryRun: true });
+    const merged = merge.data;
+
+    // G2: this merge would delete a large share of what is on this device. Ask first.
+    const removed = countRemoved(local, merged);
+    const total = (local.records || []).length;
+    if ((removed >= CFG.MASS_DELETE_COUNT || (total > 0 && removed / total >= CFG.MASS_DELETE_RATIO))
+        && approvals.merge !== cloudVersion) {
+      return requestMassDelete({ removed, total, cloudVersion });
+    }
+
+    const localChanged = DataStore._canonStringify(merged) !== DataStore._canonStringify(local);
+    if (localChanged) {
+      await snapshot(K.premerge, K.premergeTime);                                                          // G6
+      applyToLocal(merged);
+    }
+    addConflicts(merge.conflicts);
+    approvals.merge = null;
+
+    const mergedHash = await contentHash(merged);
+    if (mergedHash === await contentHash(remote)) {
+      await commitSynced(remote, remoteJson, cloudVersion);
+      return { status: 'ok', merged: localChanged, conflicts: merge.conflicts.length };
+    }
+    const { res, json } = await pushLedger(keys, merged, cloudVersion);
+    if (res.status === 'conflict') continue;
+    if (res.status !== 'ok') throw pushError(res);
+    await commitSynced(merged, json, res.version);
+    return { status: 'ok', merged: localChanged, pushed: true, conflicts: merge.conflicts.length };
+  }
+  throw new SyncError('busy', 'still conflicting after ' + CFG.RETRIES + ' tries');
+}
+
+function pushError(res) {
+  const map = { too_large: 'toolarge', gone: 'gone', invite_required: 'invite', invite_invalid: 'invite', too_fast: 'busy', bad_request: 'server' };
+  return new SyncError(map[res.status] || 'server', 'push ' + res.status);
+}
+function countRemoved(local, merged) {
+  const keep = new Set((merged.records || []).map(r => r && r.id));
+  return (local.records || []).filter(r => r && !keep.has(r.id)).length;
+}
+
+/* ---------- things that need the user's yes (G2, G3) ---------- */
+function readBulk() { try { return JSON.parse(lsGet(K.bulk) || 'null'); } catch (e) { return null; } }
+function clearBulk() { lsDel(K.bulk); approvals.bulk = null; }
+function markBulk(kind) {
+  if (!isEnabled()) return;            // sync off: nothing to protect, nothing to record
+  lsSet(K.bulk, JSON.stringify({ kind, at: new Date().toISOString() }));
+  approvals.bulk = null;
+}
+function requestBulk(bulk) {
+  st.awaiting = { type: 'bulk', kind: bulk.kind };
+  if (window.CloudSync && CloudSync.ui) setTimeout(() => CloudSync.ui.showAwaiting(), 0);
+  return { status: 'awaiting', type: 'bulk' };
+}
+function requestMassDelete(info) {
+  st.awaiting = Object.assign({ type: 'massdelete' }, info);
+  if (window.CloudSync && CloudSync.ui) setTimeout(() => CloudSync.ui.showAwaiting(), 0);
+  return { status: 'awaiting', type: 'massdelete' };
+}
+function resolveAwaiting(choice) {
+  const a = st.awaiting;
+  st.awaiting = null;
+  if (!a) return;
+  if (a.type === 'bulk') approvals.bulk = choice;              // 'keep-local' | 'use-cloud' | 'later'
+  if (a.type === 'massdelete') { if (choice === 'apply') approvals.merge = a.cloudVersion; else { setPhase('paused'); return; } }
+  if (choice === 'later') { setPhase('paused'); return; }
+  syncOnce('confirmed');
+}
+
+/* ============================================================
+   TRIGGERS
+   ============================================================ */
+function notify() {
+  if (!active || applying) return;
+  const now = Date.now();
+  if (!dirtySince) dirtySince = now;
+  clearTimeout(debounceTimer);
+  const wait = Math.max(0, Math.min(CFG.DEBOUNCE_MS, dirtySince + CFG.MAX_WAIT_MS - now));
+  debounceTimer = setTimeout(() => { dirtySince = 0; debounceTimer = null; syncOnce('edit'); }, wait);
+}
+function onVisible() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible' && Date.now() - lastFinished > 5000) syncOnce('visible');
+}
+function onOnline() { syncOnce('online'); }
+function activate() {
+  if (active) return;
+  active = true;
+  document.addEventListener('visibilitychange', onVisible);
+  window.addEventListener('online', onOnline);
+}
+function deactivate() {
+  active = false;
+  clearTimeout(debounceTimer); debounceTimer = null; dirtySince = 0;
+  try { document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', onOnline); } catch (e) { /* ignore */ }
+}
+
+/* ============================================================
+   ENABLE / LOGIN / DISABLE (the UI drives these; they are also what the tests drive)
+   ============================================================ */
+let wiz = null;   // wizard state: { secretBytes, code, keys, create, remote, remoteJson, remoteVersion }
+
+async function prepareCreate() {
+  if (!supported()) throw new SyncError('unsupported');
+  if (hasLocalPin()) throw new SyncError('pin');
+  await snapshot(K.backup, K.backupTime);                                    // N1-3: no backup, no sync
+  const secretBytes = crypto.getRandomValues(new Uint8Array(16));
+  wiz = { secretBytes, code: encodeSecret(secretBytes), create: true, keys: await deriveKeys(secretBytes) };
+  return { code: wiz.code };
+}
+
+async function prepareLogin(codeInput) {
+  if (!supported()) throw new SyncError('unsupported');
+  if (hasLocalPin()) throw new SyncError('pin');
+  const d = decodeSecret(codeInput);
+  if (!d.ok) throw new SyncError('badcode', d.reason);
+  await snapshot(K.backup, K.backupTime);
+  wiz = { secretBytes: d.bytes, code: encodeSecret(d.bytes), create: false, keys: await deriveKeys(d.bytes) };
+}
+
+// Talks to the cloud for the wizard. Resolves one of:
+//   { kind:'created' }                  new cloud ledger made, sync is on
+//   { kind:'restored' }                 this device was empty: took the cloud's copy, sync is on
+//   { kind:'confirm', summary }         both sides have data: waiting for the user's yes
+//   { kind:'notfound' } | { kind:'invite' }
+async function establish(invite) {
+  if (!wiz) throw new SyncError('internal', 'no wizard');
+  return notBusy(await withLock(async () => {
+    const keys = wiz.keys, local = DataStore._data;
+    const pull = await rpc('ledger_pull', { p_auth_key: keys.authHex, p_known_version: null });
+    if (pull.status === 'none') {
+      if (!wiz.create) return { kind: 'notfound' };
+      const { res, json } = await pushLedger(keys, local, 0, invite);
+      if (res.status === 'invite_required' || res.status === 'invite_invalid') return { kind: 'invite', why: res.status };
+      if (res.status === 'conflict') return establishExisting(keys, local, await rpc('ledger_pull', { p_auth_key: keys.authHex, p_known_version: null }));
+      if (res.status !== 'ok') throw pushError(res);
+      await enableWith(local, json, res.version);
+      return { kind: 'created' };
+    }
+    if (pull.status !== 'ok') throw new SyncError('server', 'pull ' + pull.status);
+    return establishExisting(keys, local, pull);
+  }));
+}
+// withLock answers { status:'busy' } when another sync round holds the lock
+function notBusy(out) { if (out && out.status === 'busy') throw new SyncError('busy'); return out; }
+async function establishExisting(keys, local, pull) {
+  const remoteJson = await openLedger(pull.blob, keys, pull.version);       // wrong code / damaged => 'decrypt'
+  const parsed = parseRemote(remoteJson);
+  wiz.remote = parsed.ledger; wiz.remoteJson = remoteJson; wiz.remoteVersion = pull.version; wiz.dropped = parsed.dropped;
+  if (isPristine(local)) {                                                     // a fresh device: nothing here to lose
+    applyToLocal(parsed.ledger);
+    await enableWith(parsed.ledger, remoteJson, pull.version);
+    return { kind: 'restored' };
+  }
+  const merge = DataStore._mergeData(parsed.ledger, { base: null, dryRun: true });
+  wiz.merge = merge;
+  return { kind: 'confirm', summary: { local: counts(local), cloud: counts(parsed.ledger), merged: counts(merge.data), conflicts: merge.conflicts.length } };
+}
+// The user said yes to the first merge: union (nothing is deleted), then push it.
+async function confirmFirstMerge() {
+  if (!wiz || !wiz.merge) throw new SyncError('internal', 'nothing to confirm');
+  return notBusy(await withLock(async () => {
+    const keys = wiz.keys, merged = wiz.merge.data;
+    await snapshot(K.premerge, K.premergeTime);
+    if (DataStore._canonStringify(merged) !== DataStore._canonStringify(DataStore._data)) applyToLocal(merged);
+    addConflicts(wiz.merge.conflicts);
+    if (await contentHash(merged) === await contentHash(wiz.remote)) {
+      await enableWith(wiz.remote, wiz.remoteJson, wiz.remoteVersion);
+      return { kind: 'merged' };
+    }
+    const { res, json } = await pushLedger(keys, merged, wiz.remoteVersion);
+    if (res.status === 'conflict') { wiz.needRetry = true; return { kind: 'retry' }; }
+    if (res.status !== 'ok') throw pushError(res);
+    await enableWith(merged, json, res.version);
+    return { kind: 'merged' };
+  }));
+}
+async function enableWith(ledger, json, version) {
+  const wrote = [];
+  try {
+    if (!lsSet(K.secret, wiz.code)) throw new SyncError('quota', 'secret');
+    wrote.push(K.secret);
+    meta = { state: 'enabled', keyHash: wiz.keys.keyHashHex, version: 0, baseHash: '', baseRecords: 0,
+      lastSyncAt: null, lastError: null, enabledAt: new Date().toISOString() };
+    await commitSynced(ledger, json, version);
+  } catch (e) {
+    meta = null; wrote.forEach(lsDel); lsDel(K.base); lsDel(K.meta);
+    throw e;
+  }
+  keyCache = { code: wiz.code, keys: wiz.keys };
+  wiz = null;
+  activate();
+  setPhase('ok');
+  refreshUI();
+}
+
+function disable() {
+  deactivate();
+  Object.keys(K).forEach(k => lsDel(K[k]));
+  meta = null; keyCache = null; wiz = null;
+  st.phase = 'idle'; st.error = null; st.awaiting = null;
+  approvals.merge = null; approvals.empty = false; approvals.bulk = null;
+  renderPill(); refreshCard();
+}
+async function deleteCloudCopy() {
+  const keys = await getKeys();
+  const res = await rpc('ledger_delete', { p_auth_key: keys.authHex });
+  if (res.status !== 'ok' && res.status !== 'none') throw new SyncError('server', 'delete ' + res.status);
+  disable();
+  return res;
+}
+
+async function listHistory() {
+  const keys = await getKeys();
+  const res = await rpc('ledger_history', { p_auth_key: keys.authHex });
+  if (res.status === 'none') return [];
+  if (res.status !== 'ok') throw new SyncError('server', 'history ' + res.status);
+  return res.versions;
+}
+// Decrypts one retained cloud version back into plain ledger JSON (for export -> import).
+async function fetchVersionJson(version) {
+  const keys = await getKeys();
+  const res = await rpc('ledger_fetch', { p_auth_key: keys.authHex, p_version: version });
+  if (res.status !== 'ok') throw new SyncError('server', 'fetch ' + res.status);
+  return openLedger(res.blob, keys, version);
+}
+
+/* ============================================================
+   UI — everything below only ever runs after the user opens the settings card or
+   sync is already on. With sync off, the ONLY thing on screen is that one card.
+   ============================================================ */
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return '—';
+  const p = n => String(n).padStart(2, '0');
+  const t = p(d.getHours()) + ':' + p(d.getMinutes());
+  return d.toDateString() === new Date().toDateString() ? t : p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + t;
+}
+function errText(code, detail) {
+  // A finer message when one exists (e.g. badcode.length), else the general one for the code
+  const specific = detail ? __('cloud.err.' + code + '.' + detail) : '??';
+  if (specific.indexOf('??') !== 0) return specific;
+  const t = __('cloud.err.' + code);
+  return t.indexOf('??') === 0 ? __('cloud.err.other', code) : t;
+}
+function statusInfo() {
+  const map = {
+    syncing:  { cls: 'busy',  text: __('cloud.status.syncing') },
+    ok:       { cls: 'ok',    text: __('cloud.status.ok', fmtTime(meta && meta.lastSyncAt)) },
+    error:    { cls: 'bad',   text: __('cloud.status.error') },
+    offline:  { cls: 'bad',   text: __('cloud.status.offline') },
+    paused:   { cls: 'warn',  text: __('cloud.status.paused') },
+    awaiting: { cls: 'warn',  text: __('cloud.status.awaiting') },
+    idle:     { cls: 'idle',  text: meta && meta.lastSyncAt ? __('cloud.status.ok', fmtTime(meta.lastSyncAt)) : __('cloud.status.idle') }
+  };
+  return map[st.phase] || map.idle;
+}
+
+function renderPill() {
+  let el = document.getElementById('cloudSyncPill');
+  if (!isEnabled()) { if (el) el.remove(); return; }
+  if (!el) {
+    const header = document.getElementById('topHeader');
+    if (!header) return;
+    el = document.createElement('button');
+    el.id = 'cloudSyncPill';
+    el.type = 'button';
+    el.onclick = () => { if (st.awaiting) ui.showAwaiting(); else if (typeof navigateTo === 'function') navigateTo('settings'); };
+    // Just before the guide button: margin-left:auto then keeps it hugging the right edge
+    header.insertBefore(el, header.querySelector('.guide-btn'));
+  }
+  const s = statusInfo();
+  el.className = 'cloud-pill cloud-pill-' + s.cls;
+  el.textContent = '☁️ ' + s.text;
+  el.title = st.error ? errText(st.error.code) : __('cloud.title');
+}
+
+function refreshCard() {
+  const el = document.getElementById('cloudSyncCard');
+  if (el && !ui._busy) el.innerHTML = renderCardBody();
+}
+
+function renderCard() { return '<div class="card mb-16" id="cloudSyncCard">' + renderCardBody() + '</div>'; }
+
+function renderCardBody() {
+  const title = '<div class="card-title">☁️ ' + __('cloud.title') + '</div>';
+  if (!isEnabled()) {
+    if (hasLocalPin()) return title + '<div class="text-sm text-secondary">' + __('cloud.pinBlocked') + '</div>';
+    return title +
+      '<div class="text-sm text-secondary" style="margin-bottom:10px;line-height:1.5">' + __('cloud.intro') + '</div>' +
+      '<div class="flex flex-col gap-8">' +
+        '<button class="btn btn-primary btn-block" onclick="CloudSync.ui.openEnable()">☁️ ' + __('cloud.enable') + '</button>' +
+        '<button class="btn btn-outline btn-block" onclick="CloudSync.ui.openLogin()">🔑 ' + __('cloud.login') + '</button>' +
+      '</div>';
+  }
+  const s = statusInfo();
+  const conflicts = getConflicts();
+  return title +
+    '<div class="cloud-status cloud-status-' + s.cls + '"><span class="cloud-dot"></span><span>' + escHtml(s.text) + '</span></div>' +
+    (st.error ? '<div class="text-xs" style="color:var(--danger);margin:6px 0">' + escHtml(errText(st.error.code)) +
+      (st.error.detail ? ' <span class="text-muted">(' + escHtml(String(st.error.detail).slice(0, 80)) + ')</span>' : '') + '</div>' : '') +
+    (st.awaiting ? '<button class="btn btn-sm btn-primary" style="margin:6px 0" onclick="CloudSync.ui.showAwaiting()">⚠️ ' + __('cloud.needsYou') + '</button>' : '') +
+    '<div class="text-xs text-muted" style="margin:6px 0 10px">' + __('cloud.lastSync', fmtTime(meta.lastSyncAt), meta.version) + '</div>' +
+    '<div class="flex gap-8" style="flex-wrap:wrap;margin-bottom:10px">' +
+      '<button class="btn btn-primary btn-sm" onclick="CloudSync.ui.syncNow()">🔄 ' + __('cloud.syncNow') + '</button>' +
+      '<button class="btn btn-outline btn-sm" onclick="CloudSync.ui.showCode()">🔑 ' + __('cloud.showCode') + '</button>' +
+      '<button class="btn btn-outline btn-sm" onclick="CloudSync.ui.openHistory()">🕘 ' + __('cloud.history') + '</button>' +
+    '</div>' +
+    '<div id="cloudCodeBox"></div>' +
+    '<div id="cloudHistoryBox"></div>' +
+    (conflicts.length ? '<details class="cloud-conflicts"><summary>' + __('cloud.conflicts', conflicts.length) + '</summary>' +
+      '<div class="text-xs text-muted" style="margin:6px 0">' + __('cloud.conflictsHint') + '</div>' +
+      conflicts.map(c => '<div class="cloud-conflict-row"><b>' + escHtml(conflictKind(c.kind)) + '</b> ' + escHtml(c.label || c.path) +
+        ' <span class="text-muted">· ' + escHtml(c.local) + ' ⇄ ' + escHtml(c.remote) + ' · ' + escHtml(fmtTime(c.at)) + '</span></div>').join('') +
+      '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.clearConflicts()">' + __('cloud.conflictsClear') + '</button></details>' : '') +
+    '<div class="text-xs text-muted" style="margin:10px 0 6px">' + __('cloud.snapshots') + '</div>' +
+    '<div class="flex gap-8" style="flex-wrap:wrap;margin-bottom:10px">' +
+      (lsGet(K.backup) ? '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.exportSnapshot(\'backup\')">📥 ' + __('cloud.exportBackup', fmtTime(lsGet(K.backupTime))) + '</button>' : '') +
+      (lsGet(K.premerge) ? '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.exportSnapshot(\'premerge\')">📥 ' + __('cloud.exportPremerge', fmtTime(lsGet(K.premergeTime))) + '</button>' : '') +
+    '</div>' +
+    '<div class="flex gap-8" style="flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--border)">' +
+      '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.confirmDisable()">⏻ ' + __('cloud.disable') + '</button>' +
+      '<button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="CloudSync.ui.confirmDeleteCloud()">🗑️ ' + __('cloud.deleteCloud') + '</button>' +
+    '</div>';
+}
+function conflictKind(k) {
+  const t = __('cloud.conflictKind.' + k);
+  return t.indexOf('??') === 0 ? k : t;
+}
+
+const ui = {
+  _busy: false,
+  _modal(html, dismissable) { showModal(html, dismissable !== false); },
+  _err(code, detail) { return '<div class="cloud-error">' + escHtml(errText(code, detail)) + (detail && code !== 'badcode' ? ' <span class="text-muted">(' + escHtml(String(detail).slice(0, 100)) + ')</span>' : '') + '</div>'; },
+  _progress(msg) { const b = document.getElementById('cloudWizBody'); if (b) b.innerHTML = '<div class="text-sm" style="padding:16px 0">⏳ ' + escHtml(msg) + '</div>'; },
+
+  /* ---- enable: new cloud ledger ---- */
+  openEnable() {
+    if (!supported()) { showToast(__('cloud.err.unsupported'), 'error'); return; }
+    if (hasLocalPin()) { showToast(__('cloud.pinBlocked'), 'warning'); return; }
+    ui._modal(
+      '<div class="modal-title">☁️ ' + __('cloud.enableTitle') + '</div>' +
+      '<div id="cloudWizBody"><ul class="cloud-points">' +
+        '<li>' + __('cloud.enable.p1') + '</li><li>' + __('cloud.enable.p2') + '</li>' +
+        '<li>' + __('cloud.enable.p3') + '</li><li>' + __('cloud.enable.p4') + '</li></ul></div>' +
+      '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('cloud.cancel') + '</button>' +
+      '<button class="btn btn-primary" onclick="CloudSync.ui.enableStep2()">' + __('cloud.continue') + '</button></div>');
+  },
+  async enableStep2() {
+    ui._busy = true; ui._progress(__('cloud.backingUp'));
+    try {
+      const { code } = await prepareCreate();
+      document.getElementById('cloudWizBody').innerHTML =
+        '<div class="text-sm" style="margin-bottom:8px">' + __('cloud.code.title') + '</div>' +
+        '<div class="cloud-code" id="cloudWizCode">' + escHtml(code) + '</div>' +
+        '<button class="btn btn-outline btn-sm" style="margin:8px 0" onclick="CloudSync.ui.copyCode()">📋 ' + __('cloud.code.copy') + '</button>' +
+        '<div class="text-xs" style="color:var(--danger);margin-bottom:10px;line-height:1.5">' + __('cloud.code.warn') + '</div>' +
+        '<label class="text-sm" style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px">' +
+          '<input type="checkbox" id="cloudWizSaved" onchange="CloudSync.ui.enableCheck()"> <span>' + __('cloud.code.saved') + '</span></label>' +
+        '<div class="input-group"><label class="input-label">' + __('cloud.invite.label') + '</label>' +
+          '<input type="text" id="cloudWizInvite" class="input-field" autocomplete="off" autocapitalize="off" spellcheck="false" oninput="CloudSync.ui.enableCheck()"></div>' +
+        '<div id="cloudWizMsg"></div>';
+      const actions = document.querySelector('#modalContent .modal-actions');
+      if (actions) actions.innerHTML = '<button class="btn btn-ghost" onclick="CloudSync.ui.cancelWizard()">' + __('cloud.cancel') + '</button>' +
+        '<button class="btn btn-primary" id="cloudWizGo" disabled onclick="CloudSync.ui.enableGo()">' + __('cloud.enableGo') + '</button>';
+    } catch (e) {
+      document.getElementById('cloudWizBody').innerHTML = ui._err(e.code || 'internal', e.detail || e.message);
+    } finally { ui._busy = false; }
+  },
+  enableCheck() {
+    const ok = document.getElementById('cloudWizSaved').checked && document.getElementById('cloudWizInvite').value.trim().length >= 8;
+    document.getElementById('cloudWizGo').disabled = !ok;
+  },
+  async enableGo() {
+    const invite = document.getElementById('cloudWizInvite').value.trim();
+    const btn = document.getElementById('cloudWizGo'); if (btn) btn.disabled = true;
+    ui._busy = true;
+    const msg = document.getElementById('cloudWizMsg'); if (msg) msg.innerHTML = '<div class="text-sm">⏳ ' + __('cloud.working') + '</div>';
+    try {
+      const r = await establish(invite);
+      if (r.kind === 'invite') { if (msg) msg.innerHTML = ui._err('invite_' + (r.why === 'invite_required' ? 'required' : 'invalid')); if (btn) btn.disabled = false; return; }
+      if (r.kind === 'created') { closeModal(); showToast('✅ ' + __('cloud.enabledOk')); renderIfSettings(); return; }
+      if (r.kind === 'restored' || r.kind === 'confirm') { ui._afterEstablish(r); return; }
+    } catch (e) {
+      if (msg) msg.innerHTML = ui._err(e.code || 'internal', e.detail || e.message) + '<div class="text-xs text-muted" style="margin-top:6px">' + __('cloud.enableRetryHint') + '</div>';
+      if (btn) btn.disabled = false;
+    } finally { ui._busy = false; }
+  },
+  copyCode() {
+    const code = (wiz && wiz.code) || lsGet(K.secret) || '';
+    const done = () => showToast(__('cloud.code.copied'));
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(done, () => ui._selectCode());
+    else ui._selectCode();
+  },
+  _selectCode() {
+    const el = document.getElementById('cloudWizCode') || document.getElementById('cloudShownCode');
+    if (!el) return;
+    try { const r = document.createRange(); r.selectNodeContents(el); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); document.execCommand('copy'); } catch (e) { /* user can copy by hand */ }
+    showToast(__('cloud.code.selected'));
+  },
+  cancelWizard() { wiz = null; closeModal(); },
+
+  /* ---- login: paste an existing recovery code ---- */
+  openLogin() {
+    if (!supported()) { showToast(__('cloud.err.unsupported'), 'error'); return; }
+    if (hasLocalPin()) { showToast(__('cloud.pinBlocked'), 'warning'); return; }
+    ui._modal(
+      '<div class="modal-title">🔑 ' + __('cloud.loginTitle') + '</div>' +
+      '<div id="cloudWizBody"><div class="text-sm text-secondary" style="margin-bottom:10px;line-height:1.5">' + __('cloud.login.desc') + '</div>' +
+        '<div class="input-group"><input type="text" id="cloudLoginCode" class="input-field" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" ' +
+          'autocomplete="off" autocapitalize="characters" spellcheck="false" oninput="CloudSync.ui.loginCheck()"></div>' +
+        '<div id="cloudWizMsg"></div></div>' +
+      '<div class="modal-actions"><button class="btn btn-ghost" onclick="CloudSync.ui.cancelWizard()">' + __('cloud.cancel') + '</button>' +
+      '<button class="btn btn-primary" id="cloudWizGo" disabled onclick="CloudSync.ui.loginGo()">' + __('cloud.continue') + '</button></div>');
+  },
+  loginCheck() {
+    const v = document.getElementById('cloudLoginCode').value;
+    const msg = document.getElementById('cloudWizMsg'), go = document.getElementById('cloudWizGo');
+    const d = decodeSecret(v);
+    // Complain as soon as a full-length code is wrong; stay quiet while it is still being typed
+    const full = v.replace(/[\s\-_]/g, '').length >= 28;
+    msg.innerHTML = (!d.ok && full) ? ui._err('badcode', d.reason) : '';
+    go.disabled = !d.ok;
+  },
+  async loginGo() {
+    const v = document.getElementById('cloudLoginCode').value;
+    const btn = document.getElementById('cloudWizGo'); btn.disabled = true;
+    const msg = document.getElementById('cloudWizMsg');
+    ui._busy = true; msg.innerHTML = '<div class="text-sm">⏳ ' + __('cloud.working') + '</div>';
+    try {
+      await prepareLogin(v);
+      const r = await establish(null);
+      if (r.kind === 'notfound') { msg.innerHTML = ui._err('notfound'); btn.disabled = false; return; }
+      ui._afterEstablish(r);
+    } catch (e) {
+      msg.innerHTML = ui._err(e.code || 'internal', e.detail || e.message); btn.disabled = false;
+    } finally { ui._busy = false; }
+  },
+  _afterEstablish(r) {
+    if (r.kind === 'restored') { closeModal(); showToast('✅ ' + __('cloud.restoredOk')); renderIfSettings(); return; }
+    if (r.kind === 'confirm') {
+      const s = r.summary;
+      ui._modal(
+        '<div class="modal-title">🔀 ' + __('cloud.merge.title') + '</div>' +
+        '<div id="cloudWizBody"><div class="text-sm text-secondary" style="margin-bottom:10px;line-height:1.5">' + __('cloud.merge.desc') + '</div>' +
+          '<div class="cloud-summary">' +
+            '<div><span>' + __('cloud.merge.local') + '</span><b>' + __('cloud.merge.counts', s.local.records, s.local.bills) + '</b></div>' +
+            '<div><span>' + __('cloud.merge.cloud') + '</span><b>' + __('cloud.merge.counts', s.cloud.records, s.cloud.bills) + '</b></div>' +
+            '<div><span>' + __('cloud.merge.result') + '</span><b>' + __('cloud.merge.counts', s.merged.records, s.merged.bills) + '</b></div>' +
+          '</div>' +
+          (s.conflicts ? '<div class="text-xs text-muted" style="margin-top:8px">' + __('cloud.merge.conflicts', s.conflicts) + '</div>' : '') +
+          '<div id="cloudWizMsg"></div></div>' +
+        '<div class="modal-actions"><button class="btn btn-ghost" onclick="CloudSync.ui.cancelWizard()">' + __('cloud.cancel') + '</button>' +
+        '<button class="btn btn-primary" id="cloudWizGo" onclick="CloudSync.ui.mergeGo()">' + __('cloud.merge.go') + '</button></div>', false);
+    }
+  },
+  async mergeGo() {
+    const btn = document.getElementById('cloudWizGo'); btn.disabled = true;
+    const msg = document.getElementById('cloudWizMsg');
+    ui._busy = true; msg.innerHTML = '<div class="text-sm">⏳ ' + __('cloud.working') + '</div>';
+    try {
+      const r = await confirmFirstMerge();
+      if (r.kind === 'retry') { msg.innerHTML = ui._err('busy'); btn.disabled = false; return; }
+      closeModal(); showToast('✅ ' + __('cloud.mergedOk')); renderIfSettings();
+    } catch (e) {
+      msg.innerHTML = ui._err(e.code || 'internal', e.detail || e.message); btn.disabled = false;
+    } finally { ui._busy = false; }
+  },
+
+  /* ---- everyday ---- */
+  async syncNow() {
+    if (st.phase === 'error' && st.error && st.error.code === 'emptyguard') approvals.empty = true;
+    if (readBulk() && approvals.bulk === 'later') approvals.bulk = null;   // "not now" earlier: ask again
+    showToast(__('cloud.syncing'));
+    const r = await syncOnce('manual');
+    if (r.status === 'ok') showToast('✅ ' + __('cloud.syncedOk'));
+    else if (r.status === 'error') showToast(errText(r.code), 'error');
+    else if (r.status === 'paused') showToast(__('cloud.status.paused'), 'warning');
+  },
+  showCode() {
+    const box = document.getElementById('cloudCodeBox');
+    if (!box) return;
+    if (box.innerHTML) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="cloud-code" id="cloudShownCode">' + escHtml(lsGet(K.secret) || '') + '</div>' +
+      '<div class="flex gap-8" style="margin:8px 0"><button class="btn btn-outline btn-sm" onclick="CloudSync.ui.copyCode()">📋 ' + __('cloud.code.copy') + '</button></div>' +
+      '<div class="text-xs text-muted" style="margin-bottom:10px;line-height:1.5">' + __('cloud.code.keepSafe') + '</div>';
+  },
+  async openHistory() {
+    const box = document.getElementById('cloudHistoryBox');
+    if (!box) return;
+    box.innerHTML = '<div class="text-sm">⏳ ' + __('cloud.working') + '</div>';
+    try {
+      const list = await listHistory();
+      box.innerHTML = '<div class="text-xs text-muted" style="margin:6px 0">' + __('cloud.history.hint') + '</div>' +
+        (list.length ? list.map(v => '<div class="cloud-history-row"><span>v' + v.version + ' · ' + escHtml(fmtTime(v.at)) + '</span>' +
+          '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.exportVersion(' + v.version + ')">📥 ' + __('cloud.history.export') + '</button></div>').join('')
+          : '<div class="text-sm text-muted">' + __('cloud.history.none') + '</div>');
+    } catch (e) { box.innerHTML = ui._err(e.code || 'internal', e.detail || e.message); }
+  },
+  async exportVersion(v) {
+    try {
+      const json = await fetchVersionJson(v);
+      ui._download(json, 'budget-cloud-v' + v + '-' + new Date().toISOString().slice(0, 10) + '.json');
+      showToast('✅ ' + __('cloud.history.exported'));
+    } catch (e) { showToast(errText(e.code || 'internal'), 'error'); }
+  },
+  async exportSnapshot(which) {
+    try {
+      const json = await unpackSnapshot(lsGet(which === 'backup' ? K.backup : K.premerge));
+      if (!json) throw new SyncError('internal', 'empty');
+      ui._download(json, 'budget-' + (which === 'backup' ? 'before-sync' : 'before-merge') + '-' + new Date().toISOString().slice(0, 10) + '.json');
+      showToast('✅ ' + __('cloud.history.exported'));
+    } catch (e) { showToast(errText(e.code || 'internal'), 'error'); }
+  },
+  _download(text, name) {
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
+  },
+  clearConflicts() { lsDel(K.conflicts); refreshCard(); },
+
+  /* ---- turning it off ---- */
+  confirmDisable() {
+    ui._modal('<div class="modal-title">⏻ ' + __('cloud.disable') + '</div>' +
+      '<p class="text-sm text-secondary" style="line-height:1.5;margin-bottom:12px">' + __('cloud.disable.desc') + '</p>' +
+      '<div class="cloud-code" style="margin-bottom:12px">' + escHtml(lsGet(K.secret) || '') + '</div>' +
+      '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('cloud.cancel') + '</button>' +
+      '<button class="btn btn-primary" onclick="CloudSync.ui.doDisable()">' + __('cloud.disable.go') + '</button></div>');
+  },
+  doDisable() { disable(); closeModal(); showToast(__('cloud.disabledOk')); renderIfSettings(); },
+  confirmDeleteCloud() {
+    ui._modal('<div class="modal-title">🗑️ ' + __('cloud.deleteCloud') + '</div>' +
+      '<p class="text-sm" style="color:var(--danger);line-height:1.5;margin-bottom:12px">' + __('cloud.delete.desc') + '</p>' +
+      '<div class="input-group"><label class="input-label">' + __('cloud.delete.type') + '</label>' +
+      '<input type="text" id="cloudDeleteWord" class="input-field" autocomplete="off" oninput="document.getElementById(\'cloudDeleteGo\').disabled = this.value.trim() !== \'' + __('cloud.delete.word') + '\'"></div>' +
+      '<div id="cloudWizMsg"></div>' +
+      '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('cloud.cancel') + '</button>' +
+      '<button class="btn btn-danger" id="cloudDeleteGo" disabled onclick="CloudSync.ui.doDeleteCloud()">' + __('cloud.deleteCloud') + '</button></div>');
+  },
+  async doDeleteCloud() {
+    const btn = document.getElementById('cloudDeleteGo'); btn.disabled = true;
+    try { await deleteCloudCopy(); closeModal(); showToast(__('cloud.deletedOk')); renderIfSettings(); }
+    catch (e) { document.getElementById('cloudWizMsg').innerHTML = ui._err(e.code || 'internal', e.detail || e.message); btn.disabled = false; }
+  },
+
+  /* ---- confirmations raised by a background sync (G2 / G3) ---- */
+  showAwaiting() {
+    const a = st.awaiting;
+    if (!a || document.getElementById('modalOverlay').classList.contains('open')) return;
+    if (a.type === 'bulk') {
+      ui._modal('<div class="modal-title">⚠️ ' + __('cloud.bulk.title') + '</div>' +
+        '<p class="text-sm text-secondary" style="line-height:1.5;margin-bottom:12px">' + __('cloud.bulk.desc.' + a.kind) + '</p>' +
+        '<div class="flex flex-col gap-8">' +
+          '<button class="btn btn-primary btn-block" onclick="CloudSync.ui.resolve(\'keep-local\')">' + __('cloud.bulk.keepLocal') + '</button>' +
+          '<button class="btn btn-outline btn-block" onclick="CloudSync.ui.resolve(\'use-cloud\')">' + __('cloud.bulk.useCloud') + '</button>' +
+          '<button class="btn btn-ghost btn-block" onclick="CloudSync.ui.resolve(\'later\')">' + __('cloud.bulk.later') + '</button></div>', false);
+    } else if (a.type === 'massdelete') {
+      ui._modal('<div class="modal-title">⚠️ ' + __('cloud.mass.title') + '</div>' +
+        '<p class="text-sm text-secondary" style="line-height:1.5;margin-bottom:12px">' + __('cloud.mass.desc', a.removed, a.total) + '</p>' +
+        '<div class="modal-actions"><button class="btn btn-ghost" onclick="CloudSync.ui.resolve(\'later\')">' + __('cloud.mass.skip') + '</button>' +
+        '<button class="btn btn-danger" onclick="CloudSync.ui.resolve(\'apply\')">' + __('cloud.mass.apply') + '</button></div>', false);
+    }
+  },
+  resolve(choice) { closeModal(); resolveAwaiting(choice); }
+};
+
+function renderIfSettings() {
+  try { if (window.currentTab === 'settings' && typeof renderSettings === 'function') renderSettings(); } catch (e) { /* cosmetic */ }
+}
+
+/* ============================================================
+   BOOT — with sync off this reads ONE key (the meta) and does nothing else.
+   ============================================================ */
+function boot() {
+  loadMeta();
+  if (!isEnabled()) return;
+  activate();
+  renderPill();
+  setTimeout(() => { syncOnce('launch'); }, CFG.LAUNCH_DELAY_MS);
+}
+
+addI18nEntries({
+  'cloud.title': { zh: '云端同步（可选）', en: 'Cloud sync (optional)' },
+  'cloud.intro': { zh: '在多台设备间同步账本。默认关闭；不开启时不会发出任何网络请求。账本在本机加密后才上传，服务器只看到密文。无需注册账号——只需一串恢复码。', en: 'Keep your ledger in step across devices. Off by default — with it off, the app makes no network requests at all. The ledger is encrypted on your device before upload, so the server only sees ciphertext. No account: just one recovery code.' },
+  'cloud.pinBlocked': { zh: '开启 PIN 锁时暂不支持云端同步（同步密钥会以明文放在本机，会让 PIN 形同虚设）。如需同步，请先关闭 PIN 锁。', en: 'Cloud sync is not available while a PIN lock is on (the sync key would sit on this device in plain text and defeat the PIN). Turn the PIN lock off first to use sync.' },
+  'cloud.enable': { zh: '启用云端同步', en: 'Turn on cloud sync' },
+  'cloud.login': { zh: '已有恢复码？登录', en: 'Have a recovery code? Log in' },
+  'cloud.cancel': { zh: '取消', en: 'Cancel' },
+  'cloud.continue': { zh: '继续', en: 'Continue' },
+  'cloud.working': { zh: '处理中…', en: 'Working…' },
+  'cloud.backingUp': { zh: '正在备份本机账本…', en: 'Backing up this device’s ledger…' },
+  'cloud.enableTitle': { zh: '启用云端同步', en: 'Turn on cloud sync' },
+  'cloud.enable.p1': { zh: '账本在你的设备上加密后才上传，服务器只看到密文。', en: 'Your ledger is encrypted on this device before upload; the server only sees ciphertext.' },
+  'cloud.enable.p2': { zh: '加密钥匙就是一串「恢复码」。丢了它，云端那份没人能解开（包括作者）；每台设备上的本地账本不受影响。', en: 'The key is a “recovery code”. If you lose it, nobody (the author included) can decrypt the cloud copy. The ledger on each of your devices is unaffected.' },
+  'cloud.enable.p3': { zh: '创建云端账本需要一个邀请码（向作者索取）。', en: 'Creating a cloud ledger needs an invite code (ask the author).' },
+  'cloud.enable.p4': { zh: '开始前会先在本机自动备份一份；备份失败则不会启用，账本原样不动。', en: 'A backup of this device’s ledger is taken first. If that fails, sync is not turned on and nothing changes.' },
+  'cloud.code.title': { zh: '你的恢复码', en: 'Your recovery code' },
+  'cloud.code.copy': { zh: '复制恢复码', en: 'Copy recovery code' },
+  'cloud.code.warn': { zh: '请立刻抄下或存进密码管理器。它只会显示在这里和「设置 → 云端同步」里。丢了它，云端副本无法找回。', en: 'Write it down or store it in a password manager now. It is shown only here and in Settings → Cloud sync. Lose it and the cloud copy cannot be recovered.' },
+  'cloud.code.saved': { zh: '我已把恢复码保存到安全的地方', en: 'I have saved the recovery code somewhere safe' },
+  'cloud.code.copied': { zh: '已复制恢复码', en: 'Recovery code copied' },
+  'cloud.code.selected': { zh: '已选中，请手动复制', en: 'Selected — copy it manually' },
+  'cloud.code.keepSafe': { zh: '换新设备时，在「登录」里粘贴这串码即可。请勿发给他人。', en: 'On a new device, paste this code under “Log in”. Do not share it.' },
+  'cloud.invite.label': { zh: '邀请码', en: 'Invite code' },
+  'cloud.enableGo': { zh: '启用', en: 'Turn on' },
+  'cloud.enableRetryHint': { zh: '如果云端其实已经创建成功，请改用「已有恢复码？登录」粘贴上面的恢复码。', en: 'If the cloud ledger was actually created, use “Have a recovery code? Log in” and paste the code above.' },
+  'cloud.enabledOk': { zh: '云端同步已启用', en: 'Cloud sync is on' },
+  'cloud.loginTitle': { zh: '登录（粘贴恢复码）', en: 'Log in (paste recovery code)' },
+  'cloud.login.desc': { zh: '粘贴另一台设备上的恢复码。本机数据不会被删除：如果两边都有数据，只会取并集，并先让你确认。', en: 'Paste the recovery code from your other device. Nothing on this device is deleted: if both sides have data they are only combined, and you confirm first.' },
+  'cloud.restoredOk': { zh: '已从云端恢复，同步已启用', en: 'Restored from the cloud — sync is on' },
+  'cloud.merge.title': { zh: '合并本机与云端', en: 'Combine this device and the cloud' },
+  'cloud.merge.desc': { zh: '两边都有数据。只做「并集」：任何一边独有的记录都保留，不会删除任何东西。合并前已在本机备份。', en: 'Both sides have data. They are only combined — anything either side has is kept, nothing is deleted. A backup was taken first.' },
+  'cloud.merge.local': { zh: '本机', en: 'This device' },
+  'cloud.merge.cloud': { zh: '云端', en: 'Cloud' },
+  'cloud.merge.result': { zh: '合并后', en: 'After combining' },
+  'cloud.merge.counts': { zh: '{0} 条记录 · {1} 个分摊账单', en: '{0} records · {1} split bills' },
+  'cloud.merge.conflicts': { zh: '其中 {0} 处两边改得不一样，已按规则取舍，可在设置里查看。', en: '{0} items were edited differently on both sides; they were settled by the rules and are listed in Settings.' },
+  'cloud.merge.go': { zh: '合并并启用', en: 'Combine and turn on' },
+  'cloud.mergedOk': { zh: '已合并，云端同步已启用', en: 'Combined — cloud sync is on' },
+  'cloud.status.idle': { zh: '等待同步', en: 'Waiting to sync' },
+  'cloud.status.syncing': { zh: '同步中…', en: 'Syncing…' },
+  'cloud.status.ok': { zh: '已同步 {0}', en: 'Synced {0}' },
+  'cloud.status.error': { zh: '同步失败', en: 'Sync failed' },
+  'cloud.status.offline': { zh: '离线', en: 'Offline' },
+  'cloud.status.paused': { zh: '已暂停', en: 'Paused' },
+  'cloud.status.awaiting': { zh: '需要你确认', en: 'Needs your OK' },
+  'cloud.needsYou': { zh: '有一件事需要你确认', en: 'Something needs your confirmation' },
+  'cloud.lastSync': { zh: '上次成功同步：{0}（云端版本 v{1}）', en: 'Last successful sync: {0} (cloud v{1})' },
+  'cloud.syncNow': { zh: '立即同步', en: 'Sync now' },
+  'cloud.syncing': { zh: '同步中…', en: 'Syncing…' },
+  'cloud.syncedOk': { zh: '同步完成', en: 'Sync complete' },
+  'cloud.showCode': { zh: '恢复码', en: 'Recovery code' },
+  'cloud.history': { zh: '历史版本', en: 'Versions' },
+  'cloud.history.hint': { zh: '云端保留最近的几个版本。导出为 JSON 后，可用「导入数据」恢复到那个时间点。', en: 'The cloud keeps the last few versions. Export one as JSON, then restore it with “Import data”.' },
+  'cloud.history.export': { zh: '导出', en: 'Export' },
+  'cloud.history.none': { zh: '暂无历史版本', en: 'No versions yet' },
+  'cloud.history.exported': { zh: '已导出，可用「导入数据」恢复', en: 'Exported — restore it with “Import data”' },
+  'cloud.conflicts': { zh: '{0} 条合并冲突记录', en: '{0} merge conflicts' },
+  'cloud.conflictsHint': { zh: '两台设备改了同一处时按「较新的为准」处理；这里留个记录，供你核对。', en: 'When two devices edited the same thing, the newer one won. This is a record so you can double-check.' },
+  'cloud.conflictsClear': { zh: '清除记录', en: 'Clear list' },
+  'cloud.conflictKind.delete-vs-edit': { zh: '一边删除、一边修改（已保留修改）', en: 'Deleted on one side, edited on the other (kept the edit)' },
+  'cloud.conflictKind.edit-vs-edit': { zh: '同一处改成不同值', en: 'Same field edited differently' },
+  'cloud.conflictKind.orphan-record': { zh: '关联记录还在，已恢复其分摊账单', en: 'Linked records survived; split bill restored' },
+  'cloud.snapshots': { zh: '本机快照（可导出为 JSON 再导入）', en: 'Local snapshots (export as JSON, import to restore)' },
+  'cloud.exportBackup': { zh: '启用前备份 {0}', en: 'Before-sync backup {0}' },
+  'cloud.exportPremerge': { zh: '最近合并前快照 {0}', en: 'Last pre-merge snapshot {0}' },
+  'cloud.disable': { zh: '关闭同步', en: 'Turn off sync' },
+  'cloud.disable.desc': { zh: '关闭后本机账本原样保留，云端副本也保留，恢复码继续有效。但本机会忘掉这串恢复码——请确认已保存：', en: 'Your ledger stays as it is and the cloud copy is kept; the recovery code stays valid. But this device forgets the code — make sure you have saved it:' },
+  'cloud.disable.go': { zh: '我已保存，关闭同步', en: 'I saved it — turn off' },
+  'cloud.disabledOk': { zh: '云端同步已关闭，本机数据未改动', en: 'Cloud sync is off; your local data is untouched' },
+  'cloud.deleteCloud': { zh: '删除云端副本', en: 'Delete cloud copy' },
+  'cloud.delete.desc': { zh: '这会永久删除云端的账本和所有历史版本，并关闭同步。本机账本不受影响。删除后无法恢复云端副本。', en: 'This permanently deletes the cloud ledger and all its versions, and turns sync off. Your local ledger is unaffected. The cloud copy cannot be brought back.' },
+  'cloud.delete.type': { zh: '输入「删除」以确认', en: 'Type DELETE to confirm' },
+  'cloud.delete.word': { zh: '删除', en: 'DELETE' },
+  'cloud.deletedOk': { zh: '云端副本已删除，同步已关闭', en: 'Cloud copy deleted; sync is off' },
+  'cloud.bulk.title': { zh: '你刚整体替换了本机数据', en: 'You just replaced this device’s data wholesale' },
+  'cloud.bulk.desc.clear': { zh: '你刚清空了本机数据。若继续同步，你其他设备上的数据也会被清空。', en: 'You just cleared this device. If you sync now, your other devices will be cleared too.' },
+  'cloud.bulk.desc.import-replace': { zh: '你刚用「替换」方式导入了一份数据。若以本机为准同步，其他设备上比它更新的记录都会被删掉。', en: 'You just imported data in “replace” mode. If this device wins, records newer than it on your other devices will be deleted.' },
+  'cloud.bulk.desc.lan-replace': { zh: '你刚通过局域网同步整体替换了本机数据。若以本机为准同步，其他设备上的数据也会被替换。', en: 'You just replaced this device via LAN sync. If this device wins, your other devices will be replaced too.' },
+  'cloud.bulk.keepLocal': { zh: '以本机为准并同步（其他设备也会变成这样）', en: 'Keep this device’s data and sync it (other devices will match)' },
+  'cloud.bulk.useCloud': { zh: '放弃这次替换，用云端覆盖本机（先自动备份）', en: 'Undo this replacement: overwrite this device with the cloud (backed up first)' },
+  'cloud.bulk.later': { zh: '先不同步', en: 'Don’t sync for now' },
+  'cloud.mass.title': { zh: '这次同步会删掉本机很多记录', en: 'This sync would delete many records here' },
+  'cloud.mass.desc': { zh: '云端那边把 {1} 条里的 {0} 条删掉了。继续会在本机同样删除（已先备份）。', en: 'The cloud removed {0} of the {1} records here. Continuing removes them on this device too (backed up first).' },
+  'cloud.mass.skip': { zh: '先不同步', en: 'Not now' },
+  'cloud.mass.apply': { zh: '继续并删除', en: 'Continue and delete' },
+  'cloud.warn.dropped': { zh: '云端有 {0} 条记录格式不认识，已跳过', en: '{0} records from the cloud were not understood and were skipped' },
+  'cloud.err.network': { zh: '连不上云端（网络或服务暂时不可用）。本机数据没有改动。', en: 'Cannot reach the cloud (network or service unavailable). Nothing on this device was changed.' },
+  'cloud.err.server': { zh: '云端返回了错误。本机数据没有改动。', en: 'The cloud returned an error. Nothing on this device was changed.' },
+  'cloud.err.http': { zh: '云端拒绝了请求。本机数据没有改动。', en: 'The cloud rejected the request. Nothing on this device was changed.' },
+  'cloud.err.decrypt': { zh: '解密失败：恢复码不对，或云端数据已损坏。本机数据没有改动。', en: 'Could not decrypt: wrong recovery code, or the cloud data is damaged. Nothing on this device was changed.' },
+  'cloud.err.format': { zh: '云端数据的格式不认识（可能来自更新的版本）。已整体拒绝，本机数据没有改动。', en: 'The cloud data’s format is not understood (maybe from a newer version). Rejected as a whole; nothing was changed.' },
+  'cloud.err.rollback': { zh: '云端版本比本机记住的更旧，已拒绝（可能被回滚）。本机数据没有改动。', en: 'The cloud is older than what this device last saw — rejected (it may have been rolled back). Nothing was changed.' },
+  'cloud.err.gone': { zh: '云端副本已经不存在（可能被删除了）。本机数据没有改动；如需继续同步，请关闭同步后重新启用。', en: 'The cloud copy no longer exists (it may have been deleted). Nothing was changed; turn sync off and on again to continue.' },
+  'cloud.err.quota': { zh: '本机存储空间不足，已中止。账本没有改动。', en: 'Not enough storage on this device — stopped. Your ledger was not changed.' },
+  'cloud.err.toolarge': { zh: '账本太大，超过了云端单次 4MB 的上限。', en: 'The ledger is larger than the cloud’s 4 MB limit.' },
+  'cloud.err.emptyguard': { zh: '为防误删，已暂停上传：本机账本是空的，而之前同步过的账本有数据。确认要用空账本覆盖云端？请点「立即同步」再次确认。', en: 'Upload paused to protect you: this device’s ledger is empty but the synced one had data. To overwrite the cloud with an empty ledger, press “Sync now” again.' },
+  'cloud.err.busy': { zh: '云端同时在被其他设备修改，稍后会自动重试。', en: 'Another device is updating the cloud right now; it will retry shortly.' },
+  'cloud.err.nosecret': { zh: '找不到本机保存的恢复码。', en: 'The recovery code saved on this device is missing.' },
+  'cloud.err.unsupported': { zh: '当前浏览器不支持云端同步所需的功能（加密或网络）。', en: 'This browser lacks what cloud sync needs (encryption or networking).' },
+  'cloud.err.pin': { zh: '开启 PIN 锁时暂不支持云端同步。', en: 'Cloud sync is not available while a PIN lock is on.' },
+  'cloud.err.badcode.length': { zh: '恢复码应为 28 位字母数字（7 组，每组 4 位）。', en: 'A recovery code is 28 letters/digits (7 groups of 4).' },
+  'cloud.err.badcode': { zh: '恢复码不正确：请对照抄写是否有误（校验位不符）。', en: 'That recovery code is not valid — check it for typos (checksum mismatch).' },
+  'cloud.err.notfound': { zh: '云端找不到这个恢复码对应的账本。', en: 'No cloud ledger matches this recovery code.' },
+  'cloud.err.invite': { zh: '邀请码无效。', en: 'The invite code is not valid.' },
+  'cloud.err.invite_required': { zh: '需要邀请码。', en: 'An invite code is required.' },
+  'cloud.err.invite_invalid': { zh: '邀请码无效或已被使用。', en: 'That invite code is invalid or already used.' },
+  'cloud.err.internal': { zh: '同步遇到了意外错误。本机数据没有改动。', en: 'Sync hit an unexpected error. Nothing on this device was changed.' },
+  'cloud.err.other': { zh: '同步失败（{0}）。本机数据没有改动。', en: 'Sync failed ({0}). Nothing on this device was changed.' }
+});
+
+// === EXPORTS ===
+window.CloudSync = {
+  notify, markBulk, isEnabled, renderCard, syncOnce, boot, disable,
+  ui,
+  // Exposed for the test suite and for diagnostics; not a stable API.
+  _cfg: CFG, _keys: K, _state: st, _approvals: approvals,
+  _t: {
+    crc8, encodeSecret, decodeSecret, deriveKeys, sealLedger, openLedger, packSnapshot, unpackSnapshot,
+    prepareCreate, prepareLogin, establish, confirmFirstMerge, deleteCloudCopy, listHistory, fetchVersionJson,
+    getMeta: () => meta, loadMeta, contentHash, isPristine, resolveAwaiting, isActive: () => active,
+    resetForTests() { deactivate(); meta = null; keyCache = null; wiz = null; inflight = false; rerun = false; lastFinished = 0; hashCache = { rev: -1, data: null, hash: '' };
+      st.phase = 'idle'; st.error = null; st.awaiting = null; approvals.merge = null; approvals.empty = false; approvals.bulk = null; }
+  }
+};
+try { boot(); } catch (e) { console.error('[CloudSync] boot failed', e); }
+})();
+
+}catch(e){console.error('[28-cloud-sync.js] failed:', e)}
 
 </script>
 </body>

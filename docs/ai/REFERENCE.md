@@ -10,7 +10,8 @@
 ### 规则 #2：零依赖 / 离线 / CSP
 
 **代码中的体现：**
-- `index.html` 第 6 行：`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">`
+- `index.html` 第 6 行：`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://sfwnpwchujslqfnmdyxo.supabase.co;">`
+  （`connect-src` 是可选云端同步唯一的网络出口，见 §安全）
 - 所有样式内联在 `<style>` 标签中
 - 所有脚本内联在 `<script>` 标签中
 - 构建后为单个 HTML 文件，不依赖任何外部资源
@@ -210,7 +211,7 @@ splitBills: (data.splitBills || []).map(b => ({
 - ❌ 绕过 `DataStore._normalize()` 直接给 `_data` 赋值 → 缺键会让 Excel 导出崩、
   分摊统计归零。所有外部数据入口（init / reload / importJSON / 局域网同步）
   必须过这一关
-- ❌ 自己写第二份合并逻辑 → 用 `DataStore._mergeData()`，它是唯一实现
+- ❌ 自己写第二份合并逻辑 → 用 `DataStore._mergeData()`，它是唯一实现（云端同步用它的三方模式 `{ base }`）
 - ✅ `getDataHash()` 已改为「全量序列化 + 排除名单」，新增字段自动纳入指纹，
   不再需要手工维护白名单；只有确属本机状态的字段才加进 `_FINGERPRINT_IGNORE`
 - ❌ 数据格式变化（如字段重命名）→ 旧 JSON 导入失败
@@ -220,7 +221,11 @@ splitBills: (data.splitBills || []).map(b => ({
 
 > ⚠️ **已知限制**：`23-lan-sync.js` 的 merge 只**新增**本地没有的 `splitBills` / `purchasePlans`
 > （按 id 判断），**不更新已存在的条目**。所以在另一台设备上改过的账单（如登记还款）
-> 同步过来不会覆盖本机版本。改这块前先想清楚冲突策略。
+> 经局域网 merge 过来不会覆盖本机版本。改这块前先想清楚冲突策略。
+>
+> 云端同步不受此限制：它走 `_mergeData(incoming, { base })` 三方模式，按 id 逐条对齐，
+> 分摊还款 `paidAmount` **累加**后再夹到应还额以内（`SplitEngine.withPaidAmount`），
+> 计划记录按 (planId, planMonth) 去重。局域网 merge 仍是上面那套并集语义。
 
 ### 规则 #10：软删除机制
 
@@ -255,16 +260,20 @@ deleteRecordConfirm(id)  →  弹窗确认
 ```
 设置 PIN → setPin(pin) → 加密数据 → 删除明文存储
 启动应用 → 检测到加密 → 显示 PIN 弹窗 → unlockData(pin) → init()
-自动锁定 → lockData() → 清除内存和明文
+自动锁定 → lockApp() → save() → sealForLock()（内存密钥重新加密 + 读回校验）→ 校验通过才清除明文
 ```
 
 **实现位置：** `02-datastore.js`（加密/解密/验证），`07-ui-core.js`（PIN 弹窗/锁定）
 **存储键名：** `budgetAppPinHash`、`budgetAppSalt`、`budgetAppDataEncrypted`、`budgetAppData`
+**内存状态：** `DataStore._pinKey`（不可导出的 AES-GCM `CryptoKey`，设 PIN / 解锁后持有，锁定后清空；PIN 本身从不保存）
 
 **常见错误：**
 - ❌ 直接读取 `localStorage.budgetAppData` 获取数据 → 加密状态下为空
 - ❌ 忘记 PIN 相关操作是 async 的 → 返回值是 Promise
 - ❌ 新增数据功能在加密状态下绕过解密流程 → 数据不一致
+- ❌ 锁定时只删明文、不重新加密 → 密文停在设 PIN 那一刻，之后的记录全丢
+- ❌ 解锁 / 改 PIN / 关 PIN 时拿旧密文覆盖新明文 → 同上，且发生得更隐蔽
+- ❌ 在开着云端同步时设 PIN → 两者互斥，`showSetPinModal()` 会拒绝
 - ✅ 所有数据操作通过 `DataStore` 单例进行，不要直接操作 localStorage
 
 ### 规则 #16：money-wise-mobile.html 同步
@@ -420,7 +429,7 @@ ctx.clearRect(0, 0, cssSize, cssSize);
 
 **当前 CSP 策略：**
 ```
-default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';
+default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://sfwnpwchujslqfnmdyxo.supabase.co;
 ```
 
 这意味着：
@@ -429,7 +438,7 @@ default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';
 - ❌ 不允许 `<link rel="stylesheet" href="...">` 外部样式
 - ❌ 不允许 `<iframe>`
 - ❌ 不允许 `@font-face` 加载外部字体
-- ❌ 不允许 `connect-src`（AJAX / WebSocket）
+- ❌ 不允许任何其他 `connect-src`（AJAX / WebSocket）——**唯一例外**是上面那个 Supabase 域名，仅供可选云端同步使用
 - ❌ 不允许 `worker-src`（Web Worker）
 
 符合 CSP 的做法：
@@ -437,6 +446,41 @@ default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';
 - ✅ 图标使用 unicode 字符（📊 ✏️ 📋 🏷️ 📈 ⚙️ 等）
 - ✅ 字体使用系统字体栈：`-apple-system, "Segoe UI", Roboto, ...`
 - ✅ 数据通过 `localStorage` 存取
+
+### 云端同步（可选，默认关闭）
+
+**位置：** `src/js/28-cloud-sync.js`（全部客户端逻辑与界面）、`src/css/16-cloudsync.css`、`supabase/migrations/20260928000000_cloud_sync.sql`（服务器）。
+设计与取舍见 `docs/superpowers/specs/2026-09-28-cloud-sync-design-v2.md`（旧版 `...-design.md` 已被取代）。
+
+**「登录」= 输入恢复码。** 没有账号体系。恢复码是 16 字节随机密钥（Crockford Base32，26 字符 + 2 位 CRC-8 校验，共 28 位，7×4 分组）。
+
+**密码学：** 恢复码经 HKDF-SHA256（salt `budget-sync/v1`，info `auth` / `enc`）派生两把钥匙：
+`authKey`（十六进制发给服务器，服务器只存它的 SHA-256 作为账本主键）与不可导出的 AES-GCM-256 `encKey`。
+上传内容 = base64(`0x01` | flags(bit0=gzip) | IV(12) | 密文)，AAD = `"budget-sync/v1"` ‖ keyHash ‖ 版本号(uint64 大端)。
+服务器只看得到密文、版本号和更新时间。
+
+**服务器（Supabase，`sync` 私有 schema）：** 三张表 `ledgers` / `ledger_versions` / `invites`，RLS 全开且**零策略**，`anon` 无表权限；
+唯一入口是五个 `security definer` RPC（`search_path=''`，仅 `anon` 可执行）：
+
+| RPC | 作用 | 返回 status |
+|---|---|---|
+| `ledger_pull(p_auth_key, p_known_version)` | 拉取（版本没变则不回 blob） | `ok` / `unchanged` / `none` |
+| `ledger_push(p_auth_key, p_expected_version, p_blob, p_invite)` | 条件写入（行锁保证原子；首次创建需一次性邀请码） | `ok` / `conflict` / `gone` / `invite_required` / `invite_invalid` / `too_fast`（<2 秒）/ `too_large`（>4 MiB）/ `bad_request` |
+| `ledger_history` / `ledger_fetch` | 列出 / 取回保留的历史版本（当前 + 最近 5 个） | `ok` / `none` |
+| `ledger_delete` | 删除云端副本与全部历史 | `ok` / `none` |
+
+**客户端存储键（localStorage）：** `budgetSyncSecret`（恢复码）、`budgetSyncMeta`（状态 / 版本 / 上次同步 / 最近错误）、`budgetSyncBase`（上次同步时的账本，三方合并的基准）、
+`budgetSyncBackup` + `budgetSyncBackupTime`（启用前备份）、`budgetSyncPremerge` + `budgetSyncPremergeTime`（合并前快照）、`budgetSyncConflicts`、`budgetSyncBulk`、`budgetSyncLock`（无 Web Locks 时的单飞锁）。
+
+**触发时机：** 改动后 3 秒防抖（最长等 30 秒）· 启动后 2 秒 · 页面回到前台（5 秒节流）· 网络恢复 · 手动「立即同步」。同一时刻只跑一轮（Web Locks，回退用 localStorage 锁，60 秒过期）；
+已有一轮在跑时手动 / 自动触发返回 `busy` 并登记补跑，改动不会丢。
+
+**常见错误：**
+- ❌ 在服务器侧读明文 / 加需要明文的功能（搜索、统计）→ 破坏端到端加密
+- ❌ 把 service_role 或 secret key 放进客户端或仓库（只允许 `sb_publishable_…` 那把公开 key）
+- ❌ 新增「整体替换账本」的入口却不调 `DataStore._markBulk()` → 绕过 G3，一次误操作会被同步到所有设备
+- ❌ 修改已应用的迁移文件 → 新增迁移文件；并同步 `tests/cloud-sync-test.js` 里的 `FakeCloud`
+- ✅ 加断言后先把源码改坏跑一次确认会 FAIL（RULES #19）；本功能已做过一轮变异验证
 
 ---
 
