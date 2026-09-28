@@ -244,6 +244,8 @@
       // instead, so new keys are carried automatically.
       sortRecordsDesc(data.records);
       DataStore._data = DataStore._normalize(data);
+      // Cloud sync (if on) must ask before treating this as "everything else was deleted"
+      if (DataStore._markBulk) DataStore._markBulk('lan-replace');
     } else {
       DataStore._mergeData(data);
     }

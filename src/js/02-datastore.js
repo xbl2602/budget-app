@@ -6,6 +6,10 @@
 
 const DataStore = {
   _data: null,
+  // AES key derived from the PIN, in memory only: set by setPin / unlockData, dropped
+  // by lockApp / clearPin. It exists so that locking can re-encrypt the ledger — see
+  // sealForLock(). It is a non-extractable CryptoKey, never the PIN itself.
+  _pinKey: null,
   _pendingDelete: null, // { id, record, timeoutId }
   __log: [],            // Diagnostic log entries
 
@@ -201,6 +205,9 @@ const DataStore = {
       this._rev = (this._rev || 0) + 1;
       localStorage.setItem('budgetAppData', JSON.stringify(this._data));
       this._log('save', 'records=' + this._data.records.length);
+      // Optional cloud sync. Guarded and swallowed: it must never be able to fail a save,
+      // and with sync off (the default) this is one property read.
+      try { if (window.CloudSync) window.CloudSync.notify(); } catch (e2) { /* never break saving */ }
     } catch(e) {
       this._log('save_error', e.message);
       // Try to notify user via toast if available
@@ -691,8 +698,23 @@ const DataStore = {
   // LAN sync keyed on id. Neither carried allTags / tagColors / colorIndex.
   //
   // `incoming` must already have been through _sanitizeEntities().
-  _mergeData(incoming) {
+  //
+  // Second mode (cloud sync): pass `{ base }` — the ledger as it was at the last
+  // successful sync — and this becomes a THREE-way merge. Without `base` the union
+  // below cannot tell "the other side never had it" from "the other side deleted
+  // it", so a delete on one device is resurrected by the next merge. With it, both
+  // are distinguishable and no timestamp or tombstone needs to be added to the
+  // ledger. `{ base, dryRun: true }` computes the result without touching the store.
+  // Returns { data, conflicts } in this mode. Without `base` nothing here changed.
+  _mergeData(incoming, opts) {
     if (!incoming || typeof incoming !== 'object') return this._data;
+    if (opts && Object.prototype.hasOwnProperty.call(opts, 'base')) {
+      const result = this._merge3(opts.base || null, this._data, incoming);
+      if (opts.dryRun) return result;
+      this._data = this._normalize(result.data);
+      this._rev = (this._rev || 0) + 1;
+      return result;
+    }
     const cur = this._data;
 
     // Records: keyed by id, newest timestamp wins. A missing stamp counts as
@@ -759,6 +781,185 @@ const DataStore = {
     return cur;
   },
 
+  // Canonical serialisation for CHANGE DETECTION and merge equality. Unlike
+  // _stableStringify (whose output is the fingerprint users compare across devices
+  // and must not change) every array is order-free here: elements are identified by
+  // their id or their content, so ordering differences alone never look like an edit.
+  // Two devices holding the same data must hash the same however merging ordered it.
+  _canonStringify(v, cache) {
+    if (v === undefined) return 'null';
+    if (v === null || typeof v !== 'object') return JSON.stringify(v);
+    if (cache && cache.has(v)) return cache.get(v);
+    let out;
+    if (Array.isArray(v)) {
+      out = '[' + v.map(x => this._canonStringify(x, cache)).sort().join(',') + ']';
+    } else {
+      const keys = Object.keys(v).filter(k => v[k] !== undefined).sort();
+      out = '{' + keys.map(k => JSON.stringify(k) + ':' + this._canonStringify(v[k], cache)).join(',') + '}';
+    }
+    if (cache) cache.set(v, out);
+    return out;
+  },
+
+  // Pure three-way merge of whole ledgers: base = the ledger at the last sync,
+  // local = this device now, remote = the other side now. Never mutates its inputs.
+  // Returns { data, conflicts }.
+  //
+  //   both sides equal                    -> that value
+  //   only one side changed vs base       -> that side (including a deletion)
+  //   both changed, both are objects      -> merge key by key
+  //   both changed, both are arrays       -> align by id (strings/other: by content)
+  //   both changed a repayment amount     -> base + local delta + remote delta
+  //   one side deleted, the other edited  -> keep the edit, report a conflict
+  //   same field edited to two values     -> newer `updatedAt` wins, else this device
+  //
+  // With base == null everything counts as "added on both sides": a plain union
+  // that deletes nothing — the safe first merge when a device joins a cloud ledger.
+  _merge3(base, local, remote) {
+    const self = this;
+    const cache = new WeakMap();
+    const S = v => v === undefined ? '\u0001' : self._canonStringify(v, cache);
+    const same = (a, b) => S(a) === S(b);
+    const isObj = x => x !== null && typeof x === 'object' && !Array.isArray(x);
+    const isNum = x => typeof x === 'number' && isFinite(x);
+    const conflicts = [];
+    const keptBills = new Set();
+    // Preferences the user never set deliberately: this device's value wins, quietly.
+    const SILENT = ['.savingsTarget', '.whatIfParams', '.percentBase'];
+    // Composite settings that only make sense as a whole: two devices each changing a
+    // different field would otherwise be stitched into a combination nobody chose.
+    const ATOMIC = { '.savingsTarget': true, '.whatIfParams': true };
+    const brief = v => v === undefined ? '—' : (v !== null && typeof v === 'object') ? '{…}' : String(v).slice(0, 60);
+    const labelOf = x => (x && typeof x === 'object' && (x.name || x.note || (x.amount !== undefined ? String(x.amount) : ''))) || '';
+    function note(path, kind, ctx, l, r) {
+      if (SILENT.some(k => path === k || path.indexOf(k + '.') === 0)) return;
+      if (conflicts.length < 200) conflicts.push({ path, kind, label: ctx.label || '', local: brief(l), remote: brief(r) });
+    }
+    function index(path, arr) {
+      const map = new Map(), seen = {};
+      arr.forEach(x => {
+        let key;
+        if (typeof x === 'string') key = 's:' + x;
+        else if (isObj(x) && /participants$/.test(path)) key = 'p:' + (x.contactId || 'n:' + (x.name || ''));
+        else if (isObj(x) && x.id !== undefined && x.id !== null) key = 'id:' + x.id;
+        else key = 'h:' + S(x);
+        // Two anonymous items can share a key; number them rather than lose one
+        if (seen[key] === undefined) seen[key] = 0; else key += '#' + (++seen[key]);
+        map.set(key, x);
+      });
+      return map;
+    }
+    function m(b, l, r, path, ctx) {
+      if (same(l, r)) return l;
+      if (same(b, l)) return r;                    // only the remote changed (or deleted it)
+      if (same(b, r)) return l;                    // only this device changed (or deleted it)
+      // Both changed, and differently.
+      if (/\.updatedAt$/.test(path) && typeof l === 'string' && typeof r === 'string') return l > r ? l : r;
+      if (path === '.colorIndex' && isNum(l) && isNum(r)) return Math.max(l, r);
+      if (path === '.lastActiveMonth' && typeof l === 'string' && typeof r === 'string') return l > r ? l : r;
+      if (l === undefined || r === undefined) {
+        // One side deleted it, the other edited it. Money data: keep the edit.
+        const bill = /^\.splitBills\[id:([^\]]+)\]$/.exec(path);
+        if (bill) keptBills.add(bill[1]);
+        note(path, 'delete-vs-edit', ctx, l, r);
+        return l === undefined ? r : l;
+      }
+      if (!ATOMIC[path] && isObj(l) && isObj(r)) {
+        const bo = isObj(b) ? b : {};
+        // An entry stamped on both sides: the more recently edited copy wins a true clash
+        const prefer = ('updatedAt' in l || 'updatedAt' in r)
+          ? ((r.updatedAt || '') > (l.updatedAt || '') ? 'r' : 'l') : ctx.prefer;
+        const child = { prefer, label: ctx.label };
+        const out = {};
+        new Set([...Object.keys(bo), ...Object.keys(l), ...Object.keys(r)]).forEach(k => {
+          const v = m(bo[k], l[k], r[k], path + '.' + k, child);
+          if (v !== undefined) out[k] = v;
+        });
+        return out;
+      }
+      if (!ATOMIC[path] && Array.isArray(l) && Array.isArray(r)) {
+        const B = index(path, Array.isArray(b) ? b : []), L = index(path, l), R = index(path, r);
+        const out = [];
+        new Set([...L.keys(), ...R.keys()]).forEach(key => {
+          const lv = L.get(key), rv = R.get(key);
+          const v = m(B.get(key), lv, rv, path + '[' + key + ']',
+            { prefer: ctx.prefer, label: labelOf(lv !== undefined ? lv : rv) || ctx.label });
+          if (v !== undefined) out.push(v);
+        });
+        return out;
+      }
+      // A running total (money repaid): each side's increment counts, not just one of them.
+      if (/\.paidAmount$/.test(path) && isNum(l) && isNum(r)) {
+        const b0 = isNum(b) ? b : 0;
+        return b0 + (l - b0) + (r - b0);
+      }
+      note(path, 'edit-vs-edit', ctx, l, r);
+      return ctx.prefer === 'r' ? r : l;
+    }
+
+    const merged = m(base || {}, local, remote, '', { prefer: 'l', label: '' });
+    // Detach from the inputs: the closing steps below edit in place.
+    const res = JSON.parse(JSON.stringify(merged));
+
+    // 1. Repayment totals are clamped into [0, share] and `paid` follows them. Only
+    //    participants that carry paidAmount — a legacy boolean-only one is left alone.
+    if (typeof SplitEngine !== 'undefined' && Array.isArray(res.splitBills)) {
+      res.splitBills.forEach(bill => {
+        if (!bill || !Array.isArray(bill.participants)) return;
+        bill.participants = bill.participants.map(p =>
+          p && p.paidAmount !== undefined && p.paidAmount !== null ? SplitEngine.withPaidAmount(p, p.paidAmount) : p);
+      });
+    }
+
+    // 2. A split bill and its linked records travel as one chain (deleting one record
+    //    cascades to the whole chain). If the bill survived a delete-vs-edit clash,
+    //    bring its records back; if records survived without their bill, bring the
+    //    bill back. Either way nothing is silently lost.
+    if (Array.isArray(res.records) && Array.isArray(res.splitBills)) {
+      const pool = (arr, key) => (arr && Array.isArray(arr[key])) ? arr[key] : [];
+      const inputs = [local, remote, base];
+      const haveRec = new Set(res.records.filter(r => r && r.id).map(r => r.id));
+      const haveBill = new Set(res.splitBills.filter(b => b && b.id).map(b => b.id));
+      keptBills.forEach(billId => {
+        inputs.forEach(src => pool(src, 'records').forEach(r => {
+          if (r && r.id && r.splitBillId === billId && !haveRec.has(r.id)) {
+            res.records.push(JSON.parse(JSON.stringify(r))); haveRec.add(r.id);
+          }
+        }));
+      });
+      res.records.slice().forEach(r => {
+        if (!r || !r.splitBillId || haveBill.has(r.splitBillId)) return;
+        for (const src of inputs) {
+          const bill = pool(src, 'splitBills').find(b => b && b.id === r.splitBillId);
+          if (bill) {
+            res.splitBills.push(JSON.parse(JSON.stringify(bill))); haveBill.add(bill.id);
+            note('.splitBills[id:' + bill.id + ']', 'orphan-record', { label: labelOf(bill) }, bill, undefined);
+            break;
+          }
+        }
+      });
+    }
+
+    // 3. Each device back-fills the current month's instalment records on launch, with
+    //    fresh ids, so two devices that both launched produce the same period twice.
+    //    Keep one per (plan, month): the smallest id, which both sides agree on.
+    if (Array.isArray(res.records)) {
+      const winner = new Map();
+      res.records.forEach(r => {
+        if (!r || !r.planId || !r.planMonth) return;
+        const k = r.planId + '|' + r.planMonth, cur = winner.get(k);
+        if (cur === undefined || String(r.id) < String(cur)) winner.set(k, r.id);
+      });
+      res.records = res.records.filter(r => !r || !r.planId || !r.planMonth || winner.get(r.planId + '|' + r.planMonth) === r.id);
+      res.records.sort((a, b) => {
+        const da = (a && (a.date || a.createdAt)) || '', db = (b && (b.date || b.createdAt)) || '';
+        return da > db ? -1 : da < db ? 1 : (String(a && a.id) < String(b && b.id) ? -1 : 1);
+      });
+    }
+
+    return { data: res, conflicts };
+  },
+
   // Export / Import
   exportJSON() {
     // lockData() sets _data to null. Serialising that produced the string
@@ -778,6 +979,7 @@ const DataStore = {
       else this._sanitizeEntities(data);
       if (mode === 'replace') {
         this._data = data;
+        this._markBulk('import-replace');
       } else {
         this._mergeData(data);
       }
@@ -831,7 +1033,15 @@ const DataStore = {
 
   clearAll() {
     this._data = this._defaults();
+    this._markBulk('clear');
     this.save();
+  },
+
+  // Whole-ledger replacement (clear / replace-import / LAN replace). With cloud sync on,
+  // the next sync must ASK before propagating it: a three-way merge reads "everything is
+  // gone" as a mass deletion and would push it to every device. No-op with sync off.
+  _markBulk(kind) {
+    try { if (window.CloudSync) window.CloudSync.markBulk(kind); } catch (e) { /* never break the operation */ }
   },
 
   // What-If Analysis
@@ -968,86 +1178,125 @@ const DataStore = {
     const hash = await this._hashPin(pin, salt);
     return hash === storedHash;
   },
+  // The ciphertext in budgetAppDataEncrypted is only as fresh as the last moment it
+  // was written, while save() only ever writes the plaintext. So the ciphertext can
+  // be arbitrarily stale, and every path that trusted it over the live ledger lost
+  // data: lockApp() removed the plaintext, then unlock restored the stale copy;
+  // changePin() re-encrypted the stale copy; clearPin() overwrote the plaintext with
+  // it. The rules that keep it safe:
+  //   - a plaintext ledger in storage is never older than the ciphertext (it is only
+  //     removed after a verified re-seal), so it wins whenever both exist;
+  //   - the live in-memory ledger is the freshest of all;
+  //   - the plaintext is only removed once the ciphertext provably holds the same data.
   async setPin(pin, plainData) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const hash = await this._hashPin(pin, salt);
+    // Fixed (C1): if plainData is passed directly, use it instead of reading from localStorage.
+    // Otherwise seal what is live in memory — the stored plaintext is only as new as the last save().
+    if (plainData === undefined) {
+      plainData = this._data ? JSON.stringify(this._data) : localStorage.getItem('budgetAppData');
+    }
+    // Everything that can fail runs before anything is written, so a failure cannot
+    // leave a new PIN hash next to a ciphertext that was sealed with the old key.
+    const key = await this._deriveKey(pin, salt);
+    const blob = plainData ? await this._encryptWithKey(key, plainData) : null;
     localStorage.setItem('budgetAppSalt', this._arrayBufferToHex(salt));
     localStorage.setItem('budgetAppPinHash', hash);
-    // Fixed (C1): if plainData is passed directly, use it instead of reading from localStorage
-    if (plainData !== undefined) {
-      await this._encryptData(pin, salt, plainData);
-    } else {
-      await this._encryptData(pin, salt);
+    if (blob) {
+      localStorage.setItem('budgetAppDataEncrypted', blob);
+      // Remove plaintext data — only once the ciphertext holds it
+      localStorage.removeItem('budgetAppData');
     }
-    // Remove plaintext data
-    localStorage.removeItem('budgetAppData');
+    this._pinKey = key;
   },
   async changePin(oldPin, newPin) {
     const valid = await this.verifyPin(oldPin);
     if (!valid) return false;
-    // Fixed (C1): keep plaintext in memory, do NOT write to localStorage
-    const saltHex = localStorage.getItem('budgetAppSalt');
-    const salt = this._hexToArrayBuffer(saltHex);
-    const plaintext = await this._decryptData(oldPin, salt);
-    // Remove old encrypted data
-    localStorage.removeItem('budgetAppDataEncrypted');
-    // Set new pin with plaintext passed directly in memory (C1)
-    if (plaintext) {
-      await this.setPin(newPin, plaintext);
-    } else {
-      await this.setPin(newPin);
+    // Fixed (C1): keep plaintext in memory, do NOT write to localStorage.
+    // The live ledger is the truth; the old ciphertext is the fallback of last resort
+    // (it is stale by construction — it was only written when the PIN was set/changed).
+    let plaintext = this._data ? JSON.stringify(this._data) : localStorage.getItem('budgetAppData');
+    if (!plaintext) {
+      const salt = this._hexToArrayBuffer(localStorage.getItem('budgetAppSalt'));
+      plaintext = await this._decryptData(oldPin, salt);
     }
+    // setPin() overwrites the ciphertext only after the new one is ready
+    await this.setPin(newPin, plaintext || undefined);
     return true;
   },
   async clearPin(oldPin) {
     const valid = await this.verifyPin(oldPin);
     if (!valid) return false;
-    const saltHex = localStorage.getItem('budgetAppSalt');
-    const salt = this._hexToArrayBuffer(saltHex);
-    const plaintext = await this._decryptData(oldPin, salt);
+    // Freshest wins: live memory > plaintext in storage > (stale) ciphertext
+    let plaintext = this._data ? JSON.stringify(this._data) : localStorage.getItem('budgetAppData');
+    if (!plaintext) {
+      const salt = this._hexToArrayBuffer(localStorage.getItem('budgetAppSalt'));
+      plaintext = await this._decryptData(oldPin, salt);
+    }
     localStorage.removeItem('budgetAppSalt');
     localStorage.removeItem('budgetAppPinHash');
     localStorage.removeItem('budgetAppDataEncrypted');
+    this._pinKey = null;
     if (plaintext) {
       localStorage.setItem('budgetAppData', plaintext);
     }
     return true;
+  },
+  async _encryptWithKey(key, data) {
+    // Note (i2): AES-GCM IV must be 12 bytes (96 bits) — crypto.getRandomValues ensures uniqueness.
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key, new TextEncoder().encode(data)
+    );
+    // Store iv + ciphertext together
+    return this._arrayBufferToHex(new Uint8Array([...iv, ...new Uint8Array(encrypted)]));
+  },
+  async _decryptWithKey(key, combinedHex) {
+    if (!combinedHex) return null;
+    const combined = new Uint8Array(this._hexToArrayBuffer(combinedHex));
+    try {
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: combined.slice(0, 12) },
+        key, combined.slice(12)
+      );
+      return new TextDecoder().decode(decrypted);
+    } catch(e) {
+      return null; // wrong pin or corrupted data
+    }
   },
   async _encryptData(pin, salt, data) {
     // Fixed (C1): accept optional data parameter; fall back to localStorage
     if (data === undefined) {
       data = localStorage.getItem('budgetAppData');
     }
-    if (!data) return;
     const key = await this._deriveKey(pin, salt);
-    // Note (i2): AES-GCM IV must be 12 bytes (96 bits) — crypto.getRandomValues ensures uniqueness.
-    // For production, consider checking iv.length === 12 or storing iv separately from ciphertext.
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encoded = new TextEncoder().encode(data);
-    const encrypted = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      key, encoded
-    );
-    // Store iv + ciphertext together
-    const combined = new Uint8Array([...iv, ...new Uint8Array(encrypted)]);
-    localStorage.setItem('budgetAppDataEncrypted', this._arrayBufferToHex(combined));
+    this._pinKey = key;
+    if (!data) return;
+    localStorage.setItem('budgetAppDataEncrypted', await this._encryptWithKey(key, data));
   },
   async _decryptData(pin, salt) {
     const key = await this._deriveKey(pin, salt);
-    const combinedHex = localStorage.getItem('budgetAppDataEncrypted');
-    if (!combinedHex) return null;
-    const combined = new Uint8Array(this._hexToArrayBuffer(combinedHex));
-    const iv = combined.slice(0, 12);
-    const ciphertext = combined.slice(12);
-    try {
-      const decrypted = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv },
-        key, ciphertext
-      );
-      return new TextDecoder().decode(decrypted);
-    } catch(e) {
-      return null; // wrong pin or corrupted data
+    const plaintext = await this._decryptWithKey(key, localStorage.getItem('budgetAppDataEncrypted'));
+    if (plaintext !== null) this._pinKey = key;   // a correct PIN: keep the key so lock can re-seal
+    return plaintext;
+  },
+  // Re-encrypt the LIVE ledger with the key kept since unlock, so that removing the
+  // plaintext can never strand newer data behind a stale ciphertext. Resolves true
+  // only when the new ciphertext was written AND reads back to exactly the same JSON.
+  // Resolves false (touching nothing that matters) when there is no key or no data —
+  // the caller must then leave the plaintext where it is.
+  async sealForLock() {
+    if (!this._data || !this._pinKey) return false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const rev = this._rev;
+      const json = JSON.stringify(this._data);
+      const blob = await this._encryptWithKey(this._pinKey, json);
+      if (this._rev !== rev) continue;            // edited while encrypting — seal again
+      localStorage.setItem('budgetAppDataEncrypted', blob);
+      return (await this._decryptWithKey(this._pinKey, localStorage.getItem('budgetAppDataEncrypted'))) === json;
     }
+    return false;
   },
   async unlockData(pin) {
     const saltHex = localStorage.getItem('budgetAppSalt');
@@ -1055,8 +1304,15 @@ const DataStore = {
     const salt = this._hexToArrayBuffer(saltHex);
     const plaintext = await this._decryptData(pin, salt);
     if (!plaintext) return false;
-    localStorage.setItem('budgetAppData', plaintext);
+    // A plaintext ledger already in storage is newer than the ciphertext (see above):
+    // it is only left behind when a lock could not re-seal. Never overwrite it with
+    // the older copy.
+    if (localStorage.getItem('budgetAppData') === null) {
+      localStorage.setItem('budgetAppData', plaintext);
+    }
     this.init();
+    // We hold the key again: refresh the ciphertext right away instead of waiting for the next lock
+    try { await this.sealForLock(); } catch(e) { this._log('seal_error', e.message); }
     return true;
   },
   lockData() {

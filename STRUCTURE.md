@@ -26,8 +26,10 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 ├── index.html                  # 构建产物（不手动编辑）
 ├── src/
 │   ├── index.html              # HTML 骨架
-│   ├── css/                    # 15 个 CSS 文件
-│   └── js/                     # 27 个 JS 文件
+│   ├── css/                    # 16 个 CSS 文件
+│   └── js/                     # 28 个 JS 文件
+├── supabase/migrations/        # 云端同步的服务器定义（私有 schema + RLS + 5 个 RPC）
+├── tests/                      # jsdom 测试套件（见「测试」章节）
 ├── features/                   # 功能文档（v2.0.0 时期快照，仅供参考，勿当现状）
 │   └── budget-app-feature-catalog.md  # 见文件顶部的时效性说明
 ├── logs/                       # 开发日志
@@ -56,6 +58,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `13-guides.css` | 页面引导 | `.guide-btn`, `.guide-section`, `.guide-feature-grid`, `.guide-tip`, `.guide-mode-toggle` |
 | `14-split.css` | 分摊收款 | `.split-form`, `.split-person-row`, `.split-contact-card`, `.split-paid-toggle`, `.split-partial-chip`, `.split-pay-list`, `.split-pay-row` |
 | `15-plans.css` | 大额分期计划 | `.plan-card`, `.plan-mode-btn`, `.plan-emoji-grid`, `.plan-month-picker`, `.plan-month-quick`, `.plan-span` |
+| `16-cloudsync.css` | 云端同步（状态胶囊 / 设置卡片 / 恢复码 / 历史 / 冲突） | `.cloud-pill(-ok/-busy/-warn/-bad)`, `.cloud-status(-*)`, `.cloud-dot`, `.cloud-code`, `.cloud-points`, `.cloud-error`, `.cloud-summary`, `.cloud-history-row`, `.cloud-conflicts`, `.cloud-conflict-row`（只用主题变量，深浅色自动适配） |
 
 ---
 
@@ -94,7 +97,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 |------|------|
 | `_defaults()` | 返回默认数据结构 |
 | `init()` | 从 localStorage 读取，迁移缺失字段 |
-| `save()` | 写入 localStorage |
+| `save()` | 写入 localStorage；成功后在 try/catch 里通知 `CloudSync.notify()`（同步防抖触发；同步出任何错都不影响记账） |
 
 **记录 CRUD：**
 | 方法 | 说明 |
@@ -206,26 +209,32 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 |------|------|
 | `isPinProtected()` | 是否已启用PIN |
 | `verifyPin(pin)` | 验证PIN码 |
-| `setPin(pin)` | 设置PIN并加密数据 |
-| `changePin(oldPin, newPin)` | 修改PIN |
-| `clearPin(oldPin)` | 清除PIN解密数据 |
-| `unlockData(pin)` | 解锁并载入数据 |
-| `lockData()` | 锁定并清除明文 |
+| `setPin(pin, plainData)` | 设置PIN：先加密成功并读回校验，**之后**才一次性写入盐 / 哈希 / 密文并删明文；成功后 `_pinKey` 持有密钥 |
+| `changePin(oldPin, newPin)` | 修改PIN：以**内存里的最新账本**为准重新加密（不是解密旧密文） |
+| `clearPin(oldPin)` | 清除PIN：以内存里的最新账本写回明文 |
+| `unlockData(pin)` | 解锁并载入数据；**已有明文时不用旧密文覆盖它**；解锁后立即 `sealForLock()` 刷新密文 |
+| `sealForLock()` | 用 `_pinKey` 重新加密当前账本、写入并**读回校验**（加密期间账本被改则重来，最多 3 次）；返回 true 才允许删明文 |
+| `_pinKey` | 不可导出的 AES-GCM `CryptoKey`（不是 PIN 本身）。设 PIN / 解锁后持有，锁定后清空 |
+| `_encryptWithKey(key, data)` / `_decryptWithKey(key, hex)` | 用现成密钥加解密；`_encryptData(pin, salt, data)` / `_decryptData(pin, salt)` 先由 PBKDF2 派生密钥，并缓存到 `_pinKey` |
+| `lockData()` | 仅清内存 + 明文存储（旧接口，`lockApp()` 不再调用；只有一条测试还在用） |
 
 **数据规范化与合并（所有外部数据入口的必经之路）：**
 | 方法 | 说明 |
 |------|------|
 | `_normalize(data)` | **唯一入口**：补齐缺失键 + 清洗非法条目 + 历史迁移。`init()` / `reload()` / `importJSON('replace')` / 局域网 replace 都走它。契约：只补缺失、只剔非法，绝不改写已有合法值 |
 | `_sanitizeEntities(data)` | 只做实体清洗（丢弃畸形 splitBills / purchasePlans、补 `payer`），不补默认键 —— merge 路径专用 |
-| `_mergeData(incoming)` | **唯一合并实现**：记录按 id + `updatedAt` 新者胜；id 集合只新增；键值表逐键覆盖；`allTags` 并集；`colorIndex` 取大。`importJSON('merge')` 与局域网 merge 共用 |
+| `_mergeData(incoming, opts)` | **唯一合并实现**。不传 `opts.base`：并集语义——记录按 id + `updatedAt` 新者胜；id 集合只新增；键值表逐键覆盖；`allTags` 并集；`colorIndex` 取大（`importJSON('merge')` 与局域网 merge 共用）。传 `{ base }`：**三方合并**（云端同步用），返回 `{ data, conflicts }`；`{ base, dryRun: true }` 只算不写 |
+| `_merge3(base, local, remote)` | 三方合并本体。规则见 §28。`base === null` 时退化为并集 |
+| `_canonStringify(v, cache)` | 与键序、数组顺序无关的规范化序列化，三方合并用它判断「这一侧有没有改」 |
+| `_markBulk(kind)` | 整体替换账本的入口（`clearAll` / `importJSON('replace')` / 局域网 replace）调用它，转给 `CloudSync.markBulk`（同步关闭时无副作用） |
 
 **导出/导入：**
 | 方法 | 说明 |
 |------|------|
 | `exportJSON()` | JSON 字符串；`_data` 为 null（PIN 锁定）时返回 `null` 而非字符串 `"null"` |
-| `importJSON(jsonStr, mode)` | 导入（replace / merge） |
+| `importJSON(jsonStr, mode)` | 导入（replace / merge）；replace 时先 `_markBulk('import-replace')` |
 | `exportCSV()` | CSV 字符串（UTF-8 BOM），11 列含子分类与所属计划 |
-| `clearAll()` | 重置为默认值 |
+| `clearAll()` | 重置为默认值；先 `_markBulk('clear')` |
 | `getDataHash()` | 指纹码：**全量稳定序列化 + 排除名单**（`_FINGERPRINT_IGNORE`），非白名单。新增字段自动纳入 |
 | `_stableStringify(v)` | 键排序 + 带 id 的数组按 id 排序，使指纹与顺序无关 |
 
@@ -321,12 +330,12 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `function getRootAncestorId(catId)` | 获取根分类 ID |
 | `function getRootAncestor(catId)` | 获取根分类对象 |
 | `setAutoLockTimeout(minutes)` | 设置自动锁定超时 |
-| `lockApp()` | 立即锁定应用 |
+| `lockApp()` | 立即锁定应用。**async**（带 `_lockInFlight` 防重入）：`save()` → `await sealForLock()`，读回校验通过才删明文并清 `_pinKey`；校验失败则明文原样留下、仍然锁屏 |
 | `startInactivityCheck()` | 启动空闲检测 |
 | `stopInactivityCheck()` | 停止空闲检测 |
 | `showPinModal()` | 显示PIN解锁弹窗 |
 | `submitPin()` | 提交PIN验证 |
-| `showSetPinModal()` | 显示设置PIN弹窗 |
+| `showSetPinModal()` | 显示设置PIN弹窗；云端同步开启时拒绝（toast `ui.pin.blockedBySync`） |
 | `saveNewPin()` | 保存新PIN |
 | `showChangePinModal()` | 显示修改PIN弹窗 |
 | `saveChangedPin()` | 保存修改后的PIN |
@@ -632,7 +641,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 
 | 符号 | 说明 |
 |------|------|
-| `function renderSettings()` | 渲染设置页（主题、储蓄目标、数据管理） |
+| `function renderSettings()` | 渲染设置页（主题、储蓄目标、数据管理）；在「数据同步校验」卡片前嵌入 `CloudSync.renderCard()` |
 | `function setSavingsType(type)` | 切换储蓄类型 |
 | `function saveBudget()` | 保存月预算 |
 | `function saveSavingsTarget()` | 保存储蓄目标 |
@@ -727,6 +736,8 @@ IIFE 自执行，暴露 `window.SyncUI` 和 `window.LANSync`。
 | `compressStr(str)` / `decompressStr(b64)` | SDP 压缩/解压 |
 | `createHost(callbacks)` | 创建发送端 RTCPeerConnection |
 | `createClient(offerB64, callbacks)` | 创建接收端 RTCPeerConnection |
+
+> `receiveAndMerge` 的 replace 分支会先 `DataStore._markBulk('lan-replace')`——整体替换账本必须让云端同步知道（RULES #21）。
 
 ---
 
@@ -828,6 +839,41 @@ IIFE 自执行，暴露 `window.SyncUI` 和 `window.LANSync`。
 
 ---
 
+### 28. `28-cloud-sync.js` — 可选云端同步
+
+IIFE，导出 `window.CloudSync`：`notify` / `markBulk` / `isEnabled` / `renderCard` / `syncOnce` / `boot` / `disable` / `ui`；`_cfg` / `_keys` / `_state` / `_approvals` / `_t` 仅供测试与诊断，不是稳定 API。默认关闭：`boot()` 只读 `budgetSyncMeta` 一个键，未启用时不发请求、不注册监听器 / 定时器。设计见 `docs/superpowers/specs/2026-09-28-cloud-sync-design-v2.md`，服务器见 `supabase/migrations/`，安全与协议见 `docs/ai/REFERENCE.md` §安全。
+
+| 符号 | 说明 |
+|------|------|
+| `CFG` / `K` | 常量（后端 URL、公开 key、防抖 3 秒 / 最长 30 秒、启动延迟 2 秒、超时 20 秒、重试 3 次、4 MiB 上限、批量删除阈值 20 条 / 50%）与 localStorage 键名表 |
+| `SyncError(code, detail)` | 统一错误类型；`errText(code, detail)` 转成本地化文案 |
+| `crc8` / `b32encode` / `encodeSecret` / `decodeSecret` | 恢复码：16 字节 ↔ 28 位 Crockford Base32（含 CRC-8）；`decodeSecret` 容忍空格 / 连字符 / 大小写与易混字符 |
+| `deriveKeys` / `getKeys` | HKDF-SHA256 派生 `authHex` 与不可导出的 AES-GCM `encKey`（缓存于 `keyCache`） |
+| `sealLedger(json, keys, version)` / `openLedger(b64, keys, version)` | gzip（可用时）+ AES-GCM 加解密；AAD 绑定 keyHash 与版本号，防替换 / 回滚拼接 |
+| `gzip` / `gunzip` / `packSnapshot` / `unpackSnapshot` | 压缩；后两者用于本机备份快照 |
+| `contentHash` / `localHash` | 规范化内容哈希（按 `_rev` 缓存），判断「本机自上次同步后有没有改」 |
+| `rpc(name, body)` | 唯一的网络出口：`fetch` 到 `CFG.URL`，`apikey` 头，AbortController 超时，网络错误退避重试 |
+| `withLock(fn)` | 单飞：先看 `inflight`，再 Web Locks（回退 localStorage 锁，60 秒过期）。已有一轮在跑返回 `{status:'busy'}` 并登记 `rerun`（500ms 后补跑） |
+| `syncOnce(reason)` → `runSync(reason)` | 同步一轮：拉取 → 回退检测(G4) → 空账本(G1) → 三方合并 → 批量删除(G2) → 写入本机并读回(G6) → 推送(条件写入，冲突则重来，最多 3 次) → `commitSynced`（先写基准副本，再写元数据） |
+| `parseRemote` / `isPristine` / `counts` | 结构校验(G5)（只校验结构，不做 `sanitizeIncoming`）/ 判断本机账本是否还是出厂状态 / 统计 |
+| `applyToLocal` / `snapshot` / `commitSynced` / `loadBase` / `pushLedger` / `pushError` | 写入本机（失败自动还原）/ 备份或合并前快照 / 提交 / 读基准副本 / 推送（`too_fast` 等 2.1 秒重试一次）/ 错误映射 |
+| `markBulk` / `readBulk` / `clearBulk` / `requestBulk` / `requestMassDelete` / `resolveAwaiting` | G3 与 G2：登记批量替换、弹窗询问「以本机 / 以云端 / 稍后」、处理选择 |
+| `notify` / `onVisible` / `onOnline` / `activate` / `deactivate` | 触发器：编辑防抖、回到前台（5 秒节流）、网络恢复 |
+| `prepareCreate` / `prepareLogin` / `establish` / `establishExisting` / `confirmFirstMerge` / `enableWith` | 启用 / 登录向导：先本机备份，再创建（需邀请码）或恢复 / 首次合并，成功后才落盘恢复码与元数据 |
+| `disable` / `deleteCloudCopy` / `listHistory` / `fetchVersionJson` | 关闭同步 / 删除云端副本 / 历史版本 |
+| `renderPill` / `renderCard` / `renderCardBody` / `refreshCard` / `statusInfo` | 顶栏状态胶囊（插在 `.guide-btn` 前）与设置卡片。**未登录只有两个入口按钮**，登录后才出现其余功能 |
+| `ui.*` | 界面动作：`openEnable` / `enableStep2` / `enableCheck` / `enableGo` / `copyCode` / `cancelWizard` / `openLogin` / `loginCheck` / `loginGo` / `mergeGo` / `syncNow` / `showCode` / `openHistory` / `exportVersion` / `exportSnapshot` / `clearConflicts` / `confirmDisable` / `doDisable` / `confirmDeleteCloud` / `doDeleteCloud` / `showAwaiting` / `resolve` |
+| `refreshUI()` | 同步写入本机后刷新当前页（`refreshCurrentPage()`；记账页除外，避免冲掉正在输入的表单） |
+
+**三方合并 `DataStore._merge3(base, local, remote)` 规则：**
+- 按规范化序列化判断每个字段 / 条目「哪一侧相对 base 改了」：只有一侧改（含删除）→ 采用改动方；两侧都改 → 对象递归，数组按 id 对齐（无 id 的条目按内容；参与人按 contactId / name；重复键编号）
+- 分摊还款 `paidAmount`：两侧各自的增量**累加**，再经 `SplitEngine.withPaidAmount` 夹到应还额以内（只在字段存在时；旧版仅有布尔 `paid` 的参与人不动）
+- 删除 vs 修改 → 保留修改并记入冲突列表；`updatedAt` 较新者胜，相同则本机；`colorIndex` / `lastActiveMonth` 取大；`savingsTarget` / `whatIfParams` 整体取舍（不逐字段拼，以免拼出没人选过的组合），且不算冲突
+- 账单链修复：冲突保留下来的账单，恢复其关联记录；孤儿记录恢复其账单；计划记录按 (planId, planMonth) 去重（保留最小 id）；记录排序稳定
+- `base === null`（第一次合并）→ 并集，需用户在向导里确认摘要
+
+---
+
 ## 数据流
 
 ```
@@ -862,6 +908,7 @@ Canvas Drawing Functions / DOM innerHTML
 | `_expandedChart` | `17-stats-charts.js` | 图表展开弹窗状态 |
 | `_guidePageKey`, `_guideShowDetailed` | `25-page-guides.js` | 引导弹窗状态 |
 | `DIAG` | `24-diagnostics.js` | 诊断工具单例 |
+| `CloudSync` | `28-cloud-sync.js` | 云端同步单例（见 §28） |
 
 ---
 
@@ -883,6 +930,19 @@ Canvas Drawing Functions / DOM innerHTML
   "whatIfParams": { "categoryAdjustments": {}, "globalAdjustment": {}, "hypotheticalCategories": [] }
 }
 ```
+
+账本之外的 localStorage 键：
+
+| 键 | 用途 |
+|---|---|
+| `budgetAppData` | 账本（明文；启用 PIN 后锁定时被删除） |
+| `budgetAppPinHash` / `budgetAppSalt` / `budgetAppDataEncrypted` | PIN 锁：哈希 / 盐 / 密文 |
+| `budgetSyncMeta` | 云端同步状态：`state` / `version` / 上次同步时间 / 最近错误（`boot()` 唯一读取的同步键） |
+| `budgetSyncSecret` | 恢复码（**明文**，所以与 PIN 互斥） |
+| `budgetSyncBase` | 上次同步成功时的账本（gzip 快照），三方合并的基准 |
+| `budgetSyncBackup` / `budgetSyncBackupTime` | 启用 / 登录前的本机备份（备份失败则不启用） |
+| `budgetSyncPremerge` / `budgetSyncPremergeTime` | 每次合并写入前的本机快照 |
+| `budgetSyncConflicts` / `budgetSyncBulk` / `budgetSyncLock` | 冲突记录 / 待处理的批量替换标记 / 无 Web Locks 时的单飞锁 |
 
 ---
 
@@ -913,6 +973,9 @@ for t in tests/*.js; do node "$t"; done
 | `tests/structure-fixes-test.js` | 分类颜色继承与自定义图标、分摊编辑器字段、饼图标签几何 |
 | `tests/category-waffle-test.js` | 分类格子图：视图切换与持久化、与饼图共用数据/配色、下钻、密度独立、展开弹窗、标签格子图回归 |
 | `tests/category-treemap-test.js` | 分类矩形图：squarify 布局（面积正比、铺满、长宽比、越界）、按层级嵌套、子框在父框内、下钻、展开弹窗、canvas 分辨率跟随渲染尺寸 |
+| `tests/pin-lock-test.js` | PIN 锁不丢数据：设 PIN → 继续记账 → 锁定 → 解锁 / 改 PIN / 关 PIN / 重新打开标签页，各路径一条不少；读回校验失败时明文原样保留（22 条，驱动真实界面函数） |
+| `tests/cloud-merge-test.js` | 三方合并 `_merge3`：一侧改 / 删、删 vs 改、还款累加与夹取、旧版布尔参与人、账单链修复、计划记录去重、`savingsTarget` 原子性、与合并顺序无关的收敛（52 条） |
+| `tests/cloud-sync-test.js` | 云端同步整体（233 条）：恢复码、加解密与 AAD、内存版服务器 `FakeCloud`（镜像 SQL 语义）上的多设备收敛、失败矩阵（断网 / 超时 / 5xx / 冲突 / 限流 / 超大 / 回退 / 篡改）、G1–G6 防护、触发器与单飞、与 PIN 互斥、向导界面、i18n 键齐全 |
 
 写测试时注意：
 
@@ -921,6 +984,14 @@ for t in tests/*.js; do node "$t"; done
 - **格子图的图例要等动画跑完**（约 1 秒：30 批 × 20ms + 400ms 弹入）才会写进 DOM。别用固定 `setTimeout` 等——机器一忙就会假失败，用轮询（见 `category-waffle-test.js` 的 `waitFor()`）。
 - **下钻状态要用 `window.getDrillCategory()` 读**，别去改 `window.statsDrillStack`——它只是模块内数组的别名，重新赋值会切断别名，之后读到的是你自己那个空数组。
 - 断言要能真的失败。加完一条断言，先把源码改坏验证它会 FAIL，再改回来——否则容易写出恒真的断言。
+- **jsdom 没有 `crypto.subtle` / `CompressionStream`**：在 `beforeParse` 里注入 Node 的 `webcrypto`、`Blob`、`Response`、`CompressionStream`、`DecompressionStream`，跑的仍是 App 里真实的加密代码。
+- **网络用 `FakeCloud` 桩**：`fetch` 桩按 `<meta>` 里的 CSP `connect-src` 白名单放行，白名单外的域名直接失败——顺带测了 CSP 与 `CFG.URL` 没有漂移。`FakeCloud` 必须与 `supabase/migrations/` 里的 SQL 语义保持一致（版本号、`too_fast` 2 秒、4 MiB、历史 5 版）。
+- **两台设备 = 同一 Node 进程里的两个 JSDOM 窗口**（各有独立 localStorage）。jsdom 没有 `navigator.locks`，所以走的是 localStorage 锁回退路径；服务器的 2 秒限流用假时钟推进，不要真 `sleep`。
+- **手动 `syncOnce()` 可能返回 `busy`**：改动后 3 秒防抖会触发自动同步，手动调用恰好撞上就是 `busy`（设计如此，并登记补跑）。写测试 / 脚本时循环到不是 `busy` 为止，别把它当失败。
+- **jsdom 的 `AbortSignal` 不能传给 Node 原生 `fetch`**（跨实例类型检查失败）：要把窗口接到真实网络时，桥接处先去掉 `signal`。
+- **别对活账本里的记录 `delete r.id`**：设置页诊断会遍历它并崩溃；需要缺 id 的样本就先深拷贝。弹窗内容比调用晚一个 tick 才出现，断言前先 `await`。
+- 变异验证做法：逐条把关键防护改坏（读回校验、备份先行、G1–G6、三方合并各规则、PIN 的重新加密与读回），跑对应套件确认**会 FAIL**，再改回来。注意脚本自身崩溃也要算作失败，别只数断言行。
+- 真实服务器端到端脚本**不在版本库**（要消耗一次性邀请码并写真实数据）；验证记录见设计文档 v2 §5.5。
 
 ---
 

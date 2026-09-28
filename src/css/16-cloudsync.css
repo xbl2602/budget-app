@@ -1,0 +1,87 @@
+/* ============================================================
+   Cloud sync (optional). Nothing here is visible unless sync is on, apart from
+   the single settings card. Colours come from the theme variables in 01-base.css,
+   so light and dark both work without a second set of rules (RULES #3).
+   ============================================================ */
+
+/* Status pill in the top header — only created once sync is on */
+.cloud-pill {
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1;
+  white-space: nowrap;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: var(--transition-fast);
+}
+.cloud-pill:active { transform: scale(0.96); }
+.cloud-pill-ok   { color: var(--success); border-color: var(--success); }
+.cloud-pill-busy { color: var(--primary); border-color: var(--primary); }
+.cloud-pill-warn { color: var(--warning); border-color: var(--warning); }
+.cloud-pill-bad  { color: var(--danger);  border-color: var(--danger); }
+
+/* Status line in the settings card */
+.cloud-status { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 600; color: var(--text-secondary); }
+.cloud-dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.cloud-status-ok   { color: var(--success); }
+.cloud-status-busy { color: var(--primary); }
+.cloud-status-warn { color: var(--warning); }
+.cloud-status-bad  { color: var(--danger); }
+.cloud-status-busy .cloud-dot { animation: cloudPulse 1s ease-in-out infinite; }
+@keyframes cloudPulse { 50% { opacity: 0.3; } }
+
+/* Recovery code */
+.cloud-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-align: center;
+  word-break: break-all;
+  user-select: all;
+  -webkit-user-select: all;
+  padding: 12px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.cloud-points { margin: 0 0 4px; padding-left: 18px; font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary); }
+.cloud-points li { margin-bottom: 6px; }
+
+.cloud-error {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.cloud-summary { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.cloud-summary > div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
+.cloud-summary > div:last-child { border-bottom: 0; background: var(--bg-secondary); }
+.cloud-summary span { color: var(--text-secondary); }
+
+.cloud-history-row, .cloud-conflict-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.78rem;
+}
+.cloud-conflict-row { display: block; line-height: 1.5; }
+.cloud-conflicts summary { cursor: pointer; font-size: 0.85rem; font-weight: 600; padding: 4px 0; }
+
+@media (max-width: 480px) {
+  .cloud-code { font-size: 0.9rem; letter-spacing: 1px; }
+  .cloud-pill { max-width: 40vw; }
+}

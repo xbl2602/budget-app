@@ -10,7 +10,7 @@
 ## 🧭 决策树：你的任务属于哪一类？
 
 ### A. 修复 bug / 极小的样式调整
-→ [**RULES.md**](./RULES.md) — 快速过一遍 19 条 checklist（2 分钟）
+→ [**RULES.md**](./RULES.md) — 快速过一遍 21 条 checklist（2 分钟）
 
 ### B. 修改 UI（样式 / 组件 / 页面结构 / 动画）
 → [**REFERENCE.md**](./REFERENCE.md) 的 **§UI 规则**
@@ -39,7 +39,7 @@
 
 | 文件 | 用途 | 适合谁 |
 |------|------|--------|
-| [RULES.md](./RULES.md) | 19 条规则速览 checklist | 所有人，每次修改前 |
+| [RULES.md](./RULES.md) | 21 条规则速览 checklist | 所有人，每次修改前 |
 | [WORKFLOW.md](./WORKFLOW.md) | 开发流程、角色分工、阶段说明 | 新人大版本开发 |
 | [REFERENCE.md](./REFERENCE.md) | 按主题深度展开（含代码/反例） | 写代码时查阅 |
 
@@ -50,20 +50,20 @@
 - ❌ **不要引入外部依赖**（CDN / npm / 字体 / 库）
 - ❌ **不要直接编辑 `index.html`**（改 `src/` 后 `bash build.sh`）
 - ❌ **不要绕开 IIFE 作用域**（跨文件访问必须 `window.*` 导出）
-- ❌ **不要破坏 CSP**（`default-src 'none'`）
+- ❌ **不要破坏 CSP**（`default-src 'none'`；唯一例外是云端同步的单一 `connect-src` 域名，见 RULES #2 / #21）
 - ❌ **不要删除用户数据**（schema 变更必须做迁移兼容）
 - ❌ **不要在没跑测试的情况下交付**（`bash build.sh` 之后 `node tests/*.js`，见 RULES #19）
 
 ---
 
-## 🗺️ 当前状态（v3.2.0）
+## 🗺️ 当前状态（v3.3.0）
 
 | 项 | 现状 |
 |---|---|
-| 源文件 | 15 个 CSS + 27 个 JS（`src/`），构建为单个 `index.html` |
+| 源文件 | 16 个 CSS + 28 个 JS（`src/`），构建为单个 `index.html` |
 | 页面 | 总览 / 记账 / 流水 / 分类 / 统计 / 月度报告 / 假设分析 / 设置 |
-| 较新的模块 | `26-split-bills.js`（分摊收款 + 部分还款）、`27-purchase-plans.js`（大额分期计划）、`17-stats-charts.js` 的分类三视图（饼图 / 格子图 / 矩形图） |
-| 测试 | `tests/` 下 8 个 jsdom 套件，见 [STRUCTURE.md](../../STRUCTURE.md) 的「测试」章节 |
+| 较新的模块 | `26-split-bills.js`（分摊收款 + 部分还款）、`27-purchase-plans.js`（大额分期计划）、`28-cloud-sync.js`（可选云端同步：恢复码 / 端到端加密 / 三方合并 / 防护）、`17-stats-charts.js` 的分类三视图（饼图 / 格子图 / 矩形图） |
+| 测试 | `tests/` 下 13 个 jsdom 套件，见 [STRUCTURE.md](../../STRUCTURE.md) 的「测试」章节 |
 | 完整函数地图 | [STRUCTURE.md](../../STRUCTURE.md) |
 
 > `features/` 下的功能文档是 **v2.0.0 时期的快照**，已不反映现状，别拿它当现状依据。

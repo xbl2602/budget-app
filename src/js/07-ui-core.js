@@ -391,6 +391,12 @@ async function submitPin() {
 }
 
 function showSetPinModal() {
+  // Cloud sync keeps its key (and a copy of the ledger) in plain text on this device,
+  // which would make a PIN lock decorative. The two are mutually exclusive.
+  if (window.CloudSync && CloudSync.isEnabled()) {
+    showToast(__('ui.pin.blockedBySync'), 'warning');
+    return;
+  }
   showModal(`
     <div class="modal-title">🔐 ${__('ui.pin.setPinTitle')}</div>
     <div style="padding:12px 0">
@@ -689,15 +695,33 @@ function stopInactivityCheck() {
   }
 }
 
-function lockApp() {
-  if (window._pinRequired) return;
+let _lockInFlight = false;
+async function lockApp() {
+  if (window._pinRequired || _lockInFlight) return;
   const hasPinHash = localStorage.getItem('budgetAppPinHash');
   if (!hasPinHash) return;
-
-  // Save current state then clear plaintext
-  if (DataStore._data) DataStore.save();
-  localStorage.removeItem('budgetAppData');
-
+  _lockInFlight = true;
+  try {
+    if (DataStore._data) {
+      // Plaintext first: if sealing turns out to be impossible it must hold the latest state.
+      DataStore.save();
+      // Re-encrypt the live ledger before the plaintext goes away. The ciphertext used to
+      // be written only when the PIN was set/changed, so removing the plaintext here and
+      // unlocking later restored that stale copy and silently dropped everything recorded
+      // in between. The plaintext is removed only once the new ciphertext reads back intact.
+      if (await DataStore.sealForLock()) {
+        localStorage.removeItem('budgetAppData');
+        DataStore._pinKey = null;   // no need to keep the key around while locked
+      }
+      // No key (e.g. the tab was reopened without entering the PIN) or seal failed: leave
+      // the plaintext where it is. Locking the screen still works, and unlockData()
+      // prefers that plaintext over the older ciphertext, so nothing is lost.
+    }
+  } catch (e) {
+    if (typeof logEvent === 'function') logEvent('lockApp_seal_error', e && e.message);
+  } finally {
+    _lockInFlight = false;
+  }
   window._pinRequired = true;
   showPinModal();
 }
@@ -748,6 +772,7 @@ function bindActivityListeners() {
     'ui.pin.enterPinPlaceholder': { zh: '输入PIN码', en: 'Enter PIN' },
     'ui.pin.wrongPin': { zh: 'PIN码错误，请重试', en: 'Wrong PIN, please try again' },
     'ui.pin.unlockButton': { zh: '解锁', en: 'Unlock' },
+    'ui.pin.blockedBySync': { zh: '云端同步已开启，暂时不能设置 PIN 锁（同步密钥以明文保存在本机，会让 PIN 形同虚设）。请先在「云端同步」里关闭同步。', en: 'Cloud sync is on, so a PIN lock cannot be set (the sync key is kept in plain text on this device, which would defeat the PIN). Turn sync off first.' },
     'ui.pin.setPinTitle': { zh: '设置PIN锁', en: 'Set PIN Lock' },
     'ui.pin.setPinLabel': { zh: '设置PIN码 (6位数字)', en: 'Set PIN (6 digits)' },
     'ui.pin.digitPlaceholder': { zh: '输入6位数字', en: 'Enter 6 digits' },

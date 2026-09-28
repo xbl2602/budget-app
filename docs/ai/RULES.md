@@ -1,4 +1,4 @@
-# 📋 19 条规则 Checklist
+# 📋 21 条规则 Checklist
 
 > 每条规则含：**规则编号 + 一句话规则 + 为什么这样做**
 > 修改前快速过一遍，确保没有踩雷。
@@ -48,6 +48,9 @@
 - 不引用 CDN、外部字体、第三方库、图片、iframe
 - 所有内容自包含在单 HTML 文件中（构建后）
 - CSP 头 `default-src 'none'` + `style-src 'unsafe-inline'` + `script-src 'unsafe-inline'`
+- **唯一例外**：`connect-src https://sfwnpwchujslqfnmdyxo.supabase.co`——可选云端同步的固定后端（见 #21、REFERENCE §安全）。
+  **不得再加第二个域名、不得用通配符**；要换域名必须同时改 `28-cloud-sync.js` 的 `CFG.URL`、CSP、`supabase/` 与文档，并经人类确认
+- 云端同步默认关闭：未启用时**不得发出任何网络请求**，也不得注册监听器 / 定时器
 - 新增功能后确保仍可离线打开运行
 
 ### #5 构建纪律
@@ -91,6 +94,9 @@
   与局域网 merge 共用。不要再写第二份 —— 原先那两份的语义并不一致。
   合并 `incoming` 前只跑 `_sanitizeEntities()`，**不能**跑 `_normalize()`：
   补出来的默认值会覆盖本地的 `savingsTarget` / `percentBase`。
+  它现在有第二种模式：`_mergeData(incoming, { base })` 是**三方合并**（云端同步用，`base` = 上次同步时的账本；
+  `{ base, dryRun: true }` 只算不写）。这样才分得清「对方没有」和「对方删了」，删除不会被并集复活。
+  不传 `base` 时行为与以前完全一致。这仍然是**同一个**合并实现，不要在同步代码里另写一份
 - **指纹码不需要维护白名单**：`getDataHash()` 已改为全量稳定序列化 + 排除名单
   （`_FINGERPRINT_IGNORE`）。只有确属**本机状态**（会自行漂移）的字段才加进
   排除名单，账本数据一律纳入。
@@ -116,8 +122,12 @@
 ### #13 PIN 加密生命周期
 **不要破坏加密存储 / 解锁 / 锁定流程。**
 - 加密数据存储在 `budgetAppDataEncrypted` 中
-- 解密流程：`verifyPin()` → `_decryptData()` → `init()`
-- 调用 `lockData()` 后清除内存和明文存储
+- 解密流程：`submitPin()` → `verifyPin()` → `unlockData()` → `_decryptData()` → `init()`
+- **密文必须跟得上明文**：`save()` 只写明文，所以自动锁定走 `lockApp()` → `DataStore.save()` → `await DataStore.sealForLock()`，
+  用内存里的**不可导出** AES 密钥（`DataStore._pinKey`，不是 PIN 本身）重新加密当前账本并**读回校验**，
+  **校验通过才清除明文**。不要在锁定时直接删明文——那会让密文停在「设 PIN 那一刻」，之后的记录全丢（`tests/pin-lock-test.js`）
+- 解锁不得用旧密文覆盖比它新的明文；改 / 关 PIN 以内存里的最新账本为准，而不是解密旧密文
+- PIN 与云端同步**互斥**（同步会把恢复码和账本副本明文放在 localStorage）
 - PIN 相关操作涉及异步（Web Crypto API），注意 async/await
 
 ### #17 README 同步更新
@@ -226,6 +236,21 @@ records 白名单只有 8 个字段、根本没有 `planId`——**前提是假�
   （例：确认真实的 `sanitizeHtml` 生效，证明跑的不是副本）
 - ✅ 拿不准是「缺陷」还是「产品取舍」时，标注为**设计缺口**、
   写清两种修法，交给人定（例：归档账单的欠款该不该继续计入待收）
+
+### #21 云端同步不变量
+**改 `28-cloud-sync.js`、`_merge3`、`supabase/` 之前先过一遍——这里每条都是用户数据的保命线。**
+- **默认关闭、零痕迹**：未启用时不发请求、不注册监听器 / 定时器；`boot()` 只读 `budgetSyncMeta` 一个键。
+  设置页未登录（没有恢复码）时只显示一张卡片、两个入口（启用 / 已有恢复码？登录），其余功能登录后才出现
+- **唯一合并实现**：合并只走 `DataStore._mergeData(incoming, { base })`（内部 `_merge3`）。合并结果必须与「谁先同步」无关（收敛）
+- **写入顺序与回滚**：先把合并结果写入本机账本并**读回校验**（失败则还原），再写基准副本 `budgetSyncBase`，最后写元数据 `budgetSyncMeta`
+- **6 道防护不许绕**：G1 空账本不上传 · G2 批量删除（≥20 条或 ≥50%）需确认 · G3 批量替换先问「以本机 / 以云端 / 稍后」 ·
+  G4 云端版本回退检测 · G5 结构 / 解密失败不落地 · G6 配额（写入 + 读回）。
+  新增任何会整体替换 `_data` 的入口，必须调用 `DataStore._markBulk(kind)`
+- **先备份再启用**：`prepareCreate` / `prepareLogin` 先 `snapshot()` 本机备份，备份失败则不启用
+- **只经 RPC 访问服务器**：`sync` schema 三张表 RLS 全开、零策略，`anon` 没有任何表权限，只能 `EXECUTE` 五个 `security definer`
+  函数（`search_path=''`）。请求只带公开的 publishable key（`apikey` 头）；**绝不**把 service_role / secret key 或任何私钥写进仓库。
+  已应用的迁移文件不要改，新增迁移文件；改完跑 Supabase 安全顾问
+- **改了合并 / 同步行为就跑三套**：`tests/cloud-merge-test.js`、`tests/cloud-sync-test.js`（内含内存版服务器 `FakeCloud`，语义必须与 SQL 保持一致）、`tests/pin-lock-test.js`
 
 ### #18 开发工作流
 **遵循 Director 级编排流程（orchestration-flow skill）进行工作。**
