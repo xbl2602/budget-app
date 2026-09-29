@@ -514,6 +514,12 @@ await pair();
   ok('A 同步时被拦下，等待确认', r.status==='awaiting'&&r.type==='massdelete', JSON.stringify(r));
   ok('   A 的账本没动', canonOf(A,A.DS._data)===localBefore&&A.LS.getItem('budgetAppData')===rawBefore);
   ok('   弹出确认框并说明数量', /批量|30|删/.test(A.doc.getElementById('modalContent').textContent)||A.CS._state.awaiting.removed>=30);
+  ok('   awaiting 里带了将被删除记录的样本（完整对象，不只是计数）',
+    Array.isArray(A.CS._state.awaiting.sample)&&A.CS._state.awaiting.sample.length===5
+    &&A.CS._state.awaiting.sample.every(x=>x&&typeof x.id==='string'&&typeof x.amount==='number'));
+  await sleep(30);   // 确认框是下一个 tick 才弹出的
+  ok('   弹窗正文里列出了具体记录（日期/金额/备注），不是只有一个数字',
+    A.doc.getElementById('modalContent').querySelectorAll('li').length===5);
   A.CS._t.resolveAwaiting('later');await sleep(30);
   ok('   选「先不同步」：仍然没动', canonOf(A,A.DS._data)===localBefore);
   const r2=await sync(A);
@@ -522,6 +528,25 @@ await pair();
   ok('   确认后执行：本机记录与云端一致', A.DS._data.records.length===B.DS._data.records.length&&A.DS._data.records.some(x=>x.id==='keep'));
   const pm=await A.CS._t.unpackSnapshot(A.LS.getItem('budgetSyncPremerge'));
   ok('   执行前留下了合并前快照（还能找回那 30 条）', !!pm&&pm.includes('批量 5'));
+}
+L('【G2 附加】确认框被别的弹窗挡住时不会丢：等对方关掉后自动补弹一次');
+await pair();
+{
+  const many=fixture(A,'A');for(let i=0;i<30;i++)many.records.push(rec(A,'m'+i,'批量 '+i));
+  setLedger(A,many);await sync(A);await sync(B);
+  B.DS._data.records=B.DS._data.records.filter(x=>!/^m\d+$/.test(x.id));B.DS.save();
+  await sync(B);
+  // 模拟用户此刻正在别的弹窗里操作（比如正在记账）
+  A.w.showModal('<div id="someOtherModal">别的弹窗，正在记账</div>', true);
+  ok('前提：这一刻确实有别的弹窗开着', A.doc.getElementById('modalOverlay').classList.contains('open'));
+  const r=await sync(A);
+  ok('后台同步照常判定需要确认（状态没有跳过）', r.status==='awaiting'&&r.type==='massdelete', JSON.stringify(r));
+  await sleep(30);
+  ok('但因为别的弹窗还开着，没有把它的内容顶掉，也没有报错', A.doc.getElementById('someOtherModal')!=null);
+  A.w.closeModal();
+  await sleep(30);
+  ok('别的弹窗一关，确认框自动补弹了出来，不用用户自己再点一次', /删/.test(A.doc.getElementById('modalContent').textContent)&&A.doc.getElementById('modalOverlay').classList.contains('open'));
+  A.CS._t.resolveAwaiting('later');await sleep(20);
 }
 L('【G3】整体替换闸：清空 / 替换导入 / 局域网替换 之后，同步先问；三种选择都做对');
 for(const kind of ['clear','import-replace','lan-replace']){
