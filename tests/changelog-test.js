@@ -45,11 +45,13 @@ function canvasStub() {
 
 /* A body-end script runs after 29-changelog.js (which build.sh injects into
    <head>) but before DOMContentLoaded, so _bootstrap()'s checkAndShow() sees
-   whatever it registered. That lets a scenario boot with three entries. */
+   whatever it registered. That lets a scenario boot with three entries.
+   The injected entry deliberately has NO `title`, which exercises the
+   id-as-title fallback. */
 function withExtraEntry(html) {
   const script = '<script>if (localStorage.getItem("__clExtra") === "1" && window.Changelog) {' +
     '  Changelog.register({ id: "' + X1 + '", version: window.APP_VERSION, date: "' + X1 + '",' +
-    '    title: "changelog.a1.title", items: [{ icon: "🧪", text: "changelog.a1.item1" }] });' +
+    '    items: [{ icon: "🧪", text: "changelog.a1.item1" }] });' +
     '}</script>';
   return html.replace('</body>', script + '</body>');
 }
@@ -95,6 +97,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const MC = w => w.document.getElementById('modalContent');
 const overlayOpen = w => w.document.getElementById('modalOverlay').classList.contains('open');
 const arrows = w => Array.from(MC(w).querySelectorAll('.cl-arrow'));
+const txt = (w, sel) => { const e = MC(w).querySelector(sel); return e ? e.textContent : null; };
+// Exact match, not indexOf. indexOf('📣') passes for '??📣??', which is exactly
+// how a blanket __() over every string field shipped broken once — see L12.
+const noStray = w => MC(w).textContent.indexOf('??') === -1;
 
 (async function main() {
   /* ---------------- L1 + L9 + L10: pure logic, one instance ---------------- */
@@ -274,6 +280,33 @@ const arrows = w => Array.from(MC(w).querySelectorAll('.cl-arrow'));
     w.closeModal();
     await waitFor(w, x => w.ModalQueue.depth() === 0, 'rollover dialog shown');
     ok(MC(w).innerHTML.indexOf('cl-title') === -1, 'L11 the rollover reminder took the slot');
+  }
+
+  /* ---------------- L12: literal fields must not go through i18n ----------------
+     __() renders a missing key as '??<key>??'. An earlier version resolved every
+     string in an entry as if it were a key, so `icon: '📣'` rendered as
+     '??📣??' and the meta line as 'v??3.3.0?? · ??2026-10-05??' while the body
+     text (real keys) looked fine — and indexOf-based assertions still passed. */
+  console.log('\nL12  icon / version / date are literal, not i18n keys');
+  {
+    const dom = boot({ [LS_KEY]: A2 });   // marker on the older entry -> one is pending
+    const w = dom.window;
+    await waitFor(w, x => MC(x).innerHTML.indexOf('cl-title') !== -1, 'changelog on startup');
+    const entry = w.Changelog.all()[0];
+    ok(noStray(w), 'L12 no "??" anywhere in the rendered modal');
+    eq(txt(w, '.cl-item-icon'), entry.items[0].icon, 'L12 the icon span is exactly the emoji');
+    eq(txt(w, '.cl-meta'), 'v' + entry.version + ' · ' + entry.date, 'L12 the meta line is exactly "v<ver> · <date>"');
+    eq(txt(w, '.cl-title'), w.__('changelog.a1.title'), 'L12 the title is the resolved i18n string');
+    // body text may legitimately contain HTML (<strong>/<code>) — check it rendered
+    ok(MC(w).querySelector('.cl-item-text strong') !== null, 'L12 item text still allows inline markup');
+
+    // A title-less entry falls back to its id — verbatim, not via __().
+    const dom2 = boot({ [LS_KEY]: A2, __clExtra: '1' }, true);
+    const w2 = dom2.window;
+    await waitFor(w2, x => MC(x).innerHTML.indexOf('cl-title') !== -1, 'changelog on startup');
+    eq(txt(w2, '.cl-title'), X1, 'L12 a title-less entry falls back to its raw id');
+    eq(txt(w2, '.cl-item-icon'), '\u{1F9EA}', 'L12 the injected emoji is untouched');
+    ok(noStray(w2), 'L12 no "??" in the title-less entry either');
   }
 
   console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) + '  (' + pass + ' assertions)');
