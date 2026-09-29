@@ -239,7 +239,7 @@ function addContact(name) {
   const contact = { id: uuid(), name: trimmed };
   DataStore._data.contacts.push(contact);
   DataStore.save();
-  logEvent('splitAddContact', 'name=' + trimmed);
+  logEvent('splitAddContact', 'id=' + contact.id);
   return contact;
 }
 
@@ -362,7 +362,7 @@ function addSplitBill(bill) {
   bill.updatedAt = bill.updatedAt || bill.createdAt;
   DataStore._data.splitBills.unshift(bill);
   DataStore.save();
-  logEvent('splitAddBill', 'id=' + bill.id + ' amount=' + bill.amount);
+  logEvent('splitAddBill', 'id=' + bill.id);
   return bill;
 }
 
@@ -573,7 +573,7 @@ function applyRepayment(alloc) {
     applied = round2(applied + add);
     touched++;
   });
-  if (touched) logEvent('splitRepayment', 'bills=' + touched + ' amount=' + applied);
+  if (touched) logEvent('splitRepayment', 'bills=' + touched);
   return { applied, touched };
 }
 
@@ -1254,7 +1254,7 @@ function setSplitPaidAmount(billId, contactKey, amount) {
   // states consistent (same rule the editor uses).
   if (bill.archived && participants.some(x => !partSettled(x))) patch.archived = false;
   updateSplitBill(billId, patch);
-  logEvent('splitSetPaidAmount', 'bill=' + billId + ' amount=' + round2(v));
+  logEvent('splitSetPaidAmount', 'bill=' + billId);
   return { ok: true };
 }
 

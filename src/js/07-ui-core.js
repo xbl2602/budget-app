@@ -799,6 +799,7 @@ async function lockApp() {
       // in between. The plaintext is removed only once the new ciphertext reads back intact.
       if (await DataStore.sealForLock()) {
         localStorage.removeItem('budgetAppData');
+        DataStore._purgePlaintextExtras();
         DataStore._pinKey = null;   // no need to keep the key around while locked
       }
       // No key (e.g. the tab was reopened without entering the PIN) or seal failed: leave

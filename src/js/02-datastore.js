@@ -731,7 +731,7 @@ const DataStore = {
     else plan.overrides[month] = amount;
     plan.updatedAt = new Date().toISOString();
     this.save();
-    this._log('setPlanOverride', 'id=' + id + ' month=' + month + ' amount=' + amount);
+    this._log('setPlanOverride', 'id=' + id + ' month=' + month);
     return plan;
   },
 
@@ -1278,6 +1278,7 @@ const DataStore = {
       localStorage.removeItem('budgetAppData');
     }
     this._pinKey = key;
+    this._purgePlaintextExtras();
   },
   async changePin(oldPin, newPin) {
     const valid = await this.verifyPin(oldPin);
@@ -1367,6 +1368,29 @@ const DataStore = {
       return (await this._decryptWithKey(this._pinKey, localStorage.getItem('budgetAppDataEncrypted'))) === json;
     }
     return false;
+  },
+  // With a PIN set, nothing that reveals the ledger may outlive a lock in plain text.
+  // Two things used to: the LAN-sync pre-merge backup (a full plaintext copy of the
+  // ledger that nothing ever reads back) and diagnostic entries written by older
+  // builds, which carried contact names and amounts. Called after setPin() and after
+  // a lock whose re-seal succeeded — never while the plaintext ledger is still the
+  // only good copy.
+  _purgePlaintextExtras() {
+    try {
+      localStorage.removeItem('budgetBackupBeforeSync');
+      localStorage.removeItem('budgetBackupTime');
+    } catch (e) { /* ignore */ }
+    const scrub = e => {
+      if (e && typeof e.d === 'string') {
+        e.d = e.d.replace(/\bname=.*$/, 'name=[redacted]').replace(/\bamount=[^\s,]*/g, 'amount=[redacted]');
+      }
+      return e;
+    };
+    this.__log.forEach(scrub);
+    try {
+      const persisted = JSON.parse(localStorage.getItem('budgetAppLog') || '[]');
+      if (Array.isArray(persisted)) localStorage.setItem('budgetAppLog', JSON.stringify(persisted.map(scrub)));
+    } catch (e) { /* ignore */ }
   },
   async unlockData(pin) {
     const saltHex = localStorage.getItem('budgetAppSalt');

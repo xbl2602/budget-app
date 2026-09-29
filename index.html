@@ -4070,7 +4070,7 @@ const DataStore = {
     else plan.overrides[month] = amount;
     plan.updatedAt = new Date().toISOString();
     this.save();
-    this._log('setPlanOverride', 'id=' + id + ' month=' + month + ' amount=' + amount);
+    this._log('setPlanOverride', 'id=' + id + ' month=' + month);
     return plan;
   },
 
@@ -4617,6 +4617,7 @@ const DataStore = {
       localStorage.removeItem('budgetAppData');
     }
     this._pinKey = key;
+    this._purgePlaintextExtras();
   },
   async changePin(oldPin, newPin) {
     const valid = await this.verifyPin(oldPin);
@@ -4706,6 +4707,29 @@ const DataStore = {
       return (await this._decryptWithKey(this._pinKey, localStorage.getItem('budgetAppDataEncrypted'))) === json;
     }
     return false;
+  },
+  // With a PIN set, nothing that reveals the ledger may outlive a lock in plain text.
+  // Two things used to: the LAN-sync pre-merge backup (a full plaintext copy of the
+  // ledger that nothing ever reads back) and diagnostic entries written by older
+  // builds, which carried contact names and amounts. Called after setPin() and after
+  // a lock whose re-seal succeeded — never while the plaintext ledger is still the
+  // only good copy.
+  _purgePlaintextExtras() {
+    try {
+      localStorage.removeItem('budgetBackupBeforeSync');
+      localStorage.removeItem('budgetBackupTime');
+    } catch (e) { /* ignore */ }
+    const scrub = e => {
+      if (e && typeof e.d === 'string') {
+        e.d = e.d.replace(/\bname=.*$/, 'name=[redacted]').replace(/\bamount=[^\s,]*/g, 'amount=[redacted]');
+      }
+      return e;
+    };
+    this.__log.forEach(scrub);
+    try {
+      const persisted = JSON.parse(localStorage.getItem('budgetAppLog') || '[]');
+      if (Array.isArray(persisted)) localStorage.setItem('budgetAppLog', JSON.stringify(persisted.map(scrub)));
+    } catch (e) { /* ignore */ }
   },
   async unlockData(pin) {
     const saltHex = localStorage.getItem('budgetAppSalt');
@@ -7598,6 +7622,7 @@ async function lockApp() {
       // in between. The plaintext is removed only once the new ciphertext reads back intact.
       if (await DataStore.sealForLock()) {
         localStorage.removeItem('budgetAppData');
+        DataStore._purgePlaintextExtras();
         DataStore._pinKey = null;   // no need to keep the key around while locked
       }
       // No key (e.g. the tab was reopened without entering the PIN) or seal failed: leave
@@ -9112,7 +9137,7 @@ function submitRecord(e) {
       createdAt: new Date().toISOString()
     });
     DataStore.save();
-    logEvent('splitBillAdd', 'amount=' + amount + ', participants=' + active.length);
+    logEvent('splitBillAdd', 'participants=' + active.length);
     showToast(__('addRecord.saved'));
 
     // Reset form
@@ -19316,7 +19341,7 @@ function addContact(name) {
   const contact = { id: uuid(), name: trimmed };
   DataStore._data.contacts.push(contact);
   DataStore.save();
-  logEvent('splitAddContact', 'name=' + trimmed);
+  logEvent('splitAddContact', 'id=' + contact.id);
   return contact;
 }
 
@@ -19439,7 +19464,7 @@ function addSplitBill(bill) {
   bill.updatedAt = bill.updatedAt || bill.createdAt;
   DataStore._data.splitBills.unshift(bill);
   DataStore.save();
-  logEvent('splitAddBill', 'id=' + bill.id + ' amount=' + bill.amount);
+  logEvent('splitAddBill', 'id=' + bill.id);
   return bill;
 }
 
@@ -19650,7 +19675,7 @@ function applyRepayment(alloc) {
     applied = round2(applied + add);
     touched++;
   });
-  if (touched) logEvent('splitRepayment', 'bills=' + touched + ' amount=' + applied);
+  if (touched) logEvent('splitRepayment', 'bills=' + touched);
   return { applied, touched };
 }
 
@@ -20331,7 +20356,7 @@ function setSplitPaidAmount(billId, contactKey, amount) {
   // states consistent (same rule the editor uses).
   if (bill.archived && participants.some(x => !partSettled(x))) patch.archived = false;
   updateSplitBill(billId, patch);
-  logEvent('splitSetPaidAmount', 'bill=' + billId + ' amount=' + round2(v));
+  logEvent('splitSetPaidAmount', 'bill=' + billId);
   return { ok: true };
 }
 

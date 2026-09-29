@@ -164,7 +164,7 @@ function submitRecord(e) {
       createdAt: new Date().toISOString()
     });
     DataStore.save();
-    logEvent('splitBillAdd', 'amount=' + amount + ', participants=' + active.length);
+    logEvent('splitBillAdd', 'participants=' + active.length);
     showToast(__('addRecord.saved'));
 
     // Reset form

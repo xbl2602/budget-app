@@ -169,6 +169,40 @@ await uiLock();await uiUnlock('1234');
 ok('升级后再锁定 → 解锁仍正常', w._pinRequired===false && notes()==='R0,R1-设PIN后', notes());
 ok('升级后错误 PIN 仍被拒', (await DS.verifyPin('4321'))===false);
 
+L('【PIN-11】锁定后 localStorage 里不留任何账目明文（局域网备份、诊断日志）');
+// 在每个键里搜这些「只存在于账本里」的特征串；密文是十六进制，含 '.' 或中文的串不可能巧合出现
+const SECRETS=['秘密备注甲','秘密备注乙','4242.17','张三秘密','9876.54'];
+const leaks=()=>{const out=[];for(let i=0;i<LS.length;i++){const k=LS.key(i),v=LS.getItem(k)||'';SECRETS.forEach(s=>{if(v.includes(s))out.push(k+'⊃'+s);});}return out;};
+reset();
+DS.addRecord(mk(4242.17,'秘密备注甲'));
+// 旧版本写下的诊断日志：带姓名与金额
+w.logEvent('splitAddContact','name=张三秘密');
+w.logEvent('splitAddBill','id=b1 amount=9876.54');
+// 局域网同步合并前的整本备份（23-lan-sync.js backupBeforeMerge 的写法）
+LS.setItem('budgetBackupBeforeSync',DS.exportJSON());LS.setItem('budgetBackupTime',new Date().toISOString());
+ok('前置：明文确实分布在多个键里', leaks().length>=3, leaks().join(' | '));
+await uiSetPin('1234');
+ok('设 PIN 后局域网备份已删除', LS.getItem('budgetBackupBeforeSync')===null && LS.getItem('budgetBackupTime')===null);
+ok('设 PIN 后旧日志里的姓名与金额已抹掉', !(LS.getItem('budgetAppLog')||'').includes('张三秘密') && !(LS.getItem('budgetAppLog')||'').includes('9876.54'));
+ok('日志条目本身还在（只抹敏感字段）', (LS.getItem('budgetAppLog')||'').includes('splitAddContact'));
+// 解锁期间照常使用：再记一笔、再做一次局域网同步、再加一个联系人
+DS.addRecord(mk(5,'秘密备注乙'));
+LS.setItem('budgetBackupBeforeSync',DS.exportJSON());LS.setItem('budgetBackupTime',new Date().toISOString());
+w.SplitEngine.addContact('张三秘密');
+ok('新写的联系人日志只有 id，没有姓名', !(LS.getItem('budgetAppLog')||'').includes('张三秘密'));
+await uiLock();
+ok('锁定后任何键里都搜不到账目明文', leaks().length===0, leaks().join(' | '));
+await uiUnlock('1234');
+ok('解锁后数据完整', notes()==='秘密备注乙,秘密备注甲', notes());
+ok('解锁后联系人还在', DS._data.contacts.some(c=>c.name==='张三秘密'));
+
+L('【PIN-12】没设 PIN：局域网备份照旧保留（仍可救急）');
+reset();
+DS.addRecord(mk(1,'R0'));
+LS.setItem('budgetBackupBeforeSync',DS.exportJSON());
+await uiLock();
+ok('未设 PIN 时锁定不删备份', LS.getItem('budgetBackupBeforeSync')!==null);
+
 console.log('\n结果: '+pass+' 通过 / '+fail+' 失败');
 process.exit(fail?1:0);
 },1500);
