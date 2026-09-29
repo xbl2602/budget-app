@@ -183,7 +183,7 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
     if (hasChildren) {
       out += `<div class="whatif-cat-root-header" onclick="toggleWhatIfExpand('${node.id}')" style="cursor:pointer;padding-left:${headerIndent + 12}px">
         <span class="whatif-expand-icon">${isExpanded ? '▼' : '▶'}</span>
-        <span>${node.icon} ${node.name}</span>
+        <span>${escHtml(node.icon)} ${escHtml(node.name)}</span>
         <span class="text-xs text-muted" style="margin-left:8px">${__('whatif.dailyAvg', formatMoney(nodeDailyAvg))}</span>
         <span class="text-xs text-muted" style="margin-left:auto">${__('whatif.spent', formatMoney(nodeSpent))}</span>
       </div>`;
@@ -192,7 +192,7 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
     // Controls row — always shown for leaves; for parents only when expanded
     if (!hasChildren || isExpanded) {
       out += `<div class="whatif-cat-row" style="padding-left:${bodyIndent + 12}px">
-        <span class="whatif-cat-label">${node.icon} ${node.name}${hasChildren ? __('whatif.mode.overall') : ''}</span>
+        <span class="whatif-cat-label">${escHtml(node.icon)} ${escHtml(node.name)}${hasChildren ? __('whatif.mode.overall') : ''}</span>
         <select class="input-field whatif-mode-select" data-cat="${node.id}" data-level="${depth === 0 ? 'root' : 'child'}" ${isDisabled ? 'disabled' : ''}>
           <option value="trend" ${nodeAdj.mode === 'trend' ? 'selected' : ''}>${__('whatif.mode.trend')}</option>
           <option value="daily" ${nodeAdj.mode === 'daily' ? 'selected' : ''}>${__('whatif.mode.daily')}</option>
@@ -484,8 +484,8 @@ function renderWhatIfResults(result) {
       const isExpanded = whatIfCompareExpandStates[cmpKey] === true;
 
       const label = isAdjusted
-        ? `${node.category.icon} ${node.category.name} <span class="text-xs text-muted">(${__('whatif.adjusted')})</span>`
-        : `${node.category.icon} ${node.category.name}`;
+        ? `${escHtml(node.category.icon)} ${escHtml(node.category.name)} <span class="text-xs text-muted">(${__('whatif.adjusted')})</span>`
+        : `${escHtml(node.category.icon)} ${escHtml(node.category.name)}`;
       out += `<div class="whatif-compare-row ${depth > 0 ? 'whatif-child-row' : ''}">
         <span style="${depth > 0 ? `padding-left:${depth * 20 + 4}px` : ''};font-weight:${depth === 0 ? '700' : '400'}">
           ${hasChildren ? `<span class="whatif-expand-icon" onclick="toggleWhatIfCompareExpand('${node.category.id}')" style="cursor:pointer;margin-right:4px">${isExpanded ? '▼' : '▶'}</span>` : '<span class="whatif-expand-icon" style="visibility:hidden;margin-right:4px">▶</span>'}
@@ -509,7 +509,7 @@ function renderWhatIfResults(result) {
   // Hypothetical categories row
   hypotheticalProjections.forEach(hp => {
     html += `<div class="whatif-compare-row" style="color:var(--primary);font-style:italic">
-      <span>${hp.icon} ${hp.name} <span class="text-xs text-muted">(${__('whatif.hypothetical')})</span></span>
+      <span>${escHtml(hp.icon)} ${escHtml(hp.name)} <span class="text-xs text-muted">(${__('whatif.hypothetical')})</span></span>
       <span>—</span>
       <span>${formatMoney(hp.projectedRemaining)}</span>
       <span>${formatMoney(hp.projectedRemaining)}</span>

@@ -32,7 +32,7 @@ function syncPieDrillBar() {
     backArea.innerHTML = `
       <button class="btn btn-ghost btn-sm" onclick="resetStatsDrill()">← ${__('stats.drill.back')}</button>
       <span class="text-sm" style="color:var(--primary);font-weight:600">
-        ${c ? '🔍 ' + c.icon + ' ' + c.name : ''} ${__('stats.drill.subcategory')}
+        ${c ? '🔍 ' + escHtml(c.icon) + ' ' + escHtml(c.name) : ''} ${__('stats.drill.subcategory')}
       </span>
     `;
   } else {
@@ -232,8 +232,8 @@ function showDayRecords(dateStr) {
     html += `<div class="record-card compact" data-id="${r.id}" style="cursor:pointer;padding:6px 10px;margin-bottom:3px;border-radius:8px;border:1px solid var(--border);background:var(--card-bg);display:flex;align-items:center;gap:8px;font-size:0.82rem;transition:all 0.15s"
       onclick="openEditRecord('${r.id}')"
       onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border)'">
-      <span style="font-size:0.8rem">${cat.icon}</span>
-      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cat.name}</span>
+      <span style="font-size:0.8rem">${escHtml(cat.icon)}</span>
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(cat.name)}</span>
       ${r.note ? `<span class="text-xs text-muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100px">📝 ${escHtml(r.note)}</span>` : ''}
       <span style="font-weight:600;white-space:nowrap">${formatMoney(r.amount)}</span>
       <button class="btn btn-ghost btn-sm" style="padding:2px 4px;font-size:0.65rem;opacity:0.5;flex-shrink:0"
@@ -665,7 +665,7 @@ function renderPieTable(containerId) {
     }
     html += '>';
     html += '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';flex-shrink:0"></span>';
-    html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + d.cat.icon + ' ' + d.cat.name + '</span>';
+    html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(d.cat.icon) + ' ' + escHtml(d.cat.name) + '</span>';
     if (d.path && d.path.length > 1) {
       html += '<span style="color:var(--text-muted);opacity:0.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.7rem;padding-left:4px">' + d.path.slice(0, -1).join(' › ') + '</span>';
     }
@@ -984,7 +984,7 @@ function renderStats() {
       <div class="card">
         <div class="card-title">${__('stats.maxTransaction')}</div>
         <div class="text-xl font-bold" style="color:var(--danger)">${formatMoney(maxAmount)}</div>
-        ${maxCat ? `<div class="text-xs text-muted mt-4">${maxCat.icon} ${maxCat.name}</div>` : ''}
+        ${maxCat ? `<div class="text-xs text-muted mt-4">${escHtml(maxCat.icon)} ${escHtml(maxCat.name)}</div>` : ''}
       </div>
       <div class="card">
         <div class="card-title">${__('stats.maxSpendingDay')}</div>

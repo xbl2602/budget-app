@@ -105,6 +105,49 @@ const DataStore = {
   _sanitizeEntities(data) {
     if (!data || typeof data !== 'object') return data;
 
+    // Markup-safety of the fields that the UI interpolates into HTML attributes
+    // (onclick="edit('${id}')", style="background:${color}") or raw into text
+    // (${icon}). Data can arrive from a LAN peer, an imported file or the cloud, and
+    // the CSP allows inline handlers, so a hostile id/icon/color is script execution.
+    // Valid values pass through untouched; only unsafe ones are dropped or replaced.
+    const SAFE_ID = /^[A-Za-z0-9_.:\-]{1,100}$/;
+    const SAFE_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+    const safeId = v => typeof v === 'string' && SAFE_ID.test(v);
+    const cleanIcon = v => {
+      if (typeof v !== 'string') return v;
+      const s = v.replace(/[&<>"'`\\]/g, '');
+      return s.length > 24 ? '📁' : s;
+    };
+    const cleanEntity = (e, fallbackColor) => {
+      if (Object.prototype.hasOwnProperty.call(e, 'icon')) e.icon = cleanIcon(e.icon);
+      if (Object.prototype.hasOwnProperty.call(e, 'color') && !SAFE_COLOR.test(String(e.color))) e.color = fallbackColor;
+      return e;
+    };
+    if (Array.isArray(data.categories)) {
+      data.categories = data.categories.filter(c => c && safeId(c.id) && (c.parentId == null || safeId(c.parentId)))
+        .map(c => cleanEntity(c, '#6366F1'));
+    }
+    if (Array.isArray(data.billCategories)) {
+      data.billCategories = data.billCategories.filter(c => c && safeId(c.id)).map(c => cleanEntity(c, '#6366F1'));
+    }
+    if (Array.isArray(data.contacts)) {
+      data.contacts = data.contacts.filter(c => c && safeId(c.id));
+    }
+    if (Array.isArray(data.records)) {
+      data.records = data.records.filter(r => r && safeId(r.id));
+      data.records.forEach(r => {
+        if (r.categoryId != null && !safeId(r.categoryId)) r.categoryId = 'uncategorized';
+        if (r.splitBillId != null && !safeId(r.splitBillId)) delete r.splitBillId;
+      });
+    }
+    if (Array.isArray(data.splitBills)) {
+      data.splitBills = data.splitBills.filter(b => b && safeId(b.id));
+      data.splitBills.forEach(b => { if (b.categoryId != null && !safeId(b.categoryId)) b.categoryId = 'uncategorized'; });
+    }
+    if (Array.isArray(data.purchasePlans)) {
+      data.purchasePlans = data.purchasePlans.filter(p => p && safeId(p.id));
+    }
+
     if (Array.isArray(data.splitBills)) {
       const seen = new Set();
       data.splitBills = data.splitBills.filter(b => {
@@ -170,6 +213,9 @@ const DataStore = {
 
     // 2. Drop malformed entities
     this._sanitizeEntities(data);
+    if (!data.categories.length) {
+      data.categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
+    }
 
     // 3. Historical migrations
     this._migrateSplitRecordCategories(data);

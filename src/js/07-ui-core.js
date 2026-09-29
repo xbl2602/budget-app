@@ -117,8 +117,8 @@ function openBillsCenter() {
       const amt = amounts[cat.id] || '';
       billListHtml +=
         `<div class="bills-list-item" data-bill-id="${cat.id}">` +
-          `<span class="bills-cat-icon" onclick="editBillCategory('${cat.id}')" title="${__('ui.bills.editHint')}">${cat.icon}</span>` +
-          `<span style="flex:1;font-weight:500;cursor:pointer" onclick="editBillCategory('${cat.id}')">${cat.name}</span>` +
+          `<span class="bills-cat-icon" onclick="editBillCategory('${cat.id}')" title="${__('ui.bills.editHint')}">${escHtml(cat.icon)}</span>` +
+          `<span style="flex:1;font-weight:500;cursor:pointer" onclick="editBillCategory('${cat.id}')">${escHtml(cat.name)}</span>` +
           `<div style="display:flex;align-items:center;gap:4px">` +
             `<span style="font-size:0.75rem;color:var(--text-muted)">RM</span>` +
             `<input type="number" class="input-field bills-amount-input" value="${amt}" placeholder="0" min="0" step="0.01" onchange="saveBillAmount('${cat.id}', this.value)">` +
@@ -239,11 +239,11 @@ function editBillCategory(id) {
     <div class="modal-title">${__('ui.bills.editTitle')}</div>
     <div class="input-group">
       <label class="input-label">${__('ui.bills.nameLabel')}</label>
-      <input type="text" id="editBillCatName" class="input-field" value="${cat.name}" placeholder="${__('ui.bills.namePlaceholder')}">
+      <input type="text" id="editBillCatName" class="input-field" value="${escHtml(cat.name)}" placeholder="${__('ui.bills.namePlaceholder')}">
     </div>
     <div class="input-group">
       <label class="input-label">${__('ui.bills.iconLabel')}</label>
-      <input type="text" id="editBillCatIcon" class="input-field" value="${cat.icon}" placeholder="📄" style="font-size:1.5rem">
+      <input type="text" id="editBillCatIcon" class="input-field" value="${escHtml(cat.icon)}" placeholder="📄" style="font-size:1.5rem">
     </div>
     <div class="input-group">
       <label class="input-label">${__('ui.bills.colorLabel')}</label>
@@ -283,8 +283,8 @@ function openBillCategoryManager() {
         <div class="flex items-center justify-between" style="padding:8px 4px;border-bottom:1px solid var(--border)">
           <div class="flex items-center gap-8" style="cursor:pointer" onclick="closeModal();editBillCategory('${cat.id}')">
             <span style="width:12px;height:12px;border-radius:50%;background:${cat.color};display:inline-block"></span>
-            <span style="font-size:1.2rem">${cat.icon}</span>
-            <span>${cat.name}</span>
+            <span style="font-size:1.2rem">${escHtml(cat.icon)}</span>
+            <span>${escHtml(cat.name)}</span>
           </div>
           <button class="btn btn-ghost btn-sm" style="color:var(--danger);font-size:0.7rem" onclick="deleteBillCategoryFromCenter('${cat.id}')">${__('ui.bills.deleteButton')}</button>
         </div>

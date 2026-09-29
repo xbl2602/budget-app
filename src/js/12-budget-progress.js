@@ -85,7 +85,7 @@ function showBudgetSelector(month) {
     html += '<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;border-radius:var(--radius-sm);transition:background 0.15s;margin-bottom:2px' + (isChild ? ';margin-left:24px;font-size:0.85rem' : '') + '" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">';
     html += '<input type="checkbox" class="budget-sel-cb" value="' + cat.id + '" ' + (checked ? 'checked' : '') + ' style="width:18px;height:18px;cursor:pointer">';
     html += '<span style="width:10px;height:10px;border-radius:50%;background:' + cat.color + ';display:inline-block"></span>';
-    html += '<span>' + (isChild ? '↳ ' : '') + cat.icon + ' ' + cat.name + '</span>';
+    html += '<span>' + (isChild ? '↳ ' : '') + escHtml(cat.icon) + ' ' + escHtml(cat.name) + '</span>';
     html += '</label>';
   });
   
@@ -273,8 +273,8 @@ function renderBudgetProgressCardInner(month) {
 
     html += '<div style="margin-bottom:10px">';
     html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">';
-    html += '<span>' + r.cat.icon + '</span>';
-    html += '<span class="font-semibold" style="font-size:0.85rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + r.cat.name + '</span>';
+    html += '<span>' + escHtml(r.cat.icon) + '</span>';
+    html += '<span class="font-semibold" style="font-size:0.85rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(r.cat.name) + '</span>';
     html += '<span style="font-size:0.78rem;font-weight:600">' + formatMoney(r.spent) + '</span>';
     html += '<span class="text-xs text-muted">/ ' + formatMoney(r.budget) + '</span>';
     html += '<span style="font-size:0.8rem;font-weight:700;color:' + pBarColor + ';width:48px;text-align:right">' + r.pct.toFixed(0) + '%</span>';
@@ -296,7 +296,7 @@ function renderBudgetProgressCardInner(month) {
           const segW = segFillRatio * totalFillPct;
           if (segW > 0) {
             const segColor = (cd.cat.color === r.cat.color) ? COLORS[ci % COLORS.length] : cd.cat.color;
-            html += '<div style="height:100%;width:' + segW + '%;background:' + segColor + ';border-radius:2px;min-width:4px" title="' + cd.cat.name + ': ' + formatMoney(cd.total) + '"></div>';
+            html += '<div style="height:100%;width:' + segW + '%;background:' + segColor + ';border-radius:2px;min-width:4px" title="' + escHtml(cd.cat.name) + ': ' + formatMoney(cd.total) + '"></div>';
           }
         });
         const directSpent = r.spent - r.childData.reduce((s, cd) => s + cd.total, 0);
@@ -320,7 +320,7 @@ function renderBudgetProgressCardInner(month) {
         html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:3px">';
         r.childData.forEach((cd, ci) => {
           const dotColor = (cd.cat.color === r.cat.color) ? COLORS[ci % COLORS.length] : cd.cat.color;
-          html += '<span style="font-size:0.65rem;color:var(--text-muted);display:flex;align-items:center;gap:2px"><span style="width:6px;height:6px;border-radius:50%;background:' + dotColor + ';display:inline-block"></span>' + cd.cat.name + ' ' + formatMoney(cd.total) + '</span>';
+          html += '<span style="font-size:0.65rem;color:var(--text-muted);display:flex;align-items:center;gap:2px"><span style="width:6px;height:6px;border-radius:50%;background:' + dotColor + ';display:inline-block"></span>' + escHtml(cd.cat.name) + ' ' + formatMoney(cd.total) + '</span>';
         });
         html += '</div>';
       }
@@ -333,8 +333,8 @@ function renderBudgetProgressCardInner(month) {
       html += '<div style="margin-bottom:6px;margin-left:16px">';
       html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">';
       html += '<span class="text-xs text-muted" style="flex-shrink:0">↳</span>';
-      html += '<span>' + cr.cat.icon + '</span>';
-      html += '<span class="font-semibold" style="font-size:0.78rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + cr.cat.name + '</span>';
+      html += '<span>' + escHtml(cr.cat.icon) + '</span>';
+      html += '<span class="font-semibold" style="font-size:0.78rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(cr.cat.name) + '</span>';
       html += '<span class="text-xs text-muted" style="flex-shrink:0">(' + cr.parentName + ')</span>';
       html += '<span style="font-size:0.78rem;font-weight:600">' + formatMoney(cr.spent) + '</span>';
       html += '<span class="text-xs text-muted">/ ' + formatMoney(cr.budget) + '</span>';

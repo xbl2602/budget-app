@@ -328,7 +328,7 @@ function renderOverview() {
         <div class="card-title" style="color:var(--danger)">${__('overview.overspendWarning')}</div>
         ${overspent.map(o => `
           <div class="flex items-center justify-between" style="padding:4px 0">
-            <span>${o.category.icon} ${o.category.name}</span>
+            <span>${escHtml(o.category.icon)} ${escHtml(o.category.name)}</span>
             <span style="color:var(--danger);font-weight:600">${formatMoney(o.total)} (${o.percent.toFixed(0)}%)</span>
           </div>
         `).join('')}
