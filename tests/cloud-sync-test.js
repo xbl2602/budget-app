@@ -146,6 +146,10 @@ function fixture(dev,tag){
     purchasePlans:[],allTags:['工作'],tagColors:{}};
 }
 const rec=(dev,id,note,extra)=>Object.assign({id,amount:1,categoryId:dev.DS.getCategories()[0].id,date:'2026-09-10T10:00',note,tags:[],createdAt:T0},extra||{});
+// updateRecord() always stamps updatedAt=now(), which makes "use whichever is
+// newer" tests non-deterministic (both edits land within the same millisecond
+// range). Mutate directly + save() when the test needs to control the stamp.
+const setNote=(dev,id,note,stamp)=>{const r=dev.DS._data.records.find(x=>x.id===id);r.note=note;if(stamp)r.updatedAt=stamp;dev.DS.save();};
 const INVITE='TESTINVITE-AAAA-BBBB-CCCC';
 async function enableNew(dev,cloud,invite){
   cloud.addInvite(invite||INVITE);
@@ -622,6 +626,95 @@ await pair();
   const r3=await sync(A);
   ok('然后稳定：不再有新版本', r3.status==='ok'&&cloud.count('ledger_push')>=2);
 }
+L('【G7】两边真正冲突的记录/账单：先问，不再自动按较新为准偷偷处理；只有一边有的照常自动合并');
+await pair();
+{
+  setNote(A,'r2','A 改的午餐','2026-09-05T00:00:00.000Z');
+  const aOnly=A.DS.addRecord(rec(A,null,'A 独有',{updatedAt:T0}));   // addRecord() 自己生成 id，忽略传入的
+  await sync(A);   // 云端现在 = fixture + r2(A 改) + aOnly
+  setNote(B,'r2','B 改的午餐','2026-09-06T00:00:00.000Z');   // 跟 A 冲突，且更新
+  B.DS.deleteRecord('r3');                          // 只有 B 动过，A 没碰 → 无争议的删除，不算冲突
+  const bOnly=B.DS.addRecord(rec(B,null,'B 独有',{updatedAt:T0}));
+  const before=canonOf(B,B.DS._data);
+  const r=await sync(B);
+  ok('检测到两边真冲突，先问，不直接合并', r.status==='awaiting'&&r.type==='conflicts', JSON.stringify(r));
+  ok('问之前本机账本一字未动', canonOf(B,B.DS._data)===before&&B.LS.getItem('budgetAppData')===JSON.stringify(B.DS._data));
+  const a=B.CS._state.awaiting;
+  ok('只有 r2 这一条是真冲突（无争议的删除不算）', a.pairs.length===1&&a.pairs[0].coll==='records'&&a.pairs[0].id==='r2');
+  ok('冲突里带的是完整的两边版本，不是摘要', a.pairs[0].local.note==='B 改的午餐'&&a.pairs[0].remote.note==='A 改的午餐');
+  ok('只有一边有的两条，分别归到「只有本机」「只有对方」，不需要用户选操作',
+    a.singles.length===2
+    &&a.singles.some(s=>s.side==='local'&&s.item.id===bOnly.id)
+    &&a.singles.some(s=>s.side==='remote'&&s.item.id===aOnly.id));
+}
+L('【G7 操作】以本机为准 / 以对方为准 / 以最新为准 / 修改后覆盖两者 / 待定，五种操作分别验证');
+await pair();
+{
+  const conflictOn=async(noteA,noteB,stampA,stampB)=>{
+    await pair();
+    setNote(A,'r2',noteA,stampA);await sync(A);
+    setNote(B,'r2',noteB,stampB);
+    const r=await sync(B);
+    return { r, key:B.CS._t.conflictKey(B.CS._state.awaiting.pairs[0]) };
+  };
+  {
+    const {key}=await conflictOn('A1','B1',T0,T0);
+    await B.CS._t.resolveConflicts({[key]:{action:'local'}});await sync(A);
+    ok('「以本机为准」：本机（B）的版本赢，另一台也拿到它', B.DS._data.records.find(x=>x.id==='r2').note==='B1'&&A.DS._data.records.find(x=>x.id==='r2').note==='B1');
+  }
+  {
+    const {key}=await conflictOn('A2','B2',T0,T0);
+    await B.CS._t.resolveConflicts({[key]:{action:'remote'}});await sync(A);
+    ok('「以对方为准」：对方（A）的版本赢', B.DS._data.records.find(x=>x.id==='r2').note==='A2'&&A.DS._data.records.find(x=>x.id==='r2').note==='A2');
+  }
+  {
+    const {key}=await conflictOn('较旧','较新','2026-01-01T00:00:00.000Z','2026-06-01T00:00:00.000Z');
+    await B.CS._t.resolveConflicts({[key]:{action:'newer'}});await sync(A);
+    ok('「以最新为准」：比较 updatedAt，较新的赢（这里是本机 B 自己的）', B.DS._data.records.find(x=>x.id==='r2').note==='较新'&&A.DS._data.records.find(x=>x.id==='r2').note==='较新');
+  }
+  {
+    const {key}=await conflictOn('A4','B4',T0,T0);
+    const edited=Object.assign({},B.DS._data.records.find(x=>x.id==='r2'),{note:'手动改的最终版',amount:99});
+    await B.CS._t.resolveConflicts({[key]:{action:'edit',value:edited}});await sync(A);
+    ok('「修改后覆盖两者」：两边都变成编辑后的那一版', B.DS._data.records.find(x=>x.id==='r2').note==='手动改的最终版'&&B.DS._data.records.find(x=>x.id==='r2').amount===99
+      &&A.DS._data.records.find(x=>x.id==='r2').note==='手动改的最终版'&&A.DS._data.records.find(x=>x.id==='r2').amount===99);
+  }
+  {
+    const {key}=await conflictOn('A5','B5',T0,T0);
+    const beforeB=canonOf(B,B.DS._data),cloudVBefore=cloud.onlyRow().version;
+    const r2=await B.CS._t.resolveConflicts({[key]:{action:'defer'}});
+    // 一条 blob 只能有一个版本，没法「这条先不定，其它照样推上去」——选了待定就等于
+    // 这一轮什么都不提交（不然推上去的那份就悄悄替对方拍了板，跟「待定」的意思相反）。
+    ok('「待定」：这一轮什么都不提交，云端版本不变', r2.status==='paused'&&cloud.onlyRow().version===cloudVBefore, JSON.stringify(r2));
+    ok('   本机（B）自己这条完全没变', canonOf(B,B.DS._data)===beforeB);
+    const r3=await sync(B);
+    ok('   下次同步，这条还没解决，会再问一次（不会被悄悄吃掉）', r3.status==='awaiting'&&r3.type==='conflicts');
+    await B.CS._t.resolveConflicts({[key]:{action:'local'}});
+    ok('   等真的选了一个操作（不是待定），才会推进', B.DS._data.records.find(x=>x.id==='r2').note==='B5'&&cloud.onlyRow().version>cloudVBefore);
+  }
+}
+L('【G7 delete-vs-edit】一边删了、一边改了同一条：也算真冲突，配对里那一侧显示为空');
+await pair();
+{
+  A.DS.deleteRecord('r2');await sync(A);
+  setNote(B,'r2','B 在改它');
+  const r=await sync(B);
+  ok('检测为冲突', r.status==='awaiting'&&r.type==='conflicts');
+  const p=B.CS._state.awaiting.pairs[0];
+  ok('本机（B）一侧是完整记录，对方（A）一侧是空（已删除）', p.local&&p.local.note==='B 在改它'&&p.remote===null);
+  const key=B.CS._t.conflictKey(p);
+  await B.CS._t.resolveConflicts({[key]:{action:'remote'}});
+  ok('选「以对方为准」等于接受删除：本机也删掉了', !B.DS._data.records.some(x=>x.id==='r2'));
+}
+L('【G7 分摊账单】splitBills 同样受保护：两边都改了同一张账单会先问');
+await pair();
+{
+  const ba=A.DS._data.splitBills[0];ba.note='A 改的账单';ba.updatedAt='2026-09-05T00:00:00.000Z';A.DS.save();
+  await sync(A);
+  const bb=B.DS._data.splitBills[0];bb.note='B 改的账单';bb.updatedAt='2026-09-06T00:00:00.000Z';B.DS.save();
+  const r=await sync(B);
+  ok('分摊账单的冲突也会先问', r.status==='awaiting'&&r.type==='conflicts'&&B.CS._state.awaiting.pairs[0].coll==='splitBills', JSON.stringify(r));
+}
 L('【P2】关页时没传出的改动，下次启动自动补传');
 await pair();
 {
@@ -650,7 +743,17 @@ await pair();
   A.DS.addRecord(rec(A,'','A 的'));B.DS.addRecord(rec(B,'','B 的'));
   A.DS.updateRecord('r2',{note:'A 改的午餐'});B.DS.updateRecord('r2',{note:'B 改的午餐'});
   const versions=[];
-  for(const d of [A,B,A,B,A,B]){await sync(d);versions.push(cloud.onlyRow().version);}
+  // r2 的 note 两边都改了：G7 会先问，这里用「以最新为准」替它做决定，跟旧算法的
+  // 默认行为一致，好复用下面「最终收敛」的断言。
+  for(const d of [A,B,A,B,A,B]){
+    let r=await sync(d);
+    if(r.status==='awaiting'&&r.type==='conflicts'){
+      const map={};
+      d.CS._state.awaiting.pairs.forEach(p=>{map[d.CS._t.conflictKey(p)]={action:'newer'};});
+      r=await d.CS._t.resolveConflicts(map);
+    }
+    versions.push(cloud.onlyRow().version);
+  }
   ok('版本序列在第 3 步之后不再增长：'+versions.join('→'), versions[2]===versions[5]&&versions[3]===versions[5], versions.join(','));
   ok('两台设备的账本最终一致', canonOf(A,A.DS._data)===canonOf(B,B.DS._data));
   ok('两边的新增都在，同一字段的冲突已记录', A.DS._data.records.some(x=>x.note==='A 的')&&A.DS._data.records.some(x=>x.note==='B 的'));
@@ -811,6 +914,33 @@ await reset(B,cloud);
   ok('输对后按钮可点', go.disabled===false);
   await B.CS.ui.loginGo();
   ok('登录成功：账本恢复、同步启用', B.CS.isEnabled()&&B.DS._data.records.length>0&&canonOf(B,B.DS._data)===canonOf(A,A.DS._data));
+}
+L('【界面】冲突解决大弹窗：三栏（本机/对方/操作）、单侧的只显示一条、确认按钮等全选完才可点');
+await pair();
+{
+  setNote(A,'r2','A 改的午餐',T0);
+  const aOnly=A.DS.addRecord(rec(A,null,'A 独有'));
+  await sync(A);
+  setNote(B,'r2','B 改的午餐',T0);
+  const bOnly=B.DS.addRecord(rec(B,null,'B 独有'));
+  await sync(B);await sleep(30);   // 确认框是下一个 tick 才弹出的（跟其它 awaiting 一样）
+  const modal=()=>B.doc.getElementById('modalContent');
+  ok('弹窗打开了', B.doc.getElementById('modalOverlay').classList.contains('open'));
+  ok('#modalContent 加了 modal-wide（三栏放得下）', modal().classList.contains('modal-wide'));
+  const rows=modal().querySelectorAll('.conflict-row');
+  ok('一共 3 行：1 组成对冲突 + 2 条单侧记录各占一行', rows.length===3, String(rows.length));
+  ok('成对的那一行不是 is-single：本机/对方两栏都有内容', [...rows].filter(r=>!r.classList.contains('is-single')).length===1);
+  ok('单侧的两行都是 is-single：只占一栏，各显示一条', [...rows].filter(r=>r.classList.contains('is-single')).length===2);
+  const confirmBtn=B.doc.getElementById('cfConfirmBtn');
+  ok('冲突还没选操作之前，确认按钮是禁用的', confirmBtn.disabled===true);
+  const key=B.CS._t.conflictKey(B.CS._state.awaiting.pairs[0]);
+  B.CS.ui.cfPick(key,'local');
+  ok('选完这一条操作后，确认按钮可点了（只有 1 组冲突）', B.doc.getElementById('cfConfirmBtn').disabled===false);
+  B.CS.ui.cfConfirm();await sleep(300);
+  ok('确认后弹窗关闭', !B.doc.getElementById('modalOverlay').classList.contains('open'));
+  ok('   #modalContent 的加宽样式也撤掉了，不会串到下一个弹窗', !B.doc.getElementById('modalContent').classList.contains('modal-wide'));
+  ok('   选择生效：本机（B）的版本赢了', B.DS._data.records.find(x=>x.id==='r2').note==='B 改的午餐');
+  ok('   单侧的两条都照常保留，没有因为在同一批冲突里而被要求处理', B.DS._data.records.some(x=>x.id===aOnly.id)&&B.DS._data.records.some(x=>x.id===bOnly.id));
 }
 
 /* ============================================================

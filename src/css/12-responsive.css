@@ -288,6 +288,11 @@
   pointer-events: auto;
 }
 
+@media (max-width: 680px) {
+  .conflict-row, .conflict-row.is-single { grid-template-columns: 1fr; }
+  .conflict-actions { flex-direction: row; flex-wrap: wrap; }
+}
+
 /* ===== SETTINGS NAV CARD ===== */
 
 .settings-nav-card {

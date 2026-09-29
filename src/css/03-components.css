@@ -128,6 +128,28 @@ body.modal-open {
   box-shadow: var(--shadow-lg);
 }
 
+/* Wide variant — for content that genuinely needs more room, e.g. the sync
+   conflict resolver's side-by-side A / B / operation columns. Toggled by JS
+   on #modalContent for the one modal that needs it, removed when it closes. */
+.modal-content.modal-wide { width: min(96vw, 1160px); max-width: min(96vw, 1160px); }
+
+/* Sync conflict resolver: one row per contested record/split bill — this
+   device's copy, the other side's copy, and the operations to pick between.
+   A one-sided row (only one device has the item) collapses to a single cell. */
+.conflict-list { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 16px; }
+.conflict-row {
+  display: grid; grid-template-columns: 1fr 1fr 168px; gap: 10px; align-items: start;
+  padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+.conflict-row.is-single { grid-template-columns: 1fr; }
+.conflict-col { min-width: 0; font-size: 0.8rem; line-height: 1.5; overflow-wrap: break-word; }
+.conflict-col-label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; }
+.conflict-col-empty { color: var(--text-muted); font-size: 0.78rem; font-style: italic; }
+.conflict-actions { display: flex; flex-direction: column; gap: 6px; }
+.conflict-actions .btn { justify-content: flex-start; text-align: left; white-space: normal; }
+.conflict-actions .btn.is-picked { outline: 2px solid var(--primary); outline-offset: -2px; }
+.conflict-edit-form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+
 .modal-title {
   font-size: 1.1rem;
   font-weight: 700;
