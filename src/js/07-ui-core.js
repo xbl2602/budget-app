@@ -67,6 +67,94 @@ function closeModal() {
 }
 
 /* ============================================================
+   MODAL QUEUE — generic arbitration between competing modals
+   ============================================================
+   showModal() writes into a single #modalContent, so a modal raised while
+   another one is open silently replaces it. That has already cost a real bug
+   (commit 107d6e8, "the mass-delete confirm box gets swallowed by other
+   modals"), and the same race exists between the changelog announcement, the
+   month-rollover reminder, plan due dialogs and the sync conflict resolver.
+
+   This is the opt-in generic fix: a requester says WHAT it wants to show and
+   at WHAT priority, and the queue shows one at a time, lowest number first.
+   It never preempts a modal the user is already looking at — a queued modal
+   simply waits for #modalOverlay to close, however that happens.
+
+   Priority scale (lower = sooner):
+     1  cloud sync conflict / mass-delete approval
+     2  purchase plan due
+     3  month rollover reminder
+     9  changelog announcement  ← always yields
+
+   28-cloud-sync.js has its own inline MutationObserver for the same job; it
+   is deliberately left alone here so the sync feature is not destabilised.
+   Migrating it is a separate, later change.
+   ============================================================ */
+const ModalQueue = (function() {
+  const pending = [];              // [{priority, seq, id, show}]
+  let observer = null;
+  let draining = false;
+  let seq = 0;
+
+  function isOpen() {
+    const o = document.getElementById('modalOverlay');
+    return !!(o && o.classList.contains('open'));
+  }
+
+  // Show queued items until one of them actually opens the overlay. A `show`
+  // that decides to do nothing must not block the rest of the queue.
+  function drain() {
+    if (draining) return;
+    draining = true;
+    try {
+      let guard = 0;
+      while (pending.length && !isOpen() && guard++ < 20) {
+        pending.sort(function(a, b) { return (a.priority - b.priority) || (a.seq - b.seq); });
+        const item = pending.shift();
+        try { item.show(); } catch (e) { console.error('[ModalQueue] show failed:', e); }
+      }
+    } finally { draining = false; }
+  }
+
+  // Retry the moment #modalOverlay closes, however it was closed.
+  function watch() {
+    if (observer) return;
+    const o = document.getElementById('modalOverlay');
+    if (!o || typeof MutationObserver !== 'function') return;
+    observer = new MutationObserver(function() {
+      if (isOpen()) return;
+      observer.disconnect();
+      observer = null;
+      drain();
+    });
+    observer.observe(o, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  return {
+    /**
+     * @param {number} priority  lower shows first; 9 = always yields
+     * @param {string} id        stable identity; re-requesting the same id
+     *                           replaces the earlier one instead of stacking
+     * @param {Function} show    called with no args once it is this item's turn
+     * @returns {boolean} true if it was shown right away, false if it is waiting
+     */
+    request(priority, id, show) {
+      if (typeof show !== 'function') return false;
+      for (let i = 0; i < pending.length; i++) {
+        if (pending[i].id === id) { pending.splice(i, 1); break; }
+      }
+      pending.push({ priority: typeof priority === 'number' ? priority : 5,
+                     seq: seq++, id: String(id), show: show });
+      if (isOpen()) { watch(); return false; }
+      drain();
+      return isOpen();
+    },
+    isBusy() { return isOpen() || pending.length > 0; },
+    depth() { return pending.length; }
+  };
+})();
+
+/* ============================================================
    BILLS CENTER MODAL
    ============================================================ */
 function openBillsCenter() {
@@ -818,6 +906,7 @@ function bindActivityListeners() {
   window.showToast = showToast;
   window.showModal = showModal;
   window.closeModal = closeModal;
+  window.ModalQueue = ModalQueue;
   window.openBillsCenter = openBillsCenter;
   window.closeBillsCenter = closeBillsCenter;
   window.saveBillIncome = saveBillIncome;

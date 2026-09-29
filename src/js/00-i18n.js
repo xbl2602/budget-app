@@ -116,20 +116,14 @@ function applyI18nToDOM() {
     el.textContent = translation;
   });
 
-  // Translate <title> if it has data-i18n
-  var titleEl = document.querySelector('title[data-i18n]');
-  if (titleEl) {
-    var key = titleEl.getAttribute('data-i18n');
-    var titleArgs = [];
-    var argIndex = 0;
-    while (true) {
-      var argVal = titleEl.getAttribute('data-i18n-arg-' + argIndex);
-      if (argVal === null) break;
-      titleArgs.push(argVal);
-      argIndex++;
-    }
-    titleEl.textContent = __.apply(null, [key].concat(titleArgs));
-  }
+  // <title> is set from app.name + APP_VERSION rather than via data-i18n.
+  // It used to carry data-i18n="app.name", which made the generic loop above
+  // overwrite it with just the app name — the version in the tab was silently
+  // dropped and never displayed. APP_VERSION lives in 01-constants.js, which
+  // loads after this file; it is read here at call time, not at load time.
+  var appName = __('app.name');
+  var ver = (typeof window !== 'undefined' && window.APP_VERSION) ? window.APP_VERSION : '';
+  document.title = ver ? appName + ' v' + ver : appName;
 
   // Handle data-i18n-title (for title attribute translation)
   document.querySelectorAll('[data-i18n-title]').forEach(function(el) {

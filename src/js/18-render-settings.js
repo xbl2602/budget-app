@@ -219,10 +219,17 @@ function renderSettings() {
     </div>
     <!-- Data Inspector (Diagnostics) -->
     ${renderDataInspector()}
+    <!-- Changelog: manual access, always browsable, never marks anything read -->
+    <div style="text-align:center;padding:12px 0 4px">
+      <button class="btn btn-ghost btn-sm" onclick="Changelog.open()" style="font-size:0.8rem">📣 ${__('changelog.settings')}</button>
+      <div class="text-xs text-muted" style="margin-top:6px;line-height:1.4">
+        ${__('changelog.settingsHint')}
+      </div>
+    </div>
     <div style="text-align:center;padding:12px 0 4px">
       <button class="btn btn-ghost btn-sm" onclick="refreshPageData()" style="font-size:0.8rem">🔄 ${__('settings.refreshPage')}</button>
     </div>
-    <div style="text-align:center;padding:8px 0 8px;font-size:0.65rem;color:var(--text-muted);opacity:0.5">v3.3.0</div>
+    <div style="text-align:center;padding:8px 0 8px;font-size:0.65rem;color:var(--text-muted);opacity:0.5">v${APP_VERSION}</div>
   `;
   // Set current locale in language switcher
   var sel = document.getElementById('localeSelect');
@@ -363,7 +370,7 @@ function exportDiagnosticLog() {
   }
   let text = '=== Budget App Diagnostic Log ===\n';
   text += 'Exported: ' + new Date().toISOString() + '\n';
-  text += 'Version: v3.3.0\n';
+  text += 'Version: v' + APP_VERSION + '\n';
   text += 'Records: ' + DataStore.getRecords().length + '\n';
   text += 'Pending Delete: ' + (DataStore.getPendingDelete() ? DataStore.getPendingDelete().id : 'none') + '\n';
   text += 'LocalStorage: ' + (localStorage.getItem('budgetAppData') || '').length + ' bytes\n';

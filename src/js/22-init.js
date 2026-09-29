@@ -17,6 +17,8 @@ function _bootstrap() {
   } else {
     checkMonthRollover();
     applyTheme();
+    // Changelog: queued, so it yields to the rollover reminder above.
+    if (typeof Changelog !== 'undefined') Changelog.checkAndShow();
   }
   console.log('[INIT] _bootstrap complete');
 }
@@ -37,6 +39,9 @@ function initApp() {
   applyTheme();
   handleHash();
   applyI18nToDOM();
+  // Changelog runs here rather than in _bootstrap() when a PIN is set, so it
+  // never raises itself before the ledger has been unlocked.
+  if (typeof Changelog !== 'undefined') Changelog.checkAndShow();
   // Purchase plans wait for unlock before syncing records / raising due dialogs
   if (typeof planBootstrap === 'function') setTimeout(planBootstrap, 800);
   console.log('[INIT] initApp() complete');

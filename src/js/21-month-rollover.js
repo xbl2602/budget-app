@@ -40,16 +40,23 @@ function showBillRolloverReminder(lastMonth, currentMonth) {
   const total = Object.values(lastAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0);
   const year = currentMonth.split('-')[0];
   const mon = currentMonth.split('-')[1];
-  showModal(`
-    <div class="modal-title">${__('rollover.title')}</div>
-    <div style="padding:8px 0 16px">
-      <p style="margin-bottom:12px">${__('rollover.message', formatMoney(total))}</p>
-      <div class="flex flex-col gap-8">
-        <button class="btn btn-primary" onclick="closeModal();openBillsCenter()">${__('rollover.adjustBtn')}</button>
-        <button class="btn btn-ghost" onclick="closeModal();if(currentTab==='overview')renderOverview();else if(currentTab==='stats')renderStats();">${__('rollover.keepBtn')}</button>
+  // Goes through ModalQueue: this fires 500ms after startup, which is exactly
+  // when a version announcement is on screen. Calling showModal() directly here
+  // replaced it — and since the announcement marks itself read at display time,
+  // it was then never shown again. Priority 3 puts it ahead of the changelog (9)
+  // when both are waiting.
+  ModalQueue.request(3, 'month-rollover', function() {
+    showModal(`
+      <div class="modal-title">${__('rollover.title')}</div>
+      <div style="padding:8px 0 16px">
+        <p style="margin-bottom:12px">${__('rollover.message', formatMoney(total))}</p>
+        <div class="flex flex-col gap-8">
+          <button class="btn btn-primary" onclick="closeModal();openBillsCenter()">${__('rollover.adjustBtn')}</button>
+          <button class="btn btn-ghost" onclick="closeModal();if(currentTab==='overview')renderOverview();else if(currentTab==='stats')renderStats();">${__('rollover.keepBtn')}</button>
+        </div>
       </div>
-    </div>
-  `);
+    `);
+  });
 }
 
   // i18n translations

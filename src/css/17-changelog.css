@@ -1,0 +1,130 @@
+/* ============================================================
+   CHANGELOG ANNOUNCEMENT MODAL
+   ============================================================ */
+
+.cl-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin-bottom: 4px;
+}
+
+.cl-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+
+.cl-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+[data-theme="dark"] .cl-banner {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.38);
+}
+
+/* Arrows sit at the top-left / top-right of the content box (align-items:
+   flex-start) so they never drift to the vertical middle of a long entry. */
+.cl-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.cl-arrow {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast);
+}
+
+.cl-arrow:hover:not(:disabled) { background: var(--bg-hover); }
+.cl-arrow:active:not(:disabled) { transform: scale(0.94); }
+
+.cl-arrow:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.cl-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 52vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.cl-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 0;
+}
+
+.cl-item + .cl-item { border-top: 1px solid var(--border); }
+
+.cl-item-icon {
+  flex: 0 0 auto;
+  width: 20px;
+  text-align: center;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.cl-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.86rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.cl-item-text strong { color: var(--text-primary); }
+.cl-item-text code {
+  font-size: 0.82em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-secondary);
+}
+
+.cl-counter {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.cl-foot {
+  margin-top: 16px;
+}
+
+/* Narrow screens: shrink the arrows — a 92vw modal leaves them almost no room
+   next to the text. */
+@media (max-width: 480px) {
+  .cl-arrow { width: 28px; height: 28px; font-size: 1.1rem; }
+  .cl-content { max-height: 58vh; }
+}

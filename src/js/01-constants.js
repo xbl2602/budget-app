@@ -4,6 +4,18 @@
 (function() {
 'use strict';
 
+// The single source of truth for the app version. Every place that shows a
+// version number (settings footer, diagnostics export, <title>) reads this — do
+// not hardcode a version string anywhere else.
+//
+// NOTE: this is display only. It does NOT drive the changelog announcements in
+// 29-changelog.js: bumping APP_VERSION alone announces nothing, because the
+// changelog is keyed on the entry `id`, not on the version number. See
+// docs/superpowers/specs/2026-09-28-changelog-announcement-design.md.
+// Do not confuse this with the cloud ledger's monotonic integer `version` in
+// 28-cloud-sync.js — that is a different concept in a different IIFE.
+const APP_VERSION = '3.3.0';
+
 const COLORS = [
   '#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6',
   '#F97316','#06B6D4','#84CC16','#A855F7','#E11D48','#0EA5E9','#D97706'
@@ -93,6 +105,7 @@ function getPeriodDateRange() {
   });
 
   // === EXPORTS ===
+  window.APP_VERSION = APP_VERSION;
   window.COLORS = COLORS;
   window.DEFAULT_CATEGORIES = DEFAULT_CATEGORIES;
   window.escHtml = escHtml;

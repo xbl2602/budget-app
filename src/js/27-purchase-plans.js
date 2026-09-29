@@ -217,17 +217,23 @@ function checkPlanEvents() {
   if (!active.length) return;
   const state = PlanMath.computeUpTo(month);
 
-  // One dialog at a time — showModal replaces content, so stacking would hide all but the last
+  // One dialog at a time — showModal replaces content, so stacking would hide all but the last.
+  // Also queued: planBootstrap runs 800ms after unlock, which can land on top of a
+  // version announcement (priority 9). Priority 2 keeps plans ahead of it when
+  // both are waiting. See 21-month-rollover.js for the same fix and reason.
   const done = active.filter(p => state[p.id] && state[p.id].isComplete && !p.notifiedComplete);
   if (done.length) {
     const p = done[0];
     DataStore.updatePurchasePlan(p.id, { notifiedComplete: true, status: 'completed' });
-    showPlanCompleteDialog(p);
+    ModalQueue.request(2, 'plan-events', function() { showPlanCompleteDialog(p); });
     return;
   }
 
   const late = active.filter(p => state[p.id] && state[p.id].isOverdue && !p.overdueAsked);
-  if (late.length) showPlanOverdueDialog(late[0].id);
+  if (late.length) {
+    const id = late[0].id;
+    ModalQueue.request(2, 'plan-events', function() { showPlanOverdueDialog(id); });
+  }
 }
 
 function showPlanCompleteDialog(plan) {

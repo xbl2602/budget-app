@@ -59,6 +59,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `14-split.css` | 分摊收款 | `.split-form`, `.split-person-row`, `.split-contact-card`, `.split-paid-toggle`, `.split-partial-chip`, `.split-pay-list`, `.split-pay-row` |
 | `15-plans.css` | 大额分期计划 | `.plan-card`, `.plan-mode-btn`, `.plan-emoji-grid`, `.plan-month-picker`, `.plan-month-quick`, `.plan-span` |
 | `16-cloudsync.css` | 云端同步（状态胶囊 / 设置卡片 / 恢复码 / 历史 / 冲突） | `.cloud-pill(-ok/-busy/-warn/-bad)`, `.cloud-status(-*)`, `.cloud-dot`, `.cloud-code`, `.cloud-points`, `.cloud-error`, `.cloud-summary`, `.cloud-history-row`, `.cloud-conflicts`, `.cloud-conflict-row`（只用主题变量，深浅色自动适配） |
+| `17-changelog.css` | 版本公告弹窗 | `.cl-title`, `.cl-meta`, `.cl-banner`, `.cl-body`, `.cl-arrow`, `.cl-content`, `.cl-item`, `.cl-counter`, `.cl-foot` |
 
 ---
 
@@ -874,6 +875,35 @@ IIFE，导出 `window.CloudSync`：`notify` / `markBulk` / `isEnabled` / `render
 
 ---
 
+### 29. `29-changelog.js` — 版本公告
+
+启动时（或 PIN 解锁后）若检测到用户还没看过某些公告，弹一次说明弹窗。
+
+| 符号 | 说明 |
+|---|---|
+| `Changelog.register(entry)` | **通用注册口**：按 `id` 追加或替换一条公告，自动按 `date` 降序插入 |
+| `Changelog.all()` / `pending()` / `pendingCount()` | 全部公告 / 未读的那部分（已读标记之上的切片） |
+| `Changelog.lastSeenId()` / `markSeen(id)` | 读写已读标记 |
+| `Changelog.cmpVersion(a, b)` | 数值版本比较，**只给测试用**（断言没有条目超前于 `APP_VERSION`） |
+| `Changelog.checkAndShow()` | 启动钩子（`22-init.js` 两条路径各调一次） |
+| `Changelog.open()` | 设置页手动浏览**全部**公告，**不写**已读标记 |
+| `Changelog.next()` / `prev()` / `close()` | 弹窗内左右切换 / 关闭 |
+| 配套样式 | `src/css/17-changelog.css`（`.cl-banner`, `.cl-body`, `.cl-arrow`, `.cl-content`, `.cl-item`, `.cl-counter`） |
+
+**已读标记与版本号无关（重要）**：`APP_VERSION`（`01-constants.js`）只负责显示，**升版本号本身不触发任何公告**。标记记的是**条目 `id`**（存 `localStorage` 的 `budgetAppLastSeenChangelog`，明文、PIN 锁着时也能读），`pending()` 就是「注册表里排在它上面的那几条」。若按版本号比较，则任何没有升版本号的发布将**永远无法被公告** —— 用户标记读过 3.3.0，往 3.3.0 里加的新功能因 `3.3.0 > 3.3.0` 为假而永不弹出。
+
+> 因此 `cmpVersion` 存在但**不在运行路径上**。它的唯一用途是让 `tests/changelog-test.js` 能断言「没有哪条公告声称了比 `APP_VERSION` 更高的版本」。
+
+**发版流程（可复现性）**：在 `CHANGELOG` 头部插一条（新 `id`，填当前 `APP_VERSION`）→ 补中英文 i18n → `bash build.sh` → `node tests/changelog-test.js`。测试会挡住 `id` 重复、`date` 没按降序插、有条目 `items` 为空、以及版本号超前这四种错误。**要不要真的升 `APP_VERSION` 是另一个独立决定。**
+
+> 弹窗走 `ModalQueue`（`07-ui-core.js`）优先级 9，是最低的一档：它永远排在云同步冲突（1）、计划逾期（2）、月初结转（3）之后，且**不抢占**已经显示的弹窗 —— 这正是 commit `107d6e8` 修过的「弹窗互相吞」故障。
+>
+> `21-month-rollover.js`（500ms 后弹）与 `27-purchase-plans.js`（解锁后 800ms 弹）**也已接入该队列**，各一处包裹。原因：它们原先直接调 `showModal()`，正好落在公告显示之后，会把公告覆盖掉；而公告在**显示时**就写了已读标记（见下），被吞掉就**永远不会再出现**。`28-cloud-sync.js` 未接入 —— 它自己已有 `MutationObserver`（`:1221`）会让路。
+
+**已读标记在「显示时」写，不在「关闭时」写**：关闭弹窗与「让队列里下一个上位」发生在**同一个 mutation 批次**里，「关闭时写」会静默失效。代价是看完没关标签页也算已读。
+
+---
+
 ## 数据流
 
 ```
@@ -900,6 +930,9 @@ Canvas Drawing Functions / DOM innerHTML
 | `currentTab` | `06-router.js` | 当前页面标签 |
 | `selectedCategoryId` | `09-category-picker.js` | 分类选择器选中项 |
 | `recordsFilter`, `recordsPage`, `batchMode`, etc. | `15-render-records.js` | 流水页状态 |
+| `APP_VERSION` | `01-constants.js` | 版本号单一来源，**仅用于显示**（设置页页脚 / 诊断报告 / `<title>`） |
+| `ModalQueue` | `07-ui-core.js` | 弹窗仲裁队列。`request(priority, id, showFn)` 按优先级排队，**不抢占**已打开的弹窗 |
+| `Changelog` | `29-changelog.js` | 版本公告。`checkAndShow()` 走优先级 9；已读标记为 `localStorage['budgetAppLastSeenChangelog']` |
 | `expandedCategories` | `16-render-categories.js` | 分类展开集合 |
 | `statsMonth`, `statsDrillStack`, `showMonthCompare` | `17-stats-charts.js` | 统计页状态 |
 | `budgetProgressSort`, `budgetProgressView`, `budgetMonitoredIds` | `12-budget-progress.js` | 预算进度状态 |
@@ -971,6 +1004,7 @@ for t in tests/*.js; do node "$t"; done
 | `tests/plan-editor-bounds-test.js` | 大额计划编辑器：月份选择器与全部边界校验（13 月 / 期数 / 金额） |
 | `tests/partial-repayment-test.js` | 分摊部分还款：金额模型、三种分配方式、限制、收款对话框 |
 | `tests/structure-fixes-test.js` | 分类颜色继承与自定义图标、分摊编辑器字段、饼图标签几何 |
+| `tests/changelog-test.js` | 版本公告：已读标记切片、提示条、左右箭头（只有一条时也渲染但禁用）、**弹窗不抢占**（`107d6e8` 回归网）、**月初结转提醒不吞掉公告**、手动浏览不写标记、注册表不变量（id 唯一 / date 降序 / 无空 items / 无超前版本号） |
 | `tests/category-waffle-test.js` | 分类格子图：视图切换与持久化、与饼图共用数据/配色、下钻、密度独立、展开弹窗、标签格子图回归 |
 | `tests/category-treemap-test.js` | 分类矩形图：squarify 布局（面积正比、铺满、长宽比、越界）、按层级嵌套、子框在父框内、下钻、展开弹窗、canvas 分辨率跟随渲染尺寸 |
 | `tests/pin-lock-test.js` | PIN 锁不丢数据：设 PIN → 继续记账 → 锁定 → 解锁 / 改 PIN / 关 PIN / 重新打开标签页，各路径一条不少；读回校验失败时明文原样保留（22 条，驱动真实界面函数） |
