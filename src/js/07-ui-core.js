@@ -870,7 +870,7 @@ function bindActivityListeners() {
     'ui.pin.confirmButton': { zh: '确认', en: 'Confirm' },
     'ui.pin.pinTooShort': { zh: 'PIN码至少4位', en: 'PIN must be at least 4 digits' },
     'ui.pin.pinMismatch': { zh: '两次输入不一致', en: 'PINs do not match' },
-    'ui.pin.setSuccess': { zh: 'PIN码设置成功，数据已加密', en: 'PIN set successfully, data encrypted' },
+    'ui.pin.setSuccess': { zh: 'PIN码设置成功，锁定时数据加密保存', en: 'PIN set — data is encrypted while locked' },
     'ui.pin.changePinTitle': { zh: '修改PIN码', en: 'Change PIN' },
     'ui.pin.currentPinLabel': { zh: '当前PIN码', en: 'Current PIN' },
     'ui.pin.enterCurrentPlaceholder': { zh: '输入当前PIN', en: 'Enter current PIN' },

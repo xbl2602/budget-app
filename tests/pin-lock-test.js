@@ -138,6 +138,37 @@ DS.addRecord(mk(1,'R0'));
 await uiLock();
 ok('未锁定、明文仍在、记录仍在', w._pinRequired!==true && LS.getItem('budgetAppData')!==null && notes()==='R0');
 
+L('【PIN-9】PIN 校验值不再是可秒破的单次 SHA-256');
+reset();
+DS.addRecord(mk(1,'R0'));
+await uiSetPin('1234');
+const chk=LS.getItem('budgetAppPinHash')||'';
+const saltBuf=DS._hexToArrayBuffer(LS.getItem('budgetAppSalt'));
+ok('校验值是 v2 格式（PBKDF2 密钥加密的标记）', chk.indexOf('v2:')===0, chk.slice(0,12));
+ok('校验值不等于 SHA-256(salt‖pin)', chk!==await DS._legacyHashPin('1234',saltBuf));
+ok('正确 PIN 通过校验', (await DS.verifyPin('1234'))===true);
+ok('错误 PIN 不通过校验', (await DS.verifyPin('0000'))===false);
+
+L('【PIN-10】旧版 SHA-256 校验值：输对 PIN 解锁时自动升级，数据不丢');
+reset();
+DS.addRecord(mk(1,'R0'));
+await uiSetPin('1234');
+DS.addRecord(mk(2,'R1-设PIN后'));
+await uiLock();
+// 伪造旧版本留下的存储：同一盐、同一密文，只是校验值是旧的 SHA-256 十六进制
+LS.setItem('budgetAppPinHash', await DS._legacyHashPin('1234',DS._hexToArrayBuffer(LS.getItem('budgetAppSalt'))));
+DS._pinKey=null;DS.init();
+ok('旧格式下刷新后要求输 PIN', w._pinRequired===true);
+await uiUnlock('9999');
+ok('旧格式 + 错误 PIN：仍锁定、校验值未被改动', w._pinRequired===true && !/^v2:/.test(LS.getItem('budgetAppPinHash')));
+await uiUnlock('1234');
+ok('旧格式 + 正确 PIN：解锁成功', w._pinRequired===false);
+ok('解锁后校验值已升级为 v2', /^v2:/.test(LS.getItem('budgetAppPinHash')||''));
+ok('升级后两条记录都在', notes()==='R0,R1-设PIN后', notes());
+await uiLock();await uiUnlock('1234');
+ok('升级后再锁定 → 解锁仍正常', w._pinRequired===false && notes()==='R0,R1-设PIN后', notes());
+ok('升级后错误 PIN 仍被拒', (await DS.verifyPin('4321'))===false);
+
 console.log('\n结果: '+pass+' 通过 / '+fail+' 失败');
 process.exit(fail?1:0);
 },1500);

@@ -1207,7 +1207,21 @@ const DataStore = {
       false, ['encrypt', 'decrypt']
     );
   },
-  async _hashPin(pin, salt) {
+  // PIN verifier (budgetAppPinHash). It used to be SHA-256(salt‖pin): one hash per
+  // guess, so anyone holding this browser's storage could try every 4–6-digit PIN in
+  // well under a second and then derive the AES key — the PBKDF2 cost protected
+  // nothing. The verifier is now a fixed marker sealed with the SAME PBKDF2-derived
+  // key as the ledger ('v2:' + iv‖ciphertext), so testing a guess costs as much as
+  // decrypting the data. The key name is unchanged because other code only tests
+  // for its presence. A legacy hex hash is replaced on the next correct PIN.
+  //
+  // Even so, a short numeric PIN can still be brute-forced offline by someone who
+  // copies this storage; it guards against a person picking up the device.
+  _PIN_CHECK: 'budget-pin-check/v2',
+  async _makePinCheck(key) {
+    return 'v2:' + await this._encryptWithKey(key, this._PIN_CHECK);
+  },
+  async _legacyHashPin(pin, salt) {
     const enc = new TextEncoder();
     const combined = new Uint8Array([...new Uint8Array(salt), ...enc.encode(pin)]);
     const hash = await crypto.subtle.digest('SHA-256', combined);
@@ -1218,11 +1232,21 @@ const DataStore = {
   },
   async verifyPin(pin) {
     const saltHex = localStorage.getItem('budgetAppSalt');
-    const storedHash = localStorage.getItem('budgetAppPinHash');
-    if (!saltHex || !storedHash) return true; // no PIN set
+    const stored = localStorage.getItem('budgetAppPinHash');
+    if (!saltHex || !stored) return true; // no PIN set
     const salt = this._hexToArrayBuffer(saltHex);
-    const hash = await this._hashPin(pin, salt);
-    return hash === storedHash;
+    if (stored.indexOf('v2:') === 0) {
+      const key = await this._deriveKey(pin, salt);
+      return (await this._decryptWithKey(key, stored.slice(3))) === this._PIN_CHECK;
+    }
+    if ((await this._legacyHashPin(pin, salt)) !== stored) return false;
+    // Correct PIN against a legacy hash: upgrade it now. Failing to upgrade must not
+    // lock the user out — the old hash still verifies next time.
+    try {
+      const key = await this._deriveKey(pin, salt);
+      localStorage.setItem('budgetAppPinHash', await this._makePinCheck(key));
+    } catch (e) { this._log('pin_upgrade_error', e && e.message); }
+    return true;
   },
   // The ciphertext in budgetAppDataEncrypted is only as fresh as the last moment it
   // was written, while save() only ever writes the plaintext. So the ciphertext can
@@ -1236,7 +1260,6 @@ const DataStore = {
   //   - the plaintext is only removed once the ciphertext provably holds the same data.
   async setPin(pin, plainData) {
     const salt = crypto.getRandomValues(new Uint8Array(16));
-    const hash = await this._hashPin(pin, salt);
     // Fixed (C1): if plainData is passed directly, use it instead of reading from localStorage.
     // Otherwise seal what is live in memory — the stored plaintext is only as new as the last save().
     if (plainData === undefined) {
@@ -1245,9 +1268,10 @@ const DataStore = {
     // Everything that can fail runs before anything is written, so a failure cannot
     // leave a new PIN hash next to a ciphertext that was sealed with the old key.
     const key = await this._deriveKey(pin, salt);
+    const check = await this._makePinCheck(key);
     const blob = plainData ? await this._encryptWithKey(key, plainData) : null;
     localStorage.setItem('budgetAppSalt', this._arrayBufferToHex(salt));
-    localStorage.setItem('budgetAppPinHash', hash);
+    localStorage.setItem('budgetAppPinHash', check);
     if (blob) {
       localStorage.setItem('budgetAppDataEncrypted', blob);
       // Remove plaintext data — only once the ciphertext holds it

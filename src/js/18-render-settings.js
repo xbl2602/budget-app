@@ -112,6 +112,7 @@ function renderSettings() {
                   <span style="width:10px;height:10px;border-radius:50%;background:var(--success);display:inline-block"></span>
                   <span class="text-sm">${__('settings.security.enabled')}</span>
                 </div>
+                <div class="text-xs text-muted">${__('settings.security.hint')}</div>
                 <div class="flex gap-8">
                   <button class="btn btn-outline btn-sm" onclick="showChangePinModal()">${__('settings.security.changePin')}</button>
                   <button class="btn btn-ghost btn-sm" style="color:var(--danger)" onclick="showClearPinModal()">${__('settings.security.disablePin')}</button>
@@ -745,7 +746,8 @@ function deleteTag(tag) {
 
     // Security
     'settings.security.title': { zh: '🔐 安全设置', en: '🔐 Security Settings' },
-    'settings.security.enabled': { zh: 'PIN锁已启用，数据已加密', en: 'PIN lock enabled, data encrypted' },
+    'settings.security.enabled': { zh: 'PIN锁已启用：锁定时数据加密保存', en: 'PIN lock on: data is encrypted while locked' },
+    'settings.security.hint': { zh: '可防别人拿起设备直接翻看账本。但 4–6 位数字 PIN 挡不住拿到这台浏览器存储数据的人离线逐个试。', en: 'Stops someone who picks up the device from reading your ledger. A 4–6 digit PIN cannot stop someone who copies the storage of this browser from guessing it offline.' },
     'settings.security.disabled': { zh: 'PIN锁未启用，数据明文存储', en: 'PIN lock disabled, data stored in plain text' },
     'settings.security.changePin': { zh: '修改PIN码', en: 'Change PIN' },
     'settings.security.disablePin': { zh: '关闭PIN锁', en: 'Disable PIN Lock' },
