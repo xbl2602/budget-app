@@ -123,7 +123,7 @@ async function reset(dev,cloud){
   dev.fetchCount=0;dev.cspViolations.length=0;
   const ov=dev.doc.getElementById('modalOverlay');if(ov)ov.classList.remove('open');
   // 默认让后台触发器「永远不到点」，测试里手动 syncOnce，结果才可确定
-  Object.assign(dev.CS._cfg,{DEBOUNCE_MS:1e8,MAX_WAIT_MS:1e8,LAUNCH_DELAY_MS:1e8});
+  Object.assign(dev.CS._cfg,{DEBOUNCE_MS:1e8,MAX_WAIT_MS:1e8,LAUNCH_DELAY_MS:1e8,POLL_MS:1e8});
 }
 
 /* ---------------- 通用小工具 ---------------- */
@@ -805,6 +805,32 @@ await pair();
   const pull2=cloud.count('ledger_pull');
   A.CS.boot();await sleep(300);
   ok('启动后延迟拉取（已启用才会）', cloud.count('ledger_pull')>pull2);
+
+  // 被动打开的一台设备（不记账、也没切前后台）本来完全没有触发点——切 app 内部的
+  // 页面（记账/流水/设置…）不算 visibilitychange。轮询就是为它准备的兜底。
+  // （setInterval 的间隔在创建时就定死了，改 CFG.POLL_MS 对已经在跑的定时器没用，
+  // 所以每次要换间隔都得 resetForTests() + boot() 重新建一个。）
+  A.CS._t.resetForTests();
+  Object.assign(A.CS._cfg,{DEBOUNCE_MS:1e8,MAX_WAIT_MS:1e8,LAUNCH_DELAY_MS:1e8,POLL_MS:1e8});   // 先关轮询，隔离验证「切页面本身」
+  A.CS.boot();await sleep(30);
+  const pull3=cloud.count('ledger_pull');
+  A.w.navigateTo('records');A.w.navigateTo('settings');await sleep(30);
+  ok('光切 app 内部页面不会触发拉取（本来就不该，下面单独验证轮询才是解法）', cloud.count('ledger_pull')===pull3);
+
+  A.CS._t.resetForTests();
+  A.CS._cfg.POLL_MS=50;   // 现在打开轮询，同一台设备继续挂着，什么操作都不做
+  A.CS.boot();await sleep(30);
+  const pull5=cloud.count('ledger_pull');
+  await sleep(150);
+  ok('什么都不做，光是挂着，轮询也会定期去看一眼云端', cloud.count('ledger_pull')>pull5);
+  Object.defineProperty(A.doc,'visibilityState',{value:'hidden',configurable:true});
+  const pull4=cloud.count('ledger_pull');
+  await sleep(150);
+  ok('标签页切到后台时不轮询（省电/省请求，回到前台自然会补）', cloud.count('ledger_pull')===pull4);
+  Object.defineProperty(A.doc,'visibilityState',{value:'visible',configurable:true});
+  A.CS._t.resetForTests();
+  A.CS._cfg.POLL_MS=1e8;
+
   cloud.tooFastMs=2000;
 }
 L('【刷新】同步合并改了数据后，屏幕上的页面真的会更新（不是只改了内存）');

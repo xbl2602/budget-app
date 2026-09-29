@@ -22096,6 +22096,11 @@ const CFG = {
   DEBOUNCE_MS: 3000,        // quiet time after an edit before syncing
   MAX_WAIT_MS: 30000,       // ...but never wait longer than this under constant editing
   LAUNCH_DELAY_MS: 2000,
+  // A device that never edits (just has the app open, watching) otherwise only ever
+  // pulls on visibilitychange/online/launch — switching between the app's OWN pages
+  // (记账/流水/设置…) isn't a visibilitychange and triggers nothing. This poll is what
+  // makes a passively-open second device actually catch up within a bounded time.
+  POLL_MS: 20000,
   FETCH_TIMEOUT_MS: 20000,
   RETRIES: 3,               // conflict retries per sync
   MAX_BLOB_CHARS: 4 * 1024 * 1024,   // must match the server's limit
@@ -22324,6 +22329,7 @@ let active = false;           // listeners + timers registered
 let applying = false;         // we are writing merged data into the store: don't re-trigger
 let inflight = false, rerun = false;
 let debounceTimer = null, dirtySince = 0;
+let pollTimer = null;
 let lastFinished = 0;
 const st = { phase: 'idle', error: null, awaiting: null };
 const approvals = { merge: null, empty: false, bulk: null, conflicts: null };
@@ -22797,15 +22803,23 @@ function onVisible() {
   if (typeof document !== 'undefined' && document.visibilityState === 'visible' && Date.now() - lastFinished > 5000) syncOnce('visible');
 }
 function onOnline() { syncOnce('online'); }
+function onPollTick() {
+  // Only while the tab is actually on screen: a hidden tab gets caught up by
+  // onVisible() the moment it's shown again, so polling it in the background
+  // would just spend battery/requests on checks nobody can see yet.
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible') syncOnce('poll');
+}
 function activate() {
   if (active) return;
   active = true;
   document.addEventListener('visibilitychange', onVisible);
   window.addEventListener('online', onOnline);
+  pollTimer = setInterval(onPollTick, CFG.POLL_MS);
 }
 function deactivate() {
   active = false;
   clearTimeout(debounceTimer); debounceTimer = null; dirtySince = 0;
+  clearInterval(pollTimer); pollTimer = null;
   if (awaitObserver) { awaitObserver.disconnect(); awaitObserver = null; }
   try { document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', onOnline); } catch (e) { /* ignore */ }
 }
