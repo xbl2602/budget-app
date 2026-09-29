@@ -432,6 +432,28 @@ body.modal-open {
   box-shadow: var(--shadow-lg);
 }
 
+/* Wide variant — for content that genuinely needs more room, e.g. the sync
+   conflict resolver's side-by-side A / B / operation columns. Toggled by JS
+   on #modalContent for the one modal that needs it, removed when it closes. */
+.modal-content.modal-wide { width: min(96vw, 1160px); max-width: min(96vw, 1160px); }
+
+/* Sync conflict resolver: one row per contested record/split bill — this
+   device's copy, the other side's copy, and the operations to pick between.
+   A one-sided row (only one device has the item) collapses to a single cell. */
+.conflict-list { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 16px; }
+.conflict-row {
+  display: grid; grid-template-columns: 1fr 1fr 168px; gap: 10px; align-items: start;
+  padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+}
+.conflict-row.is-single { grid-template-columns: 1fr; }
+.conflict-col { min-width: 0; font-size: 0.8rem; line-height: 1.5; overflow-wrap: break-word; }
+.conflict-col-label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); margin-bottom: 2px; }
+.conflict-col-empty { color: var(--text-muted); font-size: 0.78rem; font-style: italic; }
+.conflict-actions { display: flex; flex-direction: column; gap: 6px; }
+.conflict-actions .btn { justify-content: flex-start; text-align: left; white-space: normal; }
+.conflict-actions .btn.is-picked { outline: 2px solid var(--primary); outline-offset: -2px; }
+.conflict-edit-form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+
 .modal-title {
   font-size: 1.1rem;
   font-weight: 700;
@@ -1736,6 +1758,11 @@ body.modal-open {
 /* Ensure main pie chart receives mouse events */
 #pieChart {
   pointer-events: auto;
+}
+
+@media (max-width: 680px) {
+  .conflict-row, .conflict-row.is-single { grid-template-columns: 1fr; }
+  .conflict-actions { flex-direction: row; flex-wrap: wrap; }
 }
 
 /* ===== SETTINGS NAV CARD ===== */
@@ -22299,10 +22326,22 @@ let inflight = false, rerun = false;
 let debounceTimer = null, dirtySince = 0;
 let lastFinished = 0;
 const st = { phase: 'idle', error: null, awaiting: null };
-const approvals = { merge: null, empty: false, bulk: null };
+const approvals = { merge: null, empty: false, bulk: null, conflicts: null };
 // Set only while showAwaiting() found some OTHER modal open and is waiting for it to
 // close before it can show the sync approval prompt (see showAwaiting()).
 let awaitObserver = null;
+// The conflict resolver's in-progress picks, kept across re-renders of the same
+// awaiting batch (button clicks re-render the whole modal) but reset whenever a
+// genuinely new batch of conflicts arrives (a new st.awaiting object identity).
+let conflictDraft = null, conflictDraftFor = null;
+function ensureConflictDraft(a) {
+  if (conflictDraftFor !== a) {
+    conflictDraft = {};
+    (a.pairs || []).forEach(p => { conflictDraft[conflictKey(p)] = { action: null, value: null, editing: false }; });
+    conflictDraftFor = a;
+  }
+  return conflictDraft;
+}
 
 function loadMeta() {
   try { const s = lsGet(K.meta); meta = s ? JSON.parse(s) : null; } catch (e) { meta = null; }
@@ -22541,7 +22580,29 @@ async function runSync(reason) {
 
     const base = await loadBase();
     const merge = DataStore._mergeData(remote, { base, dryRun: true });
-    const merged = merge.data;
+    let merged = merge.data;
+
+    // G7: both sides genuinely disagree on the same record/split bill — ask instead
+    // of silently taking the generic algorithm's guess (see buildConflictPairs()).
+    const conflictPairs = buildConflictPairs(local, remote, base, merge.conflicts);
+    if (conflictPairs.length) {
+      const resolved = approvals.conflicts && approvals.conflicts.cloudVersion === cloudVersion ? approvals.conflicts.map : null;
+      if (!resolved || conflictPairs.some(p => !resolved[conflictKey(p)])) {
+        return requestConflicts({ pairs: conflictPairs, singles: buildConflictSingles(local, remote, base, conflictPairs), cloudVersion });
+      }
+      // A single shared ledger version can't hold "no decision yet" for one record while
+      // still committing everything else — whatever we pushed would become the agreed
+      // value and the conflict would quietly vanish instead of staying open. So a defer
+      // anywhere in the batch skips this whole round untouched (nothing pushed, nothing
+      // applied locally): the next sync recomputes the same base/remote diff and asks
+      // again, exactly like choosing "later" on the other approval prompts.
+      if (conflictPairs.some(p => resolved[conflictKey(p)].action === 'defer')) {
+        approvals.conflicts = null;
+        return { status: 'paused', reason: 'conflict-deferred' };
+      }
+      merged = applyConflictResolutions(merged, conflictPairs, resolved);
+      approvals.conflicts = null;
+    }
 
     // G2: this merge would delete a large share of what is on this device. Ask first.
     const removedList = removedRecords(local, merged);
@@ -22585,6 +22646,104 @@ function removedRecords(local, merged) {
   return (local.records || []).filter(r => r && !keep.has(r.id));
 }
 
+/* ============================================================
+   G7: GENUINE TWO-SIDED CONFLICTS (records / split bills) — ask, don't guess
+   ------------------------------------------------------------
+   _mergeData already resolves every clash on its own (newer edit wins,
+   an edit beats a delete) and that stays the behavior for everything else
+   (categories, tags, budgets, one-sided additions, uncontested deletions —
+   only one side touched those, so there is nothing to contest). This layer
+   is additive and narrow: when BOTH sides changed the same record or split
+   bill differently since the last common point, stop and let the user pick,
+   instead of silently taking the generic algorithm's guess.
+   ============================================================ */
+const CONFLICT_COLLECTIONS = ['records', 'splitBills'];
+
+// _merge3's conflict paths look like ".records[id:xxx]" (a whole entity —
+// delete-vs-edit) or ".records[id:xxx].note" (one field of it — edit-vs-edit,
+// possibly several per entity). Either way, the entity key is what matters
+// here: the user resolves a whole record/split bill at once, not one field
+// at a time.
+function entityKeyFromConflictPath(path) {
+  for (let i = 0; i < CONFLICT_COLLECTIONS.length; i++) {
+    const coll = CONFLICT_COLLECTIONS[i], prefix = '.' + coll + '[id:';
+    if (path.indexOf(prefix) !== 0) continue;
+    const rest = path.slice(prefix.length), close = rest.indexOf(']');
+    if (close === -1) continue;
+    return { coll: coll, id: rest.slice(0, close) };
+  }
+  return null;
+}
+function findEntity(list, id) { return (list || []).find(x => x && String(x.id) === String(id)) || null; }
+// One row per contested entity, each carrying its full local/remote/base copy
+// (or null where a side has none — deleted, or never existed) so the modal
+// can show complete records, not just the field that happened to clash.
+function buildConflictPairs(local, remote, base, mergeConflicts) {
+  const seen = new Map();
+  (mergeConflicts || []).forEach(c => {
+    if (c.kind === 'orphan-record') return;   // recovery bookkeeping, not a real clash
+    const k = entityKeyFromConflictPath(c.path);
+    if (k) seen.set(k.coll + ':' + k.id, k);
+  });
+  return [...seen.values()].map(k => ({
+    coll: k.coll, id: k.id,
+    local: findEntity(local[k.coll], k.id),
+    remote: findEntity(remote[k.coll], k.id),
+    base: findEntity(base && base[k.coll], k.id)
+  }));
+}
+// Items that exist on only one side and were never in the shared base —
+// i.e. genuinely new there, not "the other side deleted this" (that stays
+// G2's job). Shown for visibility only: they auto-merge (both kept) same as
+// before, no decision required.
+function buildConflictSingles(local, remote, base, pairs) {
+  const paired = new Set(pairs.map(p => p.coll + ':' + p.id));
+  const out = [];
+  CONFLICT_COLLECTIONS.forEach(coll => {
+    const L = local[coll] || [], R = remote[coll] || [], B = (base && base[coll]) || [];
+    const idSet = arr => new Set(arr.filter(x => x && x.id != null).map(x => String(x.id)));
+    const lIds = idSet(L), rIds = idSet(R), bIds = idSet(B);
+    L.forEach(x => {
+      if (x && x.id != null && !rIds.has(String(x.id)) && !bIds.has(String(x.id)) && !paired.has(coll + ':' + x.id))
+        out.push({ coll: coll, id: x.id, side: 'local', item: x });
+    });
+    R.forEach(x => {
+      if (x && x.id != null && !lIds.has(String(x.id)) && !bIds.has(String(x.id)) && !paired.has(coll + ':' + x.id))
+        out.push({ coll: coll, id: x.id, side: 'remote', item: x });
+    });
+  });
+  return out;
+}
+function conflictKey(p) { return p.coll + ':' + p.id; }
+// Turns the user's per-row choices into the entities that should actually
+// land in `merged`, on top of whatever the generic algorithm already guessed.
+function applyConflictResolutions(merged, pairs, resolutions) {
+  const out = clone(merged);
+  pairs.forEach(p => {
+    const r = resolutions[conflictKey(p)];
+    if (!r) return;   // shouldn't happen — caller checks every pair has one first
+    let final;
+    if (r.action === 'local') final = p.local;
+    else if (r.action === 'remote') final = p.remote;
+    else if (r.action === 'newer') {
+      const lt = (p.local && (p.local.updatedAt || p.local.createdAt)) || '';
+      const rt = (p.remote && (p.remote.updatedAt || p.remote.createdAt)) || '';
+      final = rt > lt ? p.remote : p.local;
+    } else if (r.action === 'edit') final = r.value;
+    else final = p.local;   // defensive fallback only — runSync() bails out before this point whenever any action is 'defer'
+    const list = out[p.coll] = Array.isArray(out[p.coll]) ? out[p.coll] : [];
+    const idx = list.findIndex(x => x && String(x.id) === String(p.id));
+    if (final) { const copy = clone(final); if (idx === -1) list.push(copy); else list[idx] = copy; }
+    else if (idx !== -1) list.splice(idx, 1);
+  });
+  return out;
+}
+function requestConflicts(info) {
+  st.awaiting = Object.assign({ type: 'conflicts' }, info);
+  if (window.CloudSync && CloudSync.ui) setTimeout(() => CloudSync.ui.showAwaiting(), 0);
+  return { status: 'awaiting', type: 'conflicts' };
+}
+
 /* ---------- things that need the user's yes (G2, G3) ---------- */
 function readBulk() { try { return JSON.parse(lsGet(K.bulk) || 'null'); } catch (e) { return null; } }
 function clearBulk() { lsDel(K.bulk); approvals.bulk = null; }
@@ -22611,6 +22770,16 @@ function resolveAwaiting(choice) {
   if (a.type === 'massdelete') { if (choice === 'apply') approvals.merge = a.cloudVersion; else { setPhase('paused'); return; } }
   if (choice === 'later') { setPhase('paused'); return; }
   syncOnce('confirmed');
+}
+// G7's resolution isn't a single choice — it's one action per contested
+// record/split bill — so it gets its own entry point instead of overloading
+// resolveAwaiting(). `map` is keyed by conflictKey(pair), e.g. "records:id".
+function resolveConflicts(map) {
+  const a = st.awaiting;
+  if (!a || a.type !== 'conflicts') return Promise.resolve({ status: 'noop' });
+  approvals.conflicts = { cloudVersion: a.cloudVersion, map: map };
+  st.awaiting = null;
+  return syncOnce('confirmed');
 }
 
 /* ============================================================
@@ -22745,7 +22914,7 @@ function disable() {
   Object.keys(K).forEach(k => lsDel(K[k]));
   meta = null; keyCache = null; wiz = null;
   st.phase = 'idle'; st.error = null; st.awaiting = null;
-  approvals.merge = null; approvals.empty = false; approvals.bulk = null;
+  approvals.merge = null; approvals.empty = false; approvals.bulk = null; approvals.conflicts = null;
   renderPill(); refreshCard();
 }
 async function deleteCloudCopy() {
@@ -22877,7 +23046,14 @@ function conflictKind(k) {
 
 const ui = {
   _busy: false,
-  _modal(html, dismissable) { showModal(html, dismissable !== false); },
+  // `wide` widens #modalContent for the one modal that needs the room (the
+  // conflict resolver); every other call implicitly narrows it back, so the
+  // class never leaks onto an unrelated modal shown afterwards.
+  _modal(html, dismissable, wide) {
+    const content = document.getElementById('modalContent');
+    if (content) content.classList.toggle('modal-wide', !!wide);
+    showModal(html, dismissable !== false);
+  },
   _err(code, detail) { return '<div class="cloud-error">' + escHtml(errText(code, detail)) + (detail && code !== 'badcode' ? ' <span class="text-muted">(' + escHtml(String(detail).slice(0, 100)) + ')</span>' : '') + '</div>'; },
   _progress(msg) { const b = document.getElementById('cloudWizBody'); if (b) b.innerHTML = '<div class="text-sm" style="padding:16px 0">⏳ ' + escHtml(msg) + '</div>'; },
 
@@ -23125,6 +23301,8 @@ const ui = {
         ui._sampleList(a.sample, a.removed) +
         '<div class="modal-actions"><button class="btn btn-ghost" onclick="CloudSync.ui.resolve(\'later\')">' + __('cloud.mass.skip') + '</button>' +
         '<button class="btn btn-danger" onclick="CloudSync.ui.resolve(\'apply\')">' + __('cloud.mass.apply') + '</button></div>', false);
+    } else if (a.type === 'conflicts') {
+      ui._conflictModal(a);
     }
   },
   // A short, human-readable list of the records a mass-delete prompt is actually about,
@@ -23145,7 +23323,149 @@ const ui = {
     return '<div class="text-xs text-muted" style="margin-bottom:4px">' + __('cloud.mass.sampleHeader') + '</div>' +
       '<ul class="text-xs text-secondary" style="margin:0 0 8px;padding-left:18px;line-height:1.6">' + rows + '</ul>' + more;
   },
-  resolve(choice) { closeModal(); resolveAwaiting(choice); }
+  resolve(choice) { closeModal(); resolveAwaiting(choice); },
+
+  /* ---- G7: pick a side per contested record/split bill (see runSync()) ---- */
+  // A short read-only summary of one full record or split bill, for the two
+  // "what does each side have" columns. Best-effort formatting only.
+  _entityHtml(coll, item) {
+    if (!item) return '';
+    const upd = item.updatedAt || item.createdAt || '';
+    const stamp = upd ? '<div class="text-muted" style="font-size:0.7rem;margin-top:2px">' + escHtml(fmtTime(upd)) + '</div>' : '';
+    if (coll === 'records') {
+      const cat = (item.categoryId && typeof DataStore.getCategory === 'function') ? DataStore.getCategory(item.categoryId) : null;
+      const date = (item.date || item.createdAt || '').slice(0, 10) || '—';
+      const amount = (typeof item.amount === 'number' && typeof formatMoney === 'function') ? formatMoney(item.amount) : String(item.amount);
+      const label = (cat && cat.name) || __('cloud.mass.uncategorized');
+      const note = item.note ? '<div class="text-muted">' + escHtml(String(item.note)) : '';
+      return '<div>' + escHtml(date) + ' · ' + escHtml(amount) + ' · ' + escHtml(label) + '</div>' + (note ? note + '</div>' : '') + stamp;
+    }
+    // splitBills
+    const amount = (typeof item.amount === 'number' && typeof formatMoney === 'function') ? formatMoney(item.amount) : String(item.amount);
+    const note = item.note ? ' · ' + escHtml(String(item.note)) : '';
+    const names = Array.isArray(item.participants) ? item.participants.map(p => p && p.name).filter(Boolean).map(escHtml).join('、') : '';
+    return '<div>' + escHtml(amount) + note + '</div>' + (names ? '<div class="text-muted">' + __('cloud.conflict.participants', names) + '</div>' : '') + stamp;
+  },
+  _conflictEditForm(p, d) {
+    const base = d.value || p.local || p.remote || {};
+    const amt = typeof base.amount === 'number' ? base.amount : '';
+    const note = base.note ? String(base.note) : '';
+    const dateVal = (base.date || base.createdAt || '').slice(0, 16);
+    const idb = 'cfEdit_' + p.coll + '_' + p.id;
+    return '<div class="conflict-edit-form">' +
+      (p.coll === 'records' ? '<input type="datetime-local" class="input-field" id="' + idb + '_date" value="' + escHtml(dateVal) + '">' : '') +
+      '<input type="number" step="0.01" class="input-field" id="' + idb + '_amount" placeholder="' + __('cloud.conflict.amount') + '" value="' + escHtml(String(amt)) + '">' +
+      '<input type="text" class="input-field" id="' + idb + '_note" placeholder="' + __('cloud.conflict.note') + '" value="' + escHtml(note) + '">' +
+      '<div class="flex gap-8">' +
+        '<button class="btn btn-primary btn-sm" onclick="CloudSync.ui.cfSaveEdit(\'' + escHtml(conflictKey(p)) + '\')">' + __('cloud.conflict.save') + '</button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.cfCancelEdit(\'' + escHtml(conflictKey(p)) + '\')">' + __('cloud.cancel') + '</button>' +
+      '</div></div>';
+  },
+  _conflictPairRow(p, draft) {
+    const key = conflictKey(p);
+    const d = draft[key] || (draft[key] = { action: null, value: null, editing: false });
+    const btn = (action, label) => '<button class="btn btn-sm btn-outline' + (d.action === action ? ' is-picked' : '') +
+      '" onclick="CloudSync.ui.cfPick(\'' + escHtml(key) + '\',\'' + action + '\')">' + label + '</button>';
+    const canNewer = !!(p.local && p.remote);   // "newer" needs a timestamp on both sides to mean anything
+    const actionsHtml = (canNewer ? btn('newer', __('cloud.conflict.useNewer')) : '') +
+      btn('local', __('cloud.conflict.useLocal')) + btn('remote', __('cloud.conflict.useRemote')) +
+      '<button class="btn btn-sm btn-outline' + (d.action === 'edit' ? ' is-picked' : '') +
+        '" onclick="CloudSync.ui.cfEdit(\'' + escHtml(key) + '\')">' + __('cloud.conflict.useEdited') + '</button>' +
+      btn('defer', __('cloud.conflict.defer'));
+    return '<div class="conflict-row">' +
+      '<div class="conflict-col">' + (p.local
+        ? '<div class="conflict-col-label">' + __('cloud.conflict.thisDevice') + '</div>' + ui._entityHtml(p.coll, p.local)
+        : '<div class="conflict-col-empty">' + __('cloud.conflict.deletedHere') + '</div>') + '</div>' +
+      '<div class="conflict-col">' + (p.remote
+        ? '<div class="conflict-col-label">' + __('cloud.conflict.otherDevice') + '</div>' + ui._entityHtml(p.coll, p.remote)
+        : '<div class="conflict-col-empty">' + __('cloud.conflict.deletedThere') + '</div>') + '</div>' +
+      '<div class="conflict-actions">' + actionsHtml + (d.editing ? ui._conflictEditForm(p, d) : '') + '</div>' +
+    '</div>';
+  },
+  _conflictSingleRow(s) {
+    const label = s.side === 'local' ? __('cloud.conflict.thisDeviceOnly') : __('cloud.conflict.otherDeviceOnly');
+    return '<div class="conflict-row is-single"><div class="conflict-col">' +
+      '<div class="conflict-col-label">' + label + '</div>' + ui._entityHtml(s.coll, s.item) + '</div></div>';
+  },
+  _conflictModal(a) {
+    const draft = ensureConflictDraft(a);
+    const pairsHtml = (a.pairs || []).map(p => ui._conflictPairRow(p, draft)).join('');
+    const singlesHtml = (a.singles || []).map(s => ui._conflictSingleRow(s)).join('');
+    const allPicked = (a.pairs || []).every(p => draft[conflictKey(p)] && draft[conflictKey(p)].action);
+    const html = '<div class="modal-title">⚠️ ' + __('cloud.conflict.title') + '</div>' +
+      '<p class="text-sm text-secondary" style="line-height:1.5;margin-bottom:12px">' + __('cloud.conflict.desc', (a.pairs || []).length) + '</p>' +
+      '<div class="conflict-list">' + pairsHtml + singlesHtml + '</div>' +
+      '<div class="modal-actions">' +
+        '<button class="btn btn-ghost" onclick="CloudSync.ui.cfDeferAll()">' + __('cloud.conflict.deferAll') + '</button>' +
+        '<button class="btn btn-primary" id="cfConfirmBtn" ' + (allPicked ? '' : 'disabled') + ' onclick="CloudSync.ui.cfConfirm()">' + __('cloud.conflict.confirm') + '</button>' +
+      '</div>';
+    ui._modal(html, false, true);
+  },
+  cfPick(key, action) {
+    const a = st.awaiting; if (!a || a.type !== 'conflicts') return;
+    const draft = ensureConflictDraft(a);
+    if (!draft[key]) return;
+    draft[key].action = action; draft[key].value = null; draft[key].editing = false;
+    ui._conflictModal(a);
+  },
+  cfEdit(key) {
+    const a = st.awaiting; if (!a || a.type !== 'conflicts') return;
+    const draft = ensureConflictDraft(a);
+    if (!draft[key]) return;
+    draft[key].editing = true;
+    ui._conflictModal(a);
+  },
+  cfCancelEdit(key) {
+    const a = st.awaiting; if (!a || a.type !== 'conflicts') return;
+    const draft = ensureConflictDraft(a);
+    if (draft[key]) draft[key].editing = false;
+    ui._conflictModal(a);
+  },
+  cfSaveEdit(key) {
+    const a = st.awaiting; if (!a || a.type !== 'conflicts') return;
+    const draft = ensureConflictDraft(a);
+    const p = (a.pairs || []).find(x => conflictKey(x) === key);
+    if (!p || !draft[key]) return;
+    const idb = 'cfEdit_' + p.coll + '_' + p.id;
+    const base = clone(draft[key].value || p.local || p.remote || {});
+    base.id = p.id;
+    const amountEl = document.getElementById(idb + '_amount');
+    const noteEl = document.getElementById(idb + '_note');
+    const dateEl = document.getElementById(idb + '_date');
+    if (amountEl) { const n = parseFloat(amountEl.value); if (isFinite(n)) base.amount = n; }
+    if (noteEl) base.note = noteEl.value;
+    if (dateEl && dateEl.value) base.date = dateEl.value;
+    base.updatedAt = new Date().toISOString();
+    draft[key].value = base; draft[key].action = 'edit'; draft[key].editing = false;
+    ui._conflictModal(a);
+  },
+  cfDeferAll() {
+    const a = st.awaiting; if (!a || a.type !== 'conflicts') return;
+    const map = {};
+    (a.pairs || []).forEach(p => { map[conflictKey(p)] = { action: 'defer' }; });
+    ui._closeConflictModal();
+    resolveConflicts(map);
+  },
+  cfConfirm() {
+    const a = st.awaiting; if (!a || a.type !== 'conflicts') return;
+    const draft = ensureConflictDraft(a);
+    const map = {};
+    for (const p of (a.pairs || [])) {
+      const d = draft[conflictKey(p)];
+      if (!d || !d.action) return;   // button should be disabled until every pair is picked
+      map[conflictKey(p)] = d.action === 'edit' ? { action: 'edit', value: d.value } : { action: d.action };
+    }
+    ui._closeConflictModal();
+    resolveConflicts(map);
+  },
+  // Narrows #modalContent back (see _modal()'s `wide` param) and clears the
+  // in-progress picks so the next batch of conflicts starts with a clean draft.
+  _closeConflictModal() {
+    const content = document.getElementById('modalContent');
+    if (content) content.classList.remove('modal-wide');
+    closeModal();
+    conflictDraft = null; conflictDraftFor = null;
+  }
 };
 
 function renderIfSettings() {
@@ -23251,6 +23571,25 @@ addI18nEntries({
   'cloud.mass.uncategorized': { zh: '无分类', en: 'Uncategorized' },
   'cloud.mass.sampleHeader': { zh: '将被删除的记录（举例）：', en: 'Records this would delete (examples):' },
   'cloud.mass.more': { zh: '另有 {0} 条未列出。', en: '{0} more not shown.' },
+  'cloud.conflict.title': { zh: '有记录两边都改了，选一下怎么处理', en: 'Some items were changed on both sides — pick how to resolve them' },
+  'cloud.conflict.desc': { zh: '下面 {0} 组是两边真正冲突的记录/账单，逐条选一个操作；只有一边有的记录会照常保留，不需要处理。', en: 'The {0} item(s) below were genuinely changed on both sides — pick an action for each. Items that only exist on one side are kept automatically and need no action.' },
+  'cloud.conflict.thisDevice': { zh: '本机', en: 'This device' },
+  'cloud.conflict.otherDevice': { zh: '对方', en: 'Other device' },
+  'cloud.conflict.thisDeviceOnly': { zh: '只有本机有', en: 'Only on this device' },
+  'cloud.conflict.otherDeviceOnly': { zh: '只有对方有', en: 'Only on the other device' },
+  'cloud.conflict.deletedHere': { zh: '本机已删除', en: 'Deleted on this device' },
+  'cloud.conflict.deletedThere': { zh: '对方已删除', en: 'Deleted on the other device' },
+  'cloud.conflict.useNewer': { zh: '以最新为准', en: 'Use whichever is newer' },
+  'cloud.conflict.useLocal': { zh: '以本机为准', en: 'Use this device' },
+  'cloud.conflict.useRemote': { zh: '以对方为准', en: 'Use the other device' },
+  'cloud.conflict.useEdited': { zh: '修改后覆盖两者', en: 'Edit, then apply to both' },
+  'cloud.conflict.defer': { zh: '待定（先不管）', en: 'Defer (decide later)' },
+  'cloud.conflict.deferAll': { zh: '全部待定，下次再问', en: 'Defer all, ask again next time' },
+  'cloud.conflict.confirm': { zh: '确认并继续同步', en: 'Confirm and continue syncing' },
+  'cloud.conflict.amount': { zh: '金额', en: 'Amount' },
+  'cloud.conflict.note': { zh: '备注', en: 'Note' },
+  'cloud.conflict.save': { zh: '保存', en: 'Save' },
+  'cloud.conflict.participants': { zh: '参与人：{0}', en: 'Participants: {0}' },
   'cloud.warn.dropped': { zh: '云端有 {0} 条记录格式不认识，已跳过', en: '{0} records from the cloud were not understood and were skipped' },
   'cloud.err.network': { zh: '连不上云端（网络或服务暂时不可用）。本机数据没有改动。', en: 'Cannot reach the cloud (network or service unavailable). Nothing on this device was changed.' },
   'cloud.err.server': { zh: '云端返回了错误。本机数据没有改动。', en: 'The cloud returned an error. Nothing on this device was changed.' },
@@ -23285,9 +23624,10 @@ window.CloudSync = {
   _t: {
     crc8, encodeSecret, decodeSecret, deriveKeys, sealLedger, openLedger, packSnapshot, unpackSnapshot,
     prepareCreate, prepareLogin, establish, confirmFirstMerge, deleteCloudCopy, listHistory, fetchVersionJson,
-    getMeta: () => meta, loadMeta, contentHash, isPristine, resolveAwaiting, isActive: () => active,
+    getMeta: () => meta, loadMeta, contentHash, isPristine, resolveAwaiting, resolveConflicts, conflictKey, isActive: () => active,
     resetForTests() { deactivate(); meta = null; keyCache = null; wiz = null; inflight = false; rerun = false; lastFinished = 0; hashCache = { rev: -1, data: null, hash: '' };
-      st.phase = 'idle'; st.error = null; st.awaiting = null; approvals.merge = null; approvals.empty = false; approvals.bulk = null;
+      st.phase = 'idle'; st.error = null; st.awaiting = null;
+      approvals.merge = null; approvals.empty = false; approvals.bulk = null; approvals.conflicts = null;
       if (awaitObserver) { awaitObserver.disconnect(); awaitObserver = null; } }
   }
 };
