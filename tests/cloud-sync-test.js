@@ -221,7 +221,13 @@ ok('没有设置页卡片以外的同步界面：无状态胶囊', !D0.doc.getEl
 L('【N2-3】CSP 只新增一个 connect-src 源；手机版页面 CSP 一个字不变；代码访问的地址就在白名单里');
 {
   const dirs=csp.split(';').map(s=>s.trim()).filter(Boolean);
-  ok('主应用 CSP = 原有三条 + 一条 connect-src', dirs.length===4&&dirs.slice(0,3).join('; ')==="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'", csp);
+  // 安全审计 S5 追加了 base-uri 'none' / form-action 'none'，它们只会收紧。所以不变量是：
+  // 原有三条原样、恰好一条 connect-src、其余新增指令只能是 'none'（绝不放宽）。
+  const extraDirs=dirs.slice(3).filter(d=>!/^connect-src /.test(d));
+  ok('主应用 CSP = 原有三条 + 一条 connect-src（其余新增只能是收紧的 \'none\'）',
+    dirs.slice(0,3).join('; ')==="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    && dirs.filter(d=>/^connect-src /.test(d)).length===1
+    && extraDirs.every(d=>/^[a-z-]+ 'none'$/.test(d)), csp);
   ok('connect-src 只有一个源、是 https、不含 *', /^https:\/\/[a-z0-9]+\.supabase\.co$/.test(connectSrc), connectSrc);
   ok('没有 wss:// 也没有 \'self\'', !/wss:|'self'/.test(csp));
   ok('手机版 CSP 与原来一字不差', mobileHtml.includes('content="default-src \'none\'; style-src \'unsafe-inline\'; script-src \'unsafe-inline\';"')&&!/connect-src/.test(mobileHtml));

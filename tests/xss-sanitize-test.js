@@ -72,5 +72,16 @@ const defaults = DataStore._defaults();
 const again = DataStore._normalize(JSON.parse(JSON.stringify(defaults)));
 check('default categories all survive', again.categories.length === defaults.categories.length);
 
+// S5: the CSP must keep the directives that default-src does not cover. base-uri stops an
+// injected <base> from re-pointing relative URLs; form-action stops a form whose submit
+// handler failed to run from putting amounts/notes into a GET query string.
+for (const f of ['src/index.html', 'index.html']) {
+  const m = fs.readFileSync(path.join(root, f), 'utf8').match(/http-equiv="Content-Security-Policy" content="([^"]*)"/);
+  const csp = m ? m[1] : '';
+  check(f + ' CSP has base-uri \'none\'', /(^|;)\s*base-uri 'none'/.test(csp));
+  check(f + ' CSP has form-action \'none\'', /(^|;)\s*form-action 'none'/.test(csp));
+  check(f + ' CSP keeps default-src \'none\'', /(^|;)\s*default-src 'none'/.test(csp));
+}
+
 console.log(failed ? '\n' + failed + ' FAILED' : '\nall passed');
 process.exit(failed ? 1 : 0);
