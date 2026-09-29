@@ -22300,6 +22300,9 @@ let debounceTimer = null, dirtySince = 0;
 let lastFinished = 0;
 const st = { phase: 'idle', error: null, awaiting: null };
 const approvals = { merge: null, empty: false, bulk: null };
+// Set only while showAwaiting() found some OTHER modal open and is waiting for it to
+// close before it can show the sync approval prompt (see showAwaiting()).
+let awaitObserver = null;
 
 function loadMeta() {
   try { const s = lsGet(K.meta); meta = s ? JSON.parse(s) : null; } catch (e) { meta = null; }
@@ -22541,11 +22544,12 @@ async function runSync(reason) {
     const merged = merge.data;
 
     // G2: this merge would delete a large share of what is on this device. Ask first.
-    const removed = countRemoved(local, merged);
+    const removedList = removedRecords(local, merged);
+    const removed = removedList.length;
     const total = (local.records || []).length;
     if ((removed >= CFG.MASS_DELETE_COUNT || (total > 0 && removed / total >= CFG.MASS_DELETE_RATIO))
         && approvals.merge !== cloudVersion) {
-      return requestMassDelete({ removed, total, cloudVersion });
+      return requestMassDelete({ removed, total, cloudVersion, sample: removedList.slice(0, 5) });
     }
 
     const localChanged = DataStore._canonStringify(merged) !== DataStore._canonStringify(local);
@@ -22574,9 +22578,11 @@ function pushError(res) {
   const map = { too_large: 'toolarge', gone: 'gone', invite_required: 'invite', invite_invalid: 'invite', too_fast: 'busy', bad_request: 'server' };
   return new SyncError(map[res.status] || 'server', 'push ' + res.status);
 }
-function countRemoved(local, merged) {
+// The local records a merge would drop, so the approval prompt can name them
+// instead of just counting them.
+function removedRecords(local, merged) {
   const keep = new Set((merged.records || []).map(r => r && r.id));
-  return (local.records || []).filter(r => r && !keep.has(r.id)).length;
+  return (local.records || []).filter(r => r && !keep.has(r.id));
 }
 
 /* ---------- things that need the user's yes (G2, G3) ---------- */
@@ -22631,6 +22637,7 @@ function activate() {
 function deactivate() {
   active = false;
   clearTimeout(debounceTimer); debounceTimer = null; dirtySince = 0;
+  if (awaitObserver) { awaitObserver.disconnect(); awaitObserver = null; }
   try { document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', onOnline); } catch (e) { /* ignore */ }
 }
 
@@ -23083,9 +23090,28 @@ const ui = {
   },
 
   /* ---- confirmations raised by a background sync (G2 / G3) ---- */
+  // If some other modal is already open, showing this one over it would either fight
+  // the user's typing or get shown for a split second and closed with it. Wait instead:
+  // watch modalOverlay and try again the moment it closes, however that happens. The
+  // approval itself (st.awaiting) already survives until resolved, so nothing is lost
+  // in the meantime — the user just doesn't see the prompt yet.
   showAwaiting() {
     const a = st.awaiting;
-    if (!a || document.getElementById('modalOverlay').classList.contains('open')) return;
+    if (!a) return;
+    const overlay = document.getElementById('modalOverlay');
+    if (overlay && overlay.classList.contains('open')) {
+      if (!awaitObserver) {
+        awaitObserver = new MutationObserver(() => {
+          if (overlay.classList.contains('open')) return;
+          awaitObserver.disconnect();
+          awaitObserver = null;
+          if (st.awaiting) ui.showAwaiting();
+        });
+        awaitObserver.observe(overlay, { attributes: true, attributeFilter: ['class'] });
+      }
+      return;
+    }
+    if (awaitObserver) { awaitObserver.disconnect(); awaitObserver = null; }
     if (a.type === 'bulk') {
       ui._modal('<div class="modal-title">⚠️ ' + __('cloud.bulk.title') + '</div>' +
         '<p class="text-sm text-secondary" style="line-height:1.5;margin-bottom:12px">' + __('cloud.bulk.desc.' + a.kind) + '</p>' +
@@ -23096,9 +23122,28 @@ const ui = {
     } else if (a.type === 'massdelete') {
       ui._modal('<div class="modal-title">⚠️ ' + __('cloud.mass.title') + '</div>' +
         '<p class="text-sm text-secondary" style="line-height:1.5;margin-bottom:12px">' + __('cloud.mass.desc', a.removed, a.total) + '</p>' +
+        ui._sampleList(a.sample, a.removed) +
         '<div class="modal-actions"><button class="btn btn-ghost" onclick="CloudSync.ui.resolve(\'later\')">' + __('cloud.mass.skip') + '</button>' +
         '<button class="btn btn-danger" onclick="CloudSync.ui.resolve(\'apply\')">' + __('cloud.mass.apply') + '</button></div>', false);
     }
+  },
+  // A short, human-readable list of the records a mass-delete prompt is actually about,
+  // so the choice isn't made blind on a bare count. Best-effort: absent/malformed fields
+  // fall back to placeholders rather than breaking the modal.
+  _sampleList(sample, totalRemoved) {
+    if (!sample || !sample.length) return '';
+    const rows = sample.map(r => {
+      const cat = (r && r.categoryId && typeof DataStore.getCategory === 'function') ? DataStore.getCategory(r.categoryId) : null;
+      const date = (r && (r.date || r.createdAt) || '').slice(0, 10) || '—';
+      const amount = (r && typeof r.amount === 'number' && typeof formatMoney === 'function') ? formatMoney(r.amount) : '—';
+      const label = (cat && cat.name) || __('cloud.mass.uncategorized');
+      const note = r && r.note ? ' · ' + escHtml(String(r.note).slice(0, 30)) : '';
+      return '<li>' + escHtml(date) + ' · ' + escHtml(amount) + ' · ' + escHtml(label) + note + '</li>';
+    }).join('');
+    const more = (typeof totalRemoved === 'number' && totalRemoved > sample.length)
+      ? '<div class="text-xs text-muted" style="margin:-6px 0 12px">' + __('cloud.mass.more', totalRemoved - sample.length) + '</div>' : '';
+    return '<div class="text-xs text-muted" style="margin-bottom:4px">' + __('cloud.mass.sampleHeader') + '</div>' +
+      '<ul class="text-xs text-secondary" style="margin:0 0 8px;padding-left:18px;line-height:1.6">' + rows + '</ul>' + more;
   },
   resolve(choice) { closeModal(); resolveAwaiting(choice); }
 };
@@ -23203,6 +23248,9 @@ addI18nEntries({
   'cloud.mass.desc': { zh: '云端那边把 {1} 条里的 {0} 条删掉了。继续会在本机同样删除（已先备份）。', en: 'The cloud removed {0} of the {1} records here. Continuing removes them on this device too (backed up first).' },
   'cloud.mass.skip': { zh: '先不同步', en: 'Not now' },
   'cloud.mass.apply': { zh: '继续并删除', en: 'Continue and delete' },
+  'cloud.mass.uncategorized': { zh: '无分类', en: 'Uncategorized' },
+  'cloud.mass.sampleHeader': { zh: '将被删除的记录（举例）：', en: 'Records this would delete (examples):' },
+  'cloud.mass.more': { zh: '另有 {0} 条未列出。', en: '{0} more not shown.' },
   'cloud.warn.dropped': { zh: '云端有 {0} 条记录格式不认识，已跳过', en: '{0} records from the cloud were not understood and were skipped' },
   'cloud.err.network': { zh: '连不上云端（网络或服务暂时不可用）。本机数据没有改动。', en: 'Cannot reach the cloud (network or service unavailable). Nothing on this device was changed.' },
   'cloud.err.server': { zh: '云端返回了错误。本机数据没有改动。', en: 'The cloud returned an error. Nothing on this device was changed.' },
@@ -23239,7 +23287,8 @@ window.CloudSync = {
     prepareCreate, prepareLogin, establish, confirmFirstMerge, deleteCloudCopy, listHistory, fetchVersionJson,
     getMeta: () => meta, loadMeta, contentHash, isPristine, resolveAwaiting, isActive: () => active,
     resetForTests() { deactivate(); meta = null; keyCache = null; wiz = null; inflight = false; rerun = false; lastFinished = 0; hashCache = { rev: -1, data: null, hash: '' };
-      st.phase = 'idle'; st.error = null; st.awaiting = null; approvals.merge = null; approvals.empty = false; approvals.bulk = null; }
+      st.phase = 'idle'; st.error = null; st.awaiting = null; approvals.merge = null; approvals.empty = false; approvals.bulk = null;
+      if (awaitObserver) { awaitObserver.disconnect(); awaitObserver = null; } }
   }
 };
 try { boot(); } catch (e) { console.error('[CloudSync] boot failed', e); }
