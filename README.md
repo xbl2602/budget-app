@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.4.0
+# 记账软件 · Budget App v3.5.0
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -97,6 +97,11 @@ Advanced multi-filter system supporting keyword, category, date range, amount ra
 ### 🗂️ 分类 Categories
 Infinite nesting tree with accordion UI, split into a **支出分类** and a **收入分类** tree. Set per-category budgets in RM or percentage on expenses; income rows show what actually arrived this month instead — there is no such thing as overspending your salary. Inline budget editing with parent-child budget validation. Merge categories, move nodes with cycle detection, pick from 14 preset colors, and choose emoji icons. Merging and moving never cross the two trees, because that would silently re-type every record underneath.
 
+**Reorder with ⬆️ / ⬇️ on every row** — roots and subcategories alike, greyed out at the ends of the list. The order lives on the category (`sortOrder`), so it is part of the ledger, travels through cloud sync and LAN sync, and the other device pulls it already in the order you set. Reordering never renumbers across the two trees, and the whole sibling list is renumbered 0..n-1 so two devices can't end up rendering the same data in different orders.
+
+### 🔍 选分类 Pickers
+Every "pick a category" surface — new record, edit record, the records filter, batch recategorisation, and the merge/move target pickers — is the same component: **collapsed by default**, opened one branch at a time with the same ▶ affordance as the categories page, plus a **search box**. Typing a category name or an emoji filters the tree, force-expands every ancestor so the hits are actually visible, counts the hits on each ancestor row, and highlights the matched run. Expansion is remembered for the session, so drilling into 餐饮 › 午餐 to set a budget does not have to be redone on the next record. Clicks are handled by one delegated listener, so no category id is ever interpolated into an `onclick` attribute.
+
 ### 📈 统计 Statistics
 Interactive Canvas charts — elastic animated pie chart with hover pop-out and full drill-down (switchable to a **waffle grid** where one block = a fixed amount, or a **nested treemap** where area = spend and boxes nest to show the category hierarchy), animated line chart, bar chart with drill-down, and a calendar heatmap with 6-color gradient. Month-over-month comparison, 6-month trends, and a dedicated savings chart. All charts downloadable as PNG. Custom date range analysis included.
 
@@ -118,6 +123,16 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
+
+### v3.5.0 新增功能
+
+- **↕️ 分类可重排**：分类页每行左侧加 ⬆️ / ⬇️，根分类与子分类都能排，首尾自动置灰。顺序存在 `sortOrder` 上——**属于账本数据，云端 / 局域网同步一起带走**，另一台设备拉下来就是排好的顺序。
+  - 只在「同父 + 同树」内移动：支出根与收入根的 `parentId` 都是 `null`，按全局排序会让一次按箭头把「工资」挪到「餐饮」旁边。
+  - 每次移动把整组兄弟**重编号成 0..n-1**，而不是只换两个值。留空洞 / 半新半旧的值正是「两台设备拿着同一份数据却渲染出不同顺序」的来源，而且因为双方都认为这些数字合法，后续每次合并都修不回来。
+  - 重排只改 `sortOrder` 一个字段，走一次 `save()`，所以三方合并把它当普通的逐条分类编辑处理，不需要任何特例。
+- **🔍 选分类弹窗改为默认收起 + 搜索**：记账、编辑、流水筛选、批量改分类、分类合并/移动目标——这些原本各自长了一份「默认全部展开」的渲染器，分类一多就只能一路划到底。现在统一成一个组件：默认收起、点箭头逐层展开（沿用分类页同款 ▶）、带搜索框（输入分类名或 emoji 都行，命中结果自动展开到可见，祖先行标出命中数）。展开状态按会话记住，跟分类页的 `expandedCategories` 一致。
+  - 点击改为**一个事件委托处理函数**，分类 id 不再拼进 `onclick` 属性。
+  - 顺带修掉一个真 bug：搜索无命中时，分区标题仍会渲染出来，导致「没有匹配」的空态永远不显示。
 
 ### v3.4.0 新增功能
 

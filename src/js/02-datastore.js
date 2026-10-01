@@ -670,8 +670,55 @@ const DataStore = {
     return true;
   },
 
-  getNextColor() {
-    const idx = this._data.colorIndex || 0;
+  // Move a category one slot up (-1) or down (+1) among its siblings.
+  //
+  // Siblings are resolved WITHIN ONE TREE on purpose: every root has parentId null,
+  // so a plain getRootCategories() would hand back the income roots interleaved
+  // with the expense ones and let a single arrow press reorder a salary category
+  // past 餐饮. Reordering is a presentation concern, so it is the last thing that
+  // should ever be able to move a record between trees.
+  //
+  // The whole sibling list is renumbered 0..n-1 rather than just swapping two
+  // values. Half-updated sortOrder (say 0,5,2) is what makes two devices holding
+  // the same data render different orders, and it survives every later merge
+  // because both sides agree the numbers are valid.
+  //
+  // Sync: only `sortOrder` changes, on existing rows, through one save() — so the
+  // cloud merge picks it up as an ordinary per-category edit with no special case
+  // (see the reorder test in tests/category-reorder-test.js).
+  reorderCategory(id, delta) {
+    const step = delta < 0 ? -1 : 1;
+    if (!delta) return false;
+    const cat = this._data.categories.find(c => c.id === id);
+    if (!cat) return false;
+    const kind = cat.kind === 'income' ? 'income' : 'expense';
+    const siblings = (cat.parentId
+      ? this.getChildren(cat.parentId)
+      : this.getRootCategories(kind)
+    ).slice().sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    const from = siblings.findIndex(c => c.id === id);
+    const to = from + step;
+    if (from < 0 || to < 0 || to >= siblings.length) return false;
+    siblings.splice(to, 0, siblings.splice(from, 1)[0]);
+    siblings.forEach((c, i) => { c.sortOrder = i; });
+    this.save();
+    return true;
+  },
+
+  // Where a category sits among its siblings — used to grey out the arrow that
+  // has nowhere to go, so the control never looks broken.
+  categoryOrderPosition(id) {
+    const cat = this._data.categories.find(c => c.id === id);
+    if (!cat) return null;
+    const kind = cat.kind === 'income' ? 'income' : 'expense';
+    const siblings = (cat.parentId ? this.getChildren(cat.parentId) : this.getRootCategories(kind))
+      .slice().sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    const index = siblings.findIndex(c => c.id === id);
+    if (index < 0) return null;
+    return { index, total: siblings.length, canMoveUp: index > 0, canMoveDown: index < siblings.length - 1 };
+  },
+
+  getNextColor() {    const idx = this._data.colorIndex || 0;
     const color = COLORS[idx % COLORS.length];
     this._data.colorIndex = (this._data.colorIndex || 0) + 1;
     this.save();

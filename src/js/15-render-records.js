@@ -271,46 +271,27 @@ function applyRecordsFilter() {
 
 // Filtering reads both trees on purpose — this is how you isolate a category, and
   // 工资 is a category just like 餐饮. The type filter above is what narrows by
-  // side of the flow.
+  // side of the flow. Collapsed + searchable via the shared tree component.
 function openCategoryFilterPicker() {
-  const expenseRoots = DataStore.getExpenseRootCategories();
-  const incomeRoots = DataStore.getIncomeRootCategories();
-  let html = '<div class="modal-title">' + __('records.filter.pickCategory') + '</div><div style="max-height:50vh;overflow-y:auto">';
-  html += `<div style="padding:8px 12px;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast);display:flex;align-items:center;gap:8px"
-       onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"
-       onclick="selectCategoryFilter('')">
-    <span>📁</span><span>${__('records.filter.allCategories')}</span>
-  </div>`;
-  html += '<div class="picker-section-header">' + __('categoryPicker.daily') + '</div>';
-  html += buildCategoryTreeFilterPicker(expenseRoots, 0);
-  if (incomeRoots.length) {
-    html += '<div class="picker-section-header">' + __('categoryPicker.income') + '</div>';
-    html += buildCategoryTreeFilterPicker(incomeRoots, 0);
-  }
-  html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('records.cancel') + '</button></div>';
-  showModal(html);
+  const allRow = '<div class="cat-tree-all" onclick="selectCategoryFilter(\'\')">' +
+    '<span>📁</span><span>' + __('records.filter.allCategories') + '</span></div>';
+  openCatTreeModal({
+    title: __('records.filter.pickCategory'),
+    func: 'selectCategoryFilter',
+    arg: '',
+    top: allRow,
+    sections: [
+      { title: __('categoryPicker.daily'), getRoots: () => DataStore.getExpenseRootCategories() },
+      { title: __('categoryPicker.income'), getRoots: () => DataStore.getIncomeRootCategories() }
+    ]
+  });
 }
 
+// Superseded by the shared collapsible/searchable tree in 09-category-picker.js
+// (openCatTreeModal). Kept as a thin wrapper so the old export stays callable and
+// any bookmarked/外部 call site keeps working.
 function buildCategoryTreeFilterPicker(cats, depth) {
-  let html = '';
-  cats.forEach(cat => {
-    const children = DataStore.getChildren(cat.id);
-    const indent = depth * 20;
-    html += `
-      <div style="padding:8px 12px;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast);display:flex;align-items:center;gap:8px;margin-left:${indent}px"
-           onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"
-           onclick="selectCategoryFilter('${cat.id}')">
-        <span style="width:10px;height:10px;border-radius:50%;background:${cat.color};display:inline-block"></span>
-        <span>${escHtml(cat.icon)}</span>
-        <span>${escHtml(cat.name)}</span>
-        <span class="text-xs text-muted">${__('records.filter.includesSubcategories')}</span>
-      </div>
-    `;
-    if (children.length) {
-      html += buildCategoryTreeFilterPicker(children, depth + 1);
-    }
-  });
-  return html;
+  return buildCategoryTreePicker(cats, depth || 0, 'filter');
 }
 
 function selectCategoryFilter(catId) {
@@ -619,35 +600,20 @@ function batchChangeCategory() {
     return;
   }
   const kind = kinds.has('income') ? 'income' : 'expense';
-  // Show category picker
-  const roots = kind === 'income' ? DataStore.getIncomeRootCategories() : DataStore.getExpenseRootCategories();
-  let html = `<div class="modal-title">${__('records.batch.changeTitle')}</div>
-    <p class="text-sm text-secondary mb-8">${__('records.batch.changeText', count)}</p>
-    <div style="max-height:50vh;overflow-y:auto">
-      <div class="text-sm font-semibold" style="padding:6px 4px;color:var(--text-secondary)">${kind === 'income' ? __('categoryPicker.income') : __('categoryPicker.daily')}</div>`;
-  html += buildBatchCategoryTree(roots, 0);
-  html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('records.cancel') + '</button></div>';
-  showModal(html);
+  openCatTreeModal({
+    title: __('records.batch.changeTitle'),
+    func: 'confirmBatchChangeCategory',
+    sections: [{
+      title: kind === 'income' ? __('categoryPicker.income') : __('categoryPicker.daily'),
+      getRoots: () => (kind === 'income' ? DataStore.getIncomeRootCategories() : DataStore.getExpenseRootCategories())
+    }],
+    top: '<p class="text-sm text-secondary mb-8">' + __('records.batch.changeText', count) + '</p>'
+  });
 }
 
+// Superseded by the shared tree component; kept so the export stays callable.
 function buildBatchCategoryTree(cats, depth) {
-  let html = '';
-  cats.forEach(cat => {
-    const children = DataStore.getChildren(cat.id);
-    const indent = depth * 20;
-    html += `
-      <div style="padding:8px 12px;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast);display:flex;align-items:center;gap:8px;margin-left:${indent}px"
-           onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"
-           onclick="confirmBatchChangeCategory('${cat.id}')">
-        <span style="width:10px;height:10px;border-radius:50%;background:${cat.color};display:inline-block"></span>
-        <span>${escHtml(cat.icon)}</span>
-        <span>${escHtml(cat.name)}</span>
-      </div>`;
-    if (children.length) {
-      html += buildBatchCategoryTree(children, depth + 1);
-    }
-  });
-  return html;
+  return buildCategoryTreePicker(cats, depth || 0, 'batch');
 }
 
 function confirmBatchChangeCategory(catId) {

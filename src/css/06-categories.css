@@ -1,4 +1,98 @@
-/* ===== CATEGORY ACCORDION ===== */
+/* ===== CATEGORY TREE INSIDE A PICKER MODAL =====
+   The same .cat-item / .cat-header / .cat-arrow vocabulary as the categories
+   page, so expanding a branch here feels identical to expanding it there. The
+   overrides below are only what a modal needs and a page does not: pointer
+   cursor on rows, a scroll cap, and no accordion height animation (the body is
+   toggled with display, which is instant and cannot fight the container's
+   max-height while a search re-renders). */
+.cat-tree-search {
+  margin-bottom: 8px;
+}
+.cat-tree {
+  max-height: 52vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.cat-tree .cat-item {
+  background: transparent;
+}
+.cat-tree .cat-item:last-child {
+  border-bottom: none;
+}
+.cat-tree .cat-header {
+  padding: 8px 12px;
+  cursor: pointer;
+  gap: 8px;
+}
+.cat-tree .cat-header:hover {
+  background: var(--bg);
+}
+.cat-tree .cat-children {
+  border-left: 2px solid var(--border);
+  margin-left: 18px;
+}
+.cat-tree .cat-name {
+  font-weight: 500;
+}
+
+/* "全部类别" row that sits above the tree in the records filter */
+.cat-tree-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  transition: var(--transition-fast);
+}
+.cat-tree-all:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Match count on an ancestor row while a search is active */
+.cat-tree-count {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--primary);
+  background: rgba(99, 102, 241, 0.12);
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+
+/* Per-section tag, e.g. the 📋 badge on a monthly-bill row */
+.cat-tree-tag {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+/* Search hit. The default <mark> is a bright block that fights the row; this is
+   the same idea at text weight so the row still reads as a category. */
+.cat-tree mark {
+  background: rgba(245, 158, 11, 0.22);
+  color: inherit;
+  font-weight: 700;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+/* An arrow with nowhere to go: visible, not clickable-looking. */
+.cat-action-off {
+  opacity: 0.15;
+  cursor: default;
+}
+
+
 .cat-item {
   border-bottom: 1px solid var(--border);
   background: var(--card-bg);

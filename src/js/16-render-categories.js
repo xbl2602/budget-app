@@ -69,6 +69,11 @@ function buildCategoryTreeHTML(cats, depth, kind) {
     html += `<span class="cat-name">${escHtml(cat.name)}</span>`;
     // Action icons (visible on every row)
     html += `<span class="cat-action-icons">`;
+    // Reorder arrows, scoped to this category's own siblings. Disabled at the ends
+    // of the list rather than silently doing nothing on the last press.
+    const pos = DataStore.categoryOrderPosition(cat.id) || { canMoveUp: false, canMoveDown: false };
+    html += `<span class="cat-action-icon${pos.canMoveUp ? '' : ' cat-action-off'}" onclick="event.stopPropagation();moveCategoryOrder('${cat.id}',-1)" title="${__('categories.moveUp')}">⬆️</span>`;
+    html += `<span class="cat-action-icon${pos.canMoveDown ? '' : ' cat-action-off'}" onclick="event.stopPropagation();moveCategoryOrder('${cat.id}',1)" title="${__('categories.moveDown')}">⬇️</span>`;
     html += `<span class="cat-action-icon" onclick="event.stopPropagation();addChildCategory('${cat.id}')" title="${__('categories.addChild')}">➕</span>`;
     html += `<span class="cat-action-icon" onclick="event.stopPropagation();editCategory('${cat.id}')" title="${__('categories.edit')}">⚙️</span>`;
     html += `</span>`;
@@ -104,6 +109,15 @@ function buildCategoryTreeHTML(cats, depth, kind) {
     html += `</div>`; // end cat-item
   });
   return html;
+}
+
+// Nudge a category up or down among its siblings. The datastore owns the sibling
+// maths (and the save, which is what notifies cloud sync); this only re-renders.
+// expandedCategories is deliberately left alone — reordering must not fold the
+// tree shut under the user.
+function moveCategoryOrder(id, delta) {
+  if (!DataStore.reorderCategory(id, delta)) return;
+  renderCategories();
 }
 
 function saveCategoryBudget(catId, month, value, type) {
@@ -142,28 +156,17 @@ function saveCategoryBudget(catId, month, value, type) {
 function mergeCategory(sourceId) {
   const sourceCat = DataStore.getCategory(sourceId);
   if (!sourceCat) return;
-  const sourceKind = sourceCat.kind === 'income' ? 'income' : 'expense';
+  const sourceKind = catKindOf(sourceCat);
   _mergeSourceId = sourceId;
   _mergeTargetId = null;
   const children = DataStore.getChildren(sourceId);
   const descendants = DataStore.getDescendantIds(sourceId);
-  const allCats = DataStore.getCategories()
-    .filter(c => !descendants.includes(c.id) && c.id !== sourceId && (c.kind === 'income' ? 'income' : 'expense') === sourceKind);
 
-  let html = `
-    <div class="modal-title">${__('categories.merge.title')}</div>
-    <p class="text-sm text-secondary mb-8">
-      ${__('categories.merge.text', sourceCat.icon, escHtml(sourceCat.name))}
-    </p>
-    <div class="input-group">
-      <label class="input-label">${__('categories.merge.selectTarget')}</label>
-      <div style="max-height:30vh;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px">`;
-  html += buildMergeTargetTree(allCats.filter(c => !c.parentId), 0, sourceId, descendants);
-  html += `</div></div>`;
-
-  // If source has children, ask what to do with them
+  // If the source has children, ask what to do with them
+  let top = '<p class="text-sm text-secondary mb-8">' +
+    __('categories.merge.text', escHtml(sourceCat.icon), escHtml(sourceCat.name)) + '</p>';
   if (children.length > 0) {
-    html += `
+    top += `
       <div class="input-group">
         <label class="input-label">${__('categories.merge.handleChildren', children.length)}</label>
         <div class="flex flex-col gap-4" style="padding:4px 0">
@@ -178,13 +181,25 @@ function mergeCategory(sourceId) {
         </div>
       </div>`;
   }
-
-  html += `
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">${__('categories.cancel')}</button>
-      <button class="btn btn-primary" onclick="confirmMergeCategory()" id="mergeConfirmBtn" disabled>${__('categories.merge.selectFirst')}</button>
-    </div>`;
-  showModal(html);
+  const excluded = descendants.concat([sourceId]);
+  openCatTreeModal({
+    title: __('categories.merge.title'),
+    func: 'selectMergeTarget',
+    // Same tree only — see the note above. The descendants are filtered out by
+    // rebuilding the root list, so the picker can never offer the source itself.
+    sections: [{
+      title: sourceKind === 'income' ? __('categoryPicker.income') : __('categoryPicker.daily'),
+      label: true,
+      getRoots: () => (sourceKind === 'income'
+        ? DataStore.getIncomeRootCategories()
+        : DataStore.getExpenseRootCategories()).filter(c => excluded.indexOf(c.id) === -1)
+    }],
+    top,
+    cancelFunc: 'closeModal',
+    // The confirm button is re-enabled by selectMergeTarget(); the cancel button
+    // stays in the normal slot, so no separate action row is needed.
+    footer: '<button class="btn btn-primary btn-block" onclick="confirmMergeCategory()" id="mergeConfirmBtn" disabled>' + __('categories.merge.selectFirst') + '</button>'
+  });
 }
 
 function buildMergeTargetTree(cats, depth, sourceId, excludeIds) {
@@ -493,44 +508,32 @@ function moveCategory(id) {
   if (!cat) return;
   // Same reason as merge: a move is a re-parent, and re-parenting across the two
   // trees would silently re-type every record underneath.
-  const kind = cat.kind === 'income' ? 'income' : 'expense';
-  const cats = kind === 'income' ? DataStore.getIncomeRootCategories() : DataStore.getExpenseRootCategories();
+  const kind = catKindOf(cat);
   const descendants = DataStore.getDescendantIds(id);
-
-  let html = `<div class="modal-title">${__('categories.move.title', escHtml(cat.icon), escHtml(cat.name))}</div>
-    <p class="text-sm text-secondary mb-8">${__('categories.move.text')}</p>
-    <div style="max-height:50vh;overflow-y:auto">`;
-  html += buildMoveTree(cats, 0, descendants, id);
-  html += '</div>';
-  html += `<div class="modal-actions">
-    <button class="btn btn-ghost" onclick="closeModal()">${__('categories.cancel')}</button>
-    <button class="btn btn-ghost" onclick="confirmMoveCategory('${id}','')">${__('categories.move.toRoot')}</button>
-  </div>`;
-  showModal(html);
-}
-
-function buildMoveTree(cats, depth, excludeIds, movingId) {
-  let html = '';
-  cats.forEach(cat => {
-    if (excludeIds.includes(cat.id)) return;
-    const children = DataStore.getChildren(cat.id);
-    const indent = depth * 20;
-    html += `
-      <div style="padding:8px 12px;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast);display:flex;align-items:center;gap:8px;margin-left:${indent}px"
-           onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"
-           onclick="confirmMoveCategory('${movingId}','${cat.id}')">
-        <span style="width:10px;height:10px;border-radius:50%;background:${cat.color};display:inline-block"></span>
-        <span>${escHtml(cat.icon)}</span>
-        <span>${escHtml(cat.name)}</span>
-      </div>
-    `;
-    if (children.length) {
-      html += buildMoveTree(children, depth + 1, excludeIds, movingId);
-    }
+  openCatTreeModal({
+    title: __('categories.move.title', escHtml(cat.icon), escHtml(cat.name)),
+    func: 'confirmMoveCategory',
+    // (movingId, targetId) — the opposite argument order to every other picker,
+    // hence data-swap.
+    arg: id,
+    swap: true,
+    sections: [{
+      title: kind === 'income' ? __('categoryPicker.income') : __('categoryPicker.daily'),
+      // The category's own subtree is removed from the candidate roots so it can
+      // never be offered as its own parent. confirmMoveCategory still re-checks,
+      // so a mistake here degrades to a toast rather than a cycle in the data.
+      getRoots: () => (kind === 'income' ? DataStore.getIncomeRootCategories() : DataStore.getExpenseRootCategories())
+        .filter(c => descendants.indexOf(c.id) === -1)
+    }],
+    top: '<p class="text-sm text-secondary mb-8">' + __('categories.move.text') + '</p>' +
+      '<button class="btn btn-outline btn-block" style="margin-bottom:8px" onclick="confirmMoveCategory(\'' + id + '\',\'\')">' + __('categories.move.toRoot') + '</button>',
+    cancelFunc: 'closeModal'
   });
-  return html;
 }
 
+// The excluded ids are carried on the host so confirmMoveCategory can still refuse
+// a cyclic move — the picker only offers rows outside the subtree, but the handler
+// must not depend on that having been filtered correctly.
 function confirmMoveCategory(id, newParentId) {
   // Prevent circular reference
   if (newParentId && DataStore.getDescendantIds(id).includes(newParentId)) {
@@ -541,6 +544,11 @@ function confirmMoveCategory(id, newParentId) {
   closeModal();
   showToast(__('categories.moved'));
   renderCategories();
+}
+
+// Superseded by the shared tree component; kept so the export stays callable.
+function buildMoveTree(cats, depth, excludeIds, movingId) {
+  return buildCategoryTreePicker((cats || []).filter(c => !excludeIds.includes(c.id)), depth || 0, 'move');
 }
 
 function deleteCategoryConfirm(id) {
@@ -730,6 +738,7 @@ function saveCategoryEdit(catId) {
   window.selectMergeTarget = selectMergeTarget;
   window.confirmMergeCategory = confirmMergeCategory;
   window.toggleCatItem = toggleCatItem;
+  window.moveCategoryOrder = moveCategoryOrder;
   window.addRootCategory = addRootCategory;
   window.confirmAddRootCategory = confirmAddRootCategory;
   window.addChildCategory = addChildCategory;
@@ -768,6 +777,8 @@ function saveCategoryEdit(catId) {
     'categories.collapseAll': { zh: '折叠全部', en: 'Collapse all' },
     'categories.toggle': { zh: '展开/折叠', en: 'Expand/Collapse' },
     'categories.addChild': { zh: '添加子分类', en: 'Add subcategory' },
+    'categories.moveUp': { zh: '上移', en: 'Move up' },
+    'categories.moveDown': { zh: '下移', en: 'Move down' },
     'categories.edit': { zh: '编辑分类', en: 'Edit category' },
     'categories.perMonth': { zh: '/月', en: '/month' },
     'categories.budgetExceedParent': { zh: '⚠️ 子项预算总和 ({0}) 超过了父级预算 ({1})，未保存', en: '⚠️ Sub-budget total ({0}) exceeds parent budget ({1}), not saved' },

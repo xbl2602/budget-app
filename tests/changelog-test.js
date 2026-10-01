@@ -20,8 +20,8 @@ const { JSDOM } = require('jsdom');
 const BASE = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
 const LS_KEY = 'budgetAppLastSeenChangelog';
-const A1 = '2026-10-06';   // newest shipped entry
-const A2 = '2026-10-05';   // older shipped entry
+const A1 = '2026-10-07';   // newest shipped entry
+const A2 = '2026-10-06';   // older shipped entry
 const X1 = '2099-01-01';   // test-only entry, injected via Changelog.register
 
 let pass = 0, fail = 0;
@@ -109,7 +109,7 @@ const noStray = w => MC(w).textContent.indexOf('??') === -1;
     const dom = boot({ [LS_KEY]: A1 });
     const w = dom.window, C = w.Changelog;
 
-    ok(typeof w.APP_VERSION === 'string' && w.APP_VERSION === '3.4.0', 'L10 APP_VERSION present and is 3.4.0');
+    ok(typeof w.APP_VERSION === 'string' && w.APP_VERSION === '3.5.0', 'L10 APP_VERSION present and is 3.5.0');
     ok(typeof C === 'object' && C !== null, 'L10 Changelog API present (29 loaded after 01)');
     ok(typeof w.ModalQueue === 'object', 'L10 ModalQueue present');
 
@@ -170,7 +170,11 @@ const noStray = w => MC(w).textContent.indexOf('??') === -1;
     const w = dom.window;
     await waitFor(w, x => MC(x).innerHTML.indexOf('cl-title') !== -1, 'changelog on startup');
     ok(overlayOpen(w), 'L2 modal opened on startup');
-    ok(MC(w).querySelectorAll('.cl-item').length >= 3, 'L2 the newest entry rendered its items');
+    // Derived from the newest entry, not a literal 3: entries carry different
+    // numbers of items, and this asserts "the newest entry rendered all of its
+    // items", not "the newest entry happens to have three".
+    const newestItems = w.Changelog.all()[0].items.length;
+    ok(MC(w).querySelectorAll('.cl-item').length === newestItems, 'L2 the newest entry rendered its items');
     ok(MC(w).querySelector('.cl-banner') !== null, 'L2 every entry pending -> banner shown');
     // Derived, not a literal "1 / 2": the registry grows with every release and
     // this assertion is about the counter tracking the registry, not about how

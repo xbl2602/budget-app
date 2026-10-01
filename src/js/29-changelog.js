@@ -39,6 +39,16 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
+    id: '2026-10-07',
+    version: '3.5.0',
+    date: '2026-10-07',
+    title: 'changelog.a4.title',
+    items: [
+      { icon: '↕️', text: 'changelog.a4.item1' },
+      { icon: '🔍', text: 'changelog.a4.item2' }
+    ]
+  },
+  {
     id: '2026-10-06',
     version: '3.4.0',
     date: '2026-10-06',
@@ -303,6 +313,16 @@ function close() {
     'changelog.settingsHint': { zh: '随时回看历次更新内容', en: 'Browse every past update' },
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
+
+    'changelog.a4.title': { zh: 'v3.5.0 分类可排序 + 选分类不再刷屏', en: 'What\'s in v3.5.0: sorting and a picker you can search' },
+    'changelog.a4.item1': {
+      zh: '<strong>分类顺序可以自己排了</strong>:分类页每一行左边多了 ⬆️ / ⬇️,子分类和根分类都能排,首尾会自动置灰。顺序存在分类本身上,云端同步会一起带走——另一台设备拉下来就是你排好的顺序。',
+      en: '<strong>Reorder categories</strong> - every row on the categories page now has ⬆️ / ⬇️, for roots and subcategories alike, greyed out at the ends of the list. The order lives on the category itself, so cloud sync carries it: the other device pulls it already in the order you set.'
+    },
+    'changelog.a4.item2': {
+      zh: '<strong>选分类不再一次铺满</strong>:记账、编辑、流水筛选、批量改分类这几个弹窗原本默认把整棵树展开,分类一多就得一路划到底。现在默认收起、点箭头逐层展开,还加了搜索框——输入分类名或 emoji,命中的结果会自动展开到看得见的位置,祖先行上还会标出有几个命中。',
+      en: '<strong>Pickers that do not flood you</strong> - the add, edit, records-filter and batch-recategorise pickers used to open with the whole tree expanded, so with any depth you scrolled to the bottom just to reach 餐饮. They now start collapsed, open one branch at a time, and have a search box: type a name or an emoji and the matches are expanded into view, with each ancestor row showing how many hits it contains.'
+    },
 
     'changelog.a3.title': { zh: 'v3.4.0 新增：收入记账', en: 'What\'s in v3.4.0: income' },
     'changelog.a3.item1': {

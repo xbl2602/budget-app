@@ -168,6 +168,23 @@ _defaults() {
 `_migrateIncomeCategories()` 改成从 `categories` 推导（整棵收入树不存在时才补种），
 唯一放弃的行为是：把收入分类全删光后，下次启动会把默认的补回来。
 
+### 规则 #8b：分类顺序（v3.5）
+
+`sortOrder` 一直是分类的字段，但从前没有任何 UI 改它。现在分类页每行有 ⬆️ / ⬇️，
+数据层是 `DataStore.reorderCategory(id, delta)` 与 `categoryOrderPosition(id)`。
+写新代码时注意这四条，它们都是「看起来能简化、实际会出事」的地方：
+
+| 规则 | 为什么 |
+|---|---|
+| 兄弟只在**同父 + 同树**内解析（`cat.parentId` 存在时用 `getChildren`，否则用 `getRootCategories(kind)`） | 收入根与支出根的 `parentId` 都是 `null`，按全局排序会让一次按箭头把「工资」挪到「餐饮」旁边 |
+| 移动后把**整组兄弟重编号成 0..n-1** | 留空洞或半新半旧的值，会让两台设备拿着同一份数据渲染出不同顺序；而且双方都认为这些数字合法，后续合并修不回来 |
+| 只改 `sortOrder`，一次 `save()` | 三方合并把 categories 当普通 id 键集合逐条合并，于是重排天然同步，不需要特例（见 `tests/category-reorder-test.js` 的同步段） |
+| 顺序**不进** `_defaults()` 也不需要迁移 | 老数据本来就是 0..n-1；缺 `sortOrder` 的条目按 0 参与排序，不会炸 |
+
+「选分类」弹窗统一走 `openCatTreeModal()`（`09-category-picker.js`）：默认收起、
+按 `data-q` 重渲染、点击走 `catTreePick()` 一个事件委托。**新增选择分类的界面时
+不要再写第三份「默认全展开」的渲染器**——用这个组件，它已经带搜索与渐进展开。
+
 
 **`init()` 中的迁移模式：**
 ```javascript
