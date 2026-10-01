@@ -67,10 +67,18 @@ check('hostile splitBill id dropped, bad categoryId replaced',
 const empty = DataStore._normalize({ records: [], categories: [{ id: evilId, name: 'x', icon: 'x', color: '#000000' }] });
 check('all-hostile categories fall back to defaults', empty.categories.length > 0);
 
-// Every default category must survive the whitelist unchanged.
+// Every default category must survive the whitelist unchanged. Compared by id, not
+// by array length: _normalize() also seeds DEFAULT_INCOME_CATEGORIES into a store
+// that has none, so a length equality would fail the moment a second default tree
+// exists — while still passing if a real category were dropped and a new one added
+// in the same release.
 const defaults = DataStore._defaults();
 const again = DataStore._normalize(JSON.parse(JSON.stringify(defaults)));
-check('default categories all survive', again.categories.length === defaults.categories.length);
+const survivingIds = new Set(again.categories.map(c => c.id));
+check('default categories all survive',
+  defaults.categories.every(c => survivingIds.has(c.id)));
+check('income categories are seeded',
+  again.categories.some(c => c.kind === 'income'));
 
 // S5: the CSP must keep the directives that default-src does not cover. base-uri stops an
 // injected <base> from re-pointing relative URLs; form-action stops a form whose submit

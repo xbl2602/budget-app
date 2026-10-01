@@ -5,8 +5,30 @@
 'use strict';
 
 const StatsEngine = {
+  // ===== The income boundary =====
+  // Everything below this line that answers a SPENDING question goes through
+  // getRecordsInMonth / getPeriodRecords, and those two deliberately drop income
+  // rows. That is why no individual total had to be rewritten when income landed:
+  // the two chokepoints were already where every monthly and period-wide figure
+  // was assembled. Income is summed separately by getMonthIncome & friends.
   getRecordsInMonth(month) {
-    return DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month);
+    return expenseRecords(DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month));
+  },
+  getIncomeRecordsInMonth(month) {
+    return incomeRecords(DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month));
+  },
+  getMonthIncome(month) {
+    return this.getIncomeRecordsInMonth(month).reduce((s, r) => s + (r.amount || 0), 0);
+  },
+  getMonthNet(month) {
+    return round2(this.getMonthIncome(month) - this.getMonthTotal(month));
+  },
+  getIncomeCategoryTotals(month) {
+    const result = {};
+    this.getIncomeRecordsInMonth(month).forEach(r => {
+      result[r.categoryId] = (result[r.categoryId] || 0) + r.amount;
+    });
+    return result;
   },
 
   getMonthTotal(month) {
@@ -144,23 +166,42 @@ const StatsEngine = {
   getCustomRangeTotals(startDate, endDate) {
     const start = new Date(startDate);
     const end = new Date(endDate);
-    const records = DataStore.getRecords().filter(r => {
+    const inRange = DataStore.getRecords().filter(r => {
       const d = new Date(r.date || r.createdAt);
       return d >= start && d <= end;
     });
+    const records = expenseRecords(inRange);
+    const incomeRecs = incomeRecords(inRange);
     const daily = {};
     records.forEach(r => {
       const key = (r.date || r.createdAt).substr(0, 10);
       daily[key] = (daily[key] || 0) + r.amount;
     });
+    const incomeDaily = {};
+    incomeRecs.forEach(r => {
+      const key = (r.date || r.createdAt).substr(0, 10);
+      incomeDaily[key] = (incomeDaily[key] || 0) + r.amount;
+    });
+    const incomeTotal = incomeRecs.reduce((s, r) => s + (r.amount || 0), 0);
+    const total = records.reduce((s, r) => s + r.amount, 0) - this._splitContribBetween(start, end);
     return {
-      total: records.reduce((s, r) => s + r.amount, 0) - this._splitContribBetween(start, end),
+      total,
+      incomeTotal,
+      net: round2(incomeTotal - total),
       count: records.length,
       splitContrib: this._splitContribBetween(start, end),
       daily: Object.entries(daily).sort((a,b) => a[0].localeCompare(b[0])).map(([day, total]) => ({ day, total })),
+      incomeDaily: Object.entries(incomeDaily).sort((a,b) => a[0].localeCompare(b[0])).map(([day, total]) => ({ day, total })),
       categoryTotals: (() => {
         const ct = {};
         records.forEach(r => {
+          ct[r.categoryId] = (ct[r.categoryId] || 0) + r.amount;
+        });
+        return ct;
+      })(),
+      incomeCategoryTotals: (() => {
+        const ct = {};
+        incomeRecs.forEach(r => {
           ct[r.categoryId] = (ct[r.categoryId] || 0) + r.amount;
         });
         return ct;
@@ -309,10 +350,10 @@ const StatsEngine = {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const key = d.toISOString().substr(0, 10);
-      const dayTotal = DataStore.getRecords().filter(r => {
+      const dayTotal = expenseRecords(DataStore.getRecords().filter(r => {
         const rd = (r.date || r.createdAt).substr(0, 10);
         return rd === key;
-      }).reduce((s, r) => s + r.amount, 0);
+      })).reduce((s, r) => s + r.amount, 0);
       result.push({ date: key, total: dayTotal, label: (d.getMonth()+1)+'/'+d.getDate() });
     }
     return result;
@@ -427,7 +468,8 @@ const StatsEngine = {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
       const total = this.getMonthTotal(key);
-      result.push({ month: key, total, label: key });
+      const income = this.getMonthIncome(key);
+      result.push({ month: key, total, income, net: round2(income - total), label: key });
     }
     return result;
   },
@@ -435,10 +477,30 @@ const StatsEngine = {
   // ===== Period-Aware Methods (Stats Range: month or rolling30) =====
   getPeriodRecords() {
     const { start, end } = getPeriodDateRange();
-    return DataStore.getRecords().filter(r => {
+    return expenseRecords(DataStore.getRecords().filter(r => {
       const d = new Date(r.date || r.createdAt);
       return d >= start && d <= end;
+    }));
+  },
+  getPeriodIncomeRecords() {
+    const { start, end } = getPeriodDateRange();
+    return incomeRecords(DataStore.getRecords().filter(r => {
+      const d = new Date(r.date || r.createdAt);
+      return d >= start && d <= end;
+    }));
+  },
+  getPeriodIncome() {
+    return this.getPeriodIncomeRecords().reduce((s, r) => s + (r.amount || 0), 0);
+  },
+  getPeriodNet() {
+    return round2(this.getPeriodIncome() - this.getPeriodTotal());
+  },
+  getPeriodIncomeCategoryTotals() {
+    const totals = {};
+    this.getPeriodIncomeRecords().forEach(r => {
+      totals[r.categoryId] = (totals[r.categoryId] || 0) + r.amount;
     });
+    return totals;
   },
   getPeriodTotal() {
     return this.getPeriodRecords().reduce((s, r) => s + r.amount, 0) - this.getPeriodSplitContrib();

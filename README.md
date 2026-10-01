@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.3.0
+# 记账软件 · Budget App v3.4.0
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -86,13 +86,16 @@
 Monthly spending summary with budget and savings progress rings rendered on Canvas. Includes a 7-day spending sparkline, top 5 spending categories, overspend warnings, and a savings prediction engine that supports dual daily limit calculations.
 
 ### ✏️ 记账 Add Record
-Quick expense entry with automatic RM currency prefix, a tree-based category picker (emoji + color), date/time fields, and notes. Input validation with shake animation feedback.
+Quick entry with an **expense / income switch**, automatic RM currency prefix, a tree-based category picker (emoji + color), date/time fields, and notes. Input validation with shake animation feedback.
+
+### 💰 收入 Income
+Money coming in gets its own half of the ledger. Pick **收入** on the add or edit form and the picker switches to an income category tree — seeded with 工资（月薪 / 奖金 / 加班津贴）、副业（接单 / 卖闲置）、报销退款、理财收益、其他收入, all editable like any other category. Income never touches a spending number: daily averages, category charts, budgets, overspend warnings, heatmap and What-If all keep counting expenses only. What it *does* feed is the other half — the overview, statistics and report each gained an **income / spending / net** row, the six-month trend chart gained a green income line, and income rows show green with a leading `+` in the ledger. Recorded income is deliberately kept separate from the 月收入 setting, which stays a per-month declaration that drives the budget chain.
 
 ### 📋 流水 Records
-Advanced multi-filter system supporting keyword, category, date range, amount range, and overspent-only filters. Multi-level sorting (by date, amount, note, or category name). Toggle between compact and card views. Batch operations for delete and recategorization. Soft delete with a 5-second undo window.
+Advanced multi-filter system supporting keyword, category, date range, amount range, overspent-only and **支出 / 收入 type** filters. Multi-level sorting (by date, amount, note, or category name). Toggle between compact and card views. Batch operations for delete and recategorization. Soft delete with a 5-second undo window.
 
 ### 🗂️ 分类 Categories
-Infinite nesting tree with accordion UI. Set per-category budgets in RM or percentage. Inline budget editing with parent-child budget validation. Merge categories, move nodes with cycle detection, pick from 14 preset colors, and choose emoji icons.
+Infinite nesting tree with accordion UI, split into a **支出分类** and a **收入分类** tree. Set per-category budgets in RM or percentage on expenses; income rows show what actually arrived this month instead — there is no such thing as overspending your salary. Inline budget editing with parent-child budget validation. Merge categories, move nodes with cycle detection, pick from 14 preset colors, and choose emoji icons. Merging and moving never cross the two trees, because that would silently re-type every record underneath.
 
 ### 📈 统计 Statistics
 Interactive Canvas charts — elastic animated pie chart with hover pop-out and full drill-down (switchable to a **waffle grid** where one block = a fixed amount, or a **nested treemap** where area = spend and boxes nest to show the category hierarchy), animated line chart, bar chart with drill-down, and a calendar heatmap with 6-color gradient. Month-over-month comparison, 6-month trends, and a dedicated savings chart. All charts downloadable as PNG. Custom date range analysis included.
@@ -115,6 +118,19 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
+
+### v3.4.0 新增功能
+
+- **💰 收入记账**：新增 / 编辑记录页顶部有「支出 / 收入」切换。
+  - **独立的收入分类树**：工资（月薪 / 奖金 / 加班津贴）、副业（接单 / 卖闲置）、报销退款、理财收益、其他收入，分类页里收支分成两块；收入分类右侧显示本月实际到账金额而不是预算框。
+  - **收入一律不进支出统计**：日均、分类图表、预算、超支警告、热力图、What-If 全部只算支出，收入不会把任何一个数字撑大。
+  - **反过来补上净额**：总览 / 统计 / 月度报告各加一行「收入 · 支出 · 结余」（有收入记录时才出现），近半年趋势图多一条绿色收入线，流水里收入显示为绿色带 `+`。
+  - **记录到的收入 ≠ 月收入设定**：前者是流水，后者是你每月手填的预算基数，仍然分开算——否则一进来历史数据全部对不上。
+  - 导出同步跟进：CSV 多一列「类型」；Excel 消费记录 sheet 多「类型」列、月度统计多「收入记录 / 结余」两列，有收入时另出一张「收入分类统计」sheet。
+- **🐛 顺带修掉的既有缺陷**：
+  - 全新安装（localStorage 为空）走的是 `_defaults()` 而**不经过 `_normalize()`**，因此新装的用户拿不到任何迁移结果——现在两条分支统一走 `_normalize()`。
+  - CSV 原本把 ID 那一列裸着写（`r1,"10.00",…`）。一旦紧跟其后出现带引号的列，宽松的 CSV 解析器会把第一个逗号当数据，整行塌成一列——现在所有字段统一带引号。
+  - 设置页的「统计审计」与记录诊断面板只按支出查月份，收入记录会被误报成「不在任何月份里」。
 
 ### v3.3.0 新增功能
 

@@ -39,6 +39,17 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
+    id: '2026-10-06',
+    version: '3.4.0',
+    date: '2026-10-06',
+    title: 'changelog.a3.title',
+    items: [
+      { icon: '💰', text: 'changelog.a3.item1' },
+      { icon: '🗂️', text: 'changelog.a3.item2' },
+      { icon: '📊', text: 'changelog.a3.item3' }
+    ]
+  },
+  {
     id: '2026-10-05',
     version: '3.3.0',
     date: '2026-10-05',
@@ -292,6 +303,20 @@ function close() {
     'changelog.settingsHint': { zh: '随时回看历次更新内容', en: 'Browse every past update' },
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
+
+    'changelog.a3.title': { zh: 'v3.4.0 新增：收入记账', en: 'What\'s in v3.4.0: income' },
+    'changelog.a3.item1': {
+      zh: '<strong>可以记收入了</strong>:新增记录页顶部有「支出 / 收入」切换,收入默认带工资、副业、报销/退款、理财收益、其他收入五棵分类树。流水里收入显示为绿色带 + 号。',
+      en: '<strong>Income entries</strong> - the new-record page has an expense / income switch, with five ready-made income categories (salary, side work, reimbursements, returns, investments). Income rows show green with a leading + in the ledger.'
+    },
+    'changelog.a3.item2': {
+      zh: '<strong>收入有自己的分类树</strong>:分类页分成「支出分类」和「收入分类」两块,收入分类右侧显示本月实际到账金额而不是预算框 —— 工资没有「超支」这回事。',
+      en: '<strong>Income has its own tree</strong> - the categories page is split into expenses and income. Income rows show what actually arrived this month instead of a budget box, because there is no such thing as overspending your salary.'
+    },
+    'changelog.a3.item3': {
+      zh: '<strong>收支结余</strong>:总览、统计、报表多了「收入 / 支出 / 结余」,近半年趋势图多了一条绿色收入线,Excel 与 CSV 导出也带上了类型和收入列。',
+      en: '<strong>Net cash flow</strong> - the overview, stats and report gained income / spending / net, the six-month trend chart gained a green income line, and the Excel and CSV exports carry a type column and income totals.'
+    },
 
     'changelog.a1.title': { zh: '版本公告', en: 'Version Announcements' },
     'changelog.a1.item1': {

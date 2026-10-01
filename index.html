@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://sfwnpwchujslqfnmdyxo.supabase.co; base-uri 'none'; form-action 'none';">
-  <title>记账软件 v3.3.0</title>
+  <title>记账软件 v3.4.0</title>
   <style>
 /* ===== CSS DESIGN SYSTEM ===== */
 :root {
@@ -812,6 +812,20 @@ body.modal-open {
   font-size: 0.7rem;
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+/* Section header above each tree (支出 / 收入). Plain, no card — the two trees
+   sit in one page and a heavy divider would fight the row borders. */
+.cat-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  padding: 4px 2px 6px;
+  margin-bottom: 4px;
+  border-bottom: 2px solid var(--border);
 }
 
 /* Action icons in header */
@@ -3233,7 +3247,7 @@ try{
 // docs/superpowers/specs/2026-09-28-changelog-announcement-design.md.
 // Do not confuse this with the cloud ledger's monotonic integer `version` in
 // 28-cloud-sync.js — that is a different concept in a different IIFE.
-const APP_VERSION = '3.3.0';
+const APP_VERSION = '3.4.0';
 
 const COLORS = [
   '#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6',
@@ -3275,6 +3289,44 @@ const DEFAULT_CATEGORIES = [
     { id: 'cat-child-7-1', name: '书籍', icon: '📖', color: '#14B8A6', parentId: 'cat-root-7', sortOrder: 0 },
     { id: 'cat-child-7-2', name: '课程', icon: '🎓', color: '#14B8A6', parentId: 'cat-root-7', sortOrder: 1 },
   { id: 'cat-root-8', name: '其他', icon: '📦', color: '#F97316', parentId: null, sortOrder: 7 }
+];
+
+// Income arrived after the ledger did, so every record written before it has no
+// `type` at all. Absence therefore means expense — and it stays that way on
+// purpose: `type` is only ever PRESENT when it is 'income'. Writing
+// type:'expense' would put a field on every existing row, and worse, would make
+// the sanitizer and the writer disagree about the same value, so a normalize
+// (which every sync merge and every boot runs) would strip what a save had just
+// written and the local fingerprint would never match the pushed base again.
+const REC_TYPE = { EXPENSE: 'expense', INCOME: 'income' };
+
+function isIncomeRec(r) { return !!(r && r.type === 'income'); }
+function recType(r) { return isIncomeRec(r) ? REC_TYPE.INCOME : REC_TYPE.EXPENSE; }
+
+// The single gate every "how much did I spend" question goes through. Stats used
+// to read DataStore.getRecords() directly, which silently meant "spend + income"
+// once income existed; routing them through here keeps the old answers correct.
+function expenseRecords(list) { return (list || []).filter(r => !isIncomeRec(r)); }
+function incomeRecords(list) { return (list || []).filter(r => isIncomeRec(r)); }
+
+// Seeded on upgrade (DataStore._migrateIncomeCategories) rather than only on a
+// fresh install — existing stores already have an expense `categories` array, so
+// the empty-array backfill in _normalize() would never fire for them.
+const DEFAULT_INCOME_CATEGORIES = [
+  { id: 'inc-root-1', name: '工资', icon: '💼', color: '#10B981', parentId: null, sortOrder: 0, kind: 'income' },
+    { id: 'inc-child-1-1', name: '月薪', icon: '📅', color: '#10B981', parentId: 'inc-root-1', sortOrder: 0, kind: 'income' },
+    { id: 'inc-child-1-2', name: '奖金', icon: '🎉', color: '#10B981', parentId: 'inc-root-1', sortOrder: 1, kind: 'income' },
+    { id: 'inc-child-1-3', name: '加班/津贴', icon: '⏰', color: '#10B981', parentId: 'inc-root-1', sortOrder: 2, kind: 'income' },
+  { id: 'inc-root-2', name: '副业', icon: '🚀', color: '#06B6D4', parentId: null, sortOrder: 1, kind: 'income' },
+    { id: 'inc-child-2-1', name: '接单', icon: '🧑‍💻', color: '#06B6D4', parentId: 'inc-root-2', sortOrder: 0, kind: 'income' },
+    { id: 'inc-child-2-2', name: '卖闲置', icon: '📦', color: '#06B6D4', parentId: 'inc-root-2', sortOrder: 1, kind: 'income' },
+  { id: 'inc-root-3', name: '报销/退款', icon: '🧾', color: '#F59E0B', parentId: null, sortOrder: 2, kind: 'income' },
+    { id: 'inc-child-3-1', name: '公司报销', icon: '🏢', color: '#F59E0B', parentId: 'inc-root-3', sortOrder: 0, kind: 'income' },
+    { id: 'inc-child-3-2', name: '退款/返现', icon: '↩️', color: '#F59E0B', parentId: 'inc-root-3', sortOrder: 1, kind: 'income' },
+  { id: 'inc-root-4', name: '理财收益', icon: '📈', color: '#8B5CF6', parentId: null, sortOrder: 3, kind: 'income' },
+    { id: 'inc-child-4-1', name: '利息', icon: '🏦', color: '#8B5CF6', parentId: 'inc-root-4', sortOrder: 0, kind: 'income' },
+    { id: 'inc-child-4-2', name: '投资分红', icon: '💹', color: '#8B5CF6', parentId: 'inc-root-4', sortOrder: 1, kind: 'income' },
+  { id: 'inc-root-5', name: '其他收入', icon: '🎁', color: '#EC4899', parentId: null, sortOrder: 4, kind: 'income' }
 ];
 
 function uuid() {
@@ -3327,6 +3379,12 @@ function getPeriodDateRange() {
   window.APP_VERSION = APP_VERSION;
   window.COLORS = COLORS;
   window.DEFAULT_CATEGORIES = DEFAULT_CATEGORIES;
+  window.DEFAULT_INCOME_CATEGORIES = DEFAULT_INCOME_CATEGORIES;
+  window.REC_TYPE = REC_TYPE;
+  window.isIncomeRec = isIncomeRec;
+  window.recType = recType;
+  window.expenseRecords = expenseRecords;
+  window.incomeRecords = incomeRecords;
   window.escHtml = escHtml;
   window.uuid = uuid;
   window.getMonthKey = getMonthKey;
@@ -3425,10 +3483,14 @@ const DataStore = {
       try {
         this._data = this._normalize(JSON.parse(raw));
       } catch(e) {
-        this._data = this._defaults();
+        this._data = this._normalize(this._defaults());
       }
     } else {
-      this._data = this._defaults();
+      // Routed through _normalize like the restored branch, so a brand-new store
+      // gets the same migrations a restored one does — without this a fresh
+      // install never seeds the income categories (nothing else adds them) and
+      // the income picker is empty from day one.
+      this._data = this._normalize(this._defaults());
     }
 
     // Process any expired pending deletes from previous sessions (M2)
@@ -3465,6 +3527,12 @@ const DataStore = {
     if (Array.isArray(data.categories)) {
       data.categories = data.categories.filter(c => c && safeId(c.id) && (c.parentId == null || safeId(c.parentId)))
         .map(c => cleanEntity(c, '#6366F1'));
+      // `kind` splits the two trees. Drop anything that is neither value rather
+      // than defaulting it: absence already means expense, so normalising would
+      // only rewrite every pre-income category and churn the sync fingerprint.
+      data.categories.forEach(c => {
+        if (c.kind != null && c.kind !== 'income' && c.kind !== 'expense') delete c.kind;
+      });
     }
     if (Array.isArray(data.billCategories)) {
       data.billCategories = data.billCategories.filter(c => c && safeId(c.id)).map(c => cleanEntity(c, '#6366F1'));
@@ -3477,6 +3545,9 @@ const DataStore = {
       data.records.forEach(r => {
         if (r.categoryId != null && !safeId(r.categoryId)) r.categoryId = 'uncategorized';
         if (r.splitBillId != null && !safeId(r.splitBillId)) delete r.splitBillId;
+        // Only these two values are readable; anything else is dropped so the
+        // record falls back to the pre-income default of expense.
+        if (r.type != null && r.type !== 'income' && r.type !== 'expense') delete r.type;
       });
     }
     if (Array.isArray(data.splitBills)) {
@@ -3518,7 +3589,33 @@ const DataStore = {
       });
     }
 
+    this._repairRecordTypes(data);
+
     return data;
+  },
+
+  // A record's `type` and its category's `kind` must agree. The UI can only keep
+  // them in step for records it creates itself, but an imported file, a LAN peer
+  // or a move in the categories page can cross the line — and a mismatch is
+  // expensive: an income row filed under 餐饮 would vanish from every expense
+  // total while still being counted as income. The category is the side that can
+  // be resolved, so it wins; records with no resolvable category keep whatever
+  // they say.
+  //
+  // Runs inside _sanitizeEntities, not _normalize, because the LAN-merge and
+  // cloud-merge paths only call the former — and those are exactly the paths
+  // that can carry a mismatched record in from another device.
+  _repairRecordTypes(data) {
+    if (!data || !Array.isArray(data.records) || !Array.isArray(data.categories)) return;
+    const kindById = {};
+    data.categories.forEach(c => { if (c && c.id) kindById[c.id] = c.kind === 'income' ? 'income' : 'expense'; });
+    data.records.forEach(r => {
+      if (!r) return;
+      const kind = kindById[r.categoryId];
+      if (!kind) return;
+      if (kind === 'income') r.type = 'income';
+      else delete r.type;
+    });
   },
 
   // Single entry point for making an arbitrary data object safe to use: fills in
@@ -3558,6 +3655,7 @@ const DataStore = {
 
     // 3. Historical migrations
     this._migrateSplitRecordCategories(data);
+    this._migrateIncomeCategories(data);
     const currentMonth = getMonthKey(new Date().toISOString());
     if (data.budgets && data.budgets[currentMonth] && !data.monthlyIncome[currentMonth]) {
       data.monthlyIncome[currentMonth] = data.budgets[currentMonth];
@@ -3565,6 +3663,52 @@ const DataStore = {
     if (!data.lastActiveMonth) data.lastActiveMonth = currentMonth;
 
     return data;
+  },
+
+  // Income support arrived long after the stores. Every existing ledger already
+  // has an expense `categories` array, so the empty-array backfill above can
+  // never fire for it and 工资/副业/报销 would simply not exist — the picker
+  // would be empty and the feature unreachable. Seed them when the income tree
+  // is entirely absent.
+  //
+  // Deliberately derived from `categories` rather than guarded by a persisted
+  // flag: a new boolean key would have to sync like any other field, so the
+  // first device to normalise would push it and every peer would see a content
+  // change it never made. The only behaviour this gives up is that deleting
+  // every income category at once brings the defaults back — an empty income
+  // tree is useless anyway, and it costs one restore.
+  _migrateIncomeCategories(data) {
+    if (!data || !Array.isArray(data.categories)) return;
+    if (data.categories.some(c => c && c.kind === 'income')) return;
+    const byId = {};
+    data.categories.forEach(c => { if (c && c.id) byId[c.id] = c; });
+    // Parent first: a child whose parent is missing would land in the expense
+    // picker's tree with no visible root.
+    DEFAULT_INCOME_CATEGORIES.forEach(def => {
+      if (byId[def.id]) return;
+      if (def.parentId && !byId[def.parentId]) return;
+      data.categories.push(JSON.parse(JSON.stringify(def)));
+      byId[def.id] = def;
+    });
+  },
+
+  // A record's `type` and its category's `kind` must agree. The UI can only keep
+  // them in step for records it creates itself, but an imported file, a LAN peer
+  // or a move in the categories page can cross the line — and a mismatch is
+  // expensive: an income row filed under 餐饮 would vanish from every expense
+  // total while still being counted as income. The category is the side that can
+  // be resolved, so it wins; uncategorized records keep whatever they say.
+  _repairRecordTypes(data) {
+    if (!data || !Array.isArray(data.records) || !Array.isArray(data.categories)) return;
+    const kindById = {};
+    data.categories.forEach(c => { if (c && c.id) kindById[c.id] = c.kind === 'income' ? 'income' : 'expense'; });
+    data.records.forEach(r => {
+      if (!r) return;
+      const kind = kindById[r.categoryId];
+      if (!kind) return;
+      if (kind === 'income') r.type = 'income';
+      else delete r.type;
+    });
   },
 
   // Split-bill storage refactor (B): records were stored with the '__split__'
@@ -3605,12 +3749,22 @@ const DataStore = {
   // Records
   getRecords() { return this._data.records; },
   getRecord(id) { return this._data.records.find(r => r.id === id); },
+  // The two spend-facing accessors. Anything answering "how much did I spend"
+  // must use one of these — bare getRecords() now also carries income rows.
+  getExpenseRecords() { return expenseRecords(this._data.records); },
+  getIncomeRecords() { return incomeRecords(this._data.records); },
 
   addRecord(record) {
     // Fixed: validate amount field (M1)
     if (typeof record.amount !== 'number' || !isFinite(record.amount)) {
       record.amount = 0;
     }
+    // Derived from the category rather than trusted from the caller: the add form
+    // writes both, and if they ever disagree the category is the one that decides
+    // which tree the record is visible in. Written only when it is income, so
+    // this stays byte-identical to what _repairRecordTypes() would leave behind.
+    if (record.categoryId && this.isIncomeCategory(record.categoryId)) record.type = 'income';
+    else delete record.type;
     record.id = uuid();
     record.createdAt = record.createdAt || new Date().toISOString();
     this._data.records.unshift(record);
@@ -3623,8 +3777,14 @@ const DataStore = {
     if (idx === -1) return null;
     updates.updatedAt = new Date().toISOString();
     Object.assign(this._data.records[idx], updates);
+    // Switching the type without switching the category (the edit form lets you)
+    // would leave the record unreachable from either tree, so the two are pinned
+    // together here the same way addRecord pins them.
+    const rec = this._data.records[idx];
+    if (rec.categoryId && this.isIncomeCategory(rec.categoryId)) rec.type = 'income';
+    else delete rec.type;
     this.save();
-    return this._data.records[idx];
+    return rec;
   },
 
   deleteRecord(id) {
@@ -3822,9 +3982,20 @@ const DataStore = {
     return this._data.categories.find(c => c.id === id) || null;
   },
 
-  getRootCategories() {
-    return this._data.categories.filter(c => !c.parentId)
-      .sort((a,b) => a.sortOrder - b.sortOrder);
+  // `kind` splits the two trees: 'expense' (the default, and what every category
+  // written before income existed is) and 'income'. Omitting it returns both, so
+  // the many existing callers keep working; the spenders below pass 'expense'
+  // explicitly so 工资 can never show up as an expense category.
+  getRootCategories(kind) {
+    let roots = this._data.categories.filter(c => !c.parentId);
+    if (kind) roots = roots.filter(c => (c.kind === 'income' ? 'income' : 'expense') === kind);
+    return roots.sort((a,b) => a.sortOrder - b.sortOrder);
+  },
+  getExpenseRootCategories() { return this.getRootCategories('expense'); },
+  getIncomeRootCategories() { return this.getRootCategories('income'); },
+  isIncomeCategory(id) {
+    const c = this._data.categories.find(x => x.id === id);
+    return !!(c && c.kind === 'income');
   },
 
   getChildren(parentId) {
@@ -3842,6 +4013,16 @@ const DataStore = {
 
   addCategory(cat) {
     cat.id = uuid();
+    // A subcategory inherits its parent's tree. Without this a 报销 child added
+    // under 工资 would land in the expense picker while its records, typed
+    // income, would then disagree with it — the exact mismatch
+    // _repairRecordTypes has to undo later.
+    if (cat.parentId) {
+      const parent = this._data.categories.find(c => c.id === cat.parentId);
+      if (parent) cat.kind = parent.kind === 'income' ? 'income' : 'expense';
+    } else {
+      cat.kind = cat.kind === 'income' ? 'income' : 'expense';
+    }
     if (!cat.color) {
       // A child inherits its parent's color so one branch reads as one family in
       // charts and lists; only root categories consume a new palette slot.
@@ -4411,13 +4592,19 @@ const DataStore = {
       const planMark = r.planId ? clean(planMap[r.planId]
         ? ((planMap[r.planId].icon || '') + ' ' + (planMap[r.planId].name || '') + (r.planMonth ? ' · ' + r.planMonth : '')).trim()
         : __('datastore.planGone')) : '';
-      return `${r.id},"${amount}","${safeCatName}","${safeSubName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}","${safeTags}","${splitMark}","${planMark}"`;
+      // Every field is quoted, the id included. It used to be the one bare field, which
+      // was harmless only because the very next character was a comma — put a
+      // quoted column after it and a lenient CSV reader can end up treating the
+      // first comma as data. Uniform quoting removes the special case.
+      return `"${r.id}","${isIncomeRec(r) ? __('datastore.typeIncome') : __('datastore.typeExpense')}","${amount}","${safeCatName}","${safeSubName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}","${safeTags}","${splitMark}","${planMark}"`;
     });
     return '\uFEFF' + header + '\n' + rows.join('\n');
   },
 
   clearAll() {
-    this._data = this._defaults();
+    // _normalize, not the bare defaults, for the same reason init() is: this must
+    // leave the app in the state a fresh install would produce, migrations and all.
+    this._data = this._normalize(this._defaults());
     this._markBulk('clear');
     this.save();
   },
@@ -4810,7 +4997,9 @@ const DataStore = {
   // i18n translations
   addI18nEntries({
     'datastore.saveFailed': { zh: '❌ 数据保存失败: {0}', en: '❌ Save failed: {0}' },
-    'datastore.csvHeader': { zh: 'ID,金额,分类,子分类,日期,备注,创建时间,不计日均,标签,分摊,所属计划', en: 'ID,Amount,Category,Subcategory,Date,Note,CreatedAt,ExcludeFromAvg,Tags,Split,Plan' },
+    'datastore.csvHeader': { zh: 'ID,类型,金额,分类,子分类,日期,备注,创建时间,不计日均,标签,分摊,所属计划', en: 'ID,Type,Amount,Category,Subcategory,Date,Note,CreatedAt,ExcludeFromAvg,Tags,Split,Plan' },
+    'datastore.typeExpense': { zh: '支出', en: 'Expense' },
+    'datastore.typeIncome': { zh: '收入', en: 'Income' },
     'datastore.planGone': { zh: '（计划已删除）', en: '(plan deleted)' },
     'datastore.unknown': { zh: '未知', en: 'Unknown' },
     'datastore.yes': { zh: '是', en: 'Yes' },
@@ -4863,6 +5052,11 @@ try{
 
 function exportToExcel() {
   const records = DataStore.getRecords();
+  // Sheet 1 lists the whole ledger, but every aggregate below it is a SPENDING
+  // question and must not see income. Keeping the two lists apart here is what
+  // stops 工资 from inflating 总支出 while still being in the file.
+  const expenseRecs = expenseRecords(records);
+  const incomeRecs = incomeRecords(records);
   const cats = DataStore.getCategories();
   const catMap = {};
   cats.forEach(c => catMap[c.id] = c);
@@ -4890,21 +5084,23 @@ function exportToExcel() {
   const sortedMonths = [...monthSet].sort();
   const currentMonth = getMonthKey(new Date().toISOString());
 
-  // --- Monthly aggregates ---
+  // --- Monthly aggregates (expenses only, plus income alongside) ---
   const monthData = {};
   sortedMonths.forEach(m => {
-    const ms = records.filter(r => getMonthKey(r.date || r.createdAt) === m);
+    const ms = expenseRecs.filter(r => getMonthKey(r.date || r.createdAt) === m);
+    const inc = incomeRecs.filter(r => getMonthKey(r.date || r.createdAt) === m);
     const total = ms.reduce((s, r) => s + r.amount, 0);
+    const income = inc.reduce((s, r) => s + r.amount, 0);
     const daysInMonth = new Date(parseInt(m.split('-')[0]), parseInt(m.split('-')[1]), 0).getDate();
     const dailyAvg = total / daysInMonth;
-    monthData[m] = { records: ms, total, dailyAvg, count: ms.length };
+    monthData[m] = { records: ms, total, income, net: income - total, dailyAvg, count: ms.length };
   });
 
   // --- Category aggregates (root-level) ---
-  const rootCats = DataStore.getRootCategories();
+  const rootCats = DataStore.getExpenseRootCategories();
   // For each root cat, sum amounts across all time
   const catTotals = {};
-  records.forEach(r => {
+  expenseRecs.forEach(r => {
     const rootId = getRootCatId(r.categoryId);
     catTotals[rootId] = (catTotals[rootId] || 0) + r.amount;
   });
@@ -4941,8 +5137,11 @@ function exportToExcel() {
   xml += ' </Styles>\n';
 
   // ===== SHEET 1: 消费记录 (Records) =====
-  // Columns: A=序号, B=日期, C=金额, D=分类, E=子分类, F=备注, G=月份, H=不计日均, I=标签, J=分摊
-  const nCols = 10;
+  // Columns: A=序号, B=类型, C=日期, D=金额, E=分类, F=子分类, G=备注, H=月份,
+  //          I=不计日均, J=标签, K=分摊
+  // 类型 sits second because it is the one column that reorders how you read every
+  // other one, and next to 序号 it is visible without horizontal scrolling.
+  const nCols = 11;
   // Prepare records sorted newest first
   const sortedRecords = [...records].sort((a, b) => (b.date || b.createdAt) > (a.date || a.createdAt) ? 1 : -1);
   const dataStartRow = 2; // row 1 = header, data starts row 2
@@ -4956,18 +5155,19 @@ function exportToExcel() {
   xml += ' <Worksheet ss:Name="' + __('excel.sheet.records') + '">\n';
   xml += '  <Table>\n';
   xml += '   <Column ss:Width="50"/>\n';   // A: 序号
-  xml += '   <Column ss:Width="110"/>\n';  // B: 日期
-  xml += '   <Column ss:Width="100"/>\n';  // C: 金额
-  xml += '   <Column ss:Width="100"/>\n';  // D: 分类
-  xml += '   <Column ss:Width="120"/>\n';  // E: 子分类
-  xml += '   <Column ss:Width="200"/>\n';  // F: 备注
-  xml += '   <Column ss:Width="80"/>\n';   // G: 月份
-  xml += '   <Column ss:Width="60"/>\n';   // H: 不计日均
-  xml += '   <Column ss:Width="140"/>\n';  // I: 标签
-  xml += '   <Column ss:Width="120"/>\n';  // J: 分摊
+  xml += '   <Column ss:Width="70"/>\n';   // B: 类型
+  xml += '   <Column ss:Width="110"/>\n';  // C: 日期
+  xml += '   <Column ss:Width="100"/>\n';  // D: 金额
+  xml += '   <Column ss:Width="100"/>\n';  // E: 分类
+  xml += '   <Column ss:Width="120"/>\n';  // F: 子分类
+  xml += '   <Column ss:Width="200"/>\n';  // G: 备注
+  xml += '   <Column ss:Width="80"/>\n';   // H: 月份
+  xml += '   <Column ss:Width="60"/>\n';   // I: 不计日均
+  xml += '   <Column ss:Width="140"/>\n';  // J: 标签
+  xml += '   <Column ss:Width="120"/>\n';  // K: 分摊
   // Header row
   xml += '   <Row>\n';
-  [__('excel.header.seq'),__('excel.header.date'),__('excel.header.amount'),__('excel.header.category'),__('excel.header.subcategory'),__('excel.header.note'),__('excel.header.month'),__('excel.header.excludeFromAvg'),__('excel.header.tags'),__('excel.header.split')].forEach(h => {
+  [__('excel.header.seq'),__('excel.header.type'),__('excel.header.date'),__('excel.header.amount'),__('excel.header.category'),__('excel.header.subcategory'),__('excel.header.note'),__('excel.header.month'),__('excel.header.excludeFromAvg'),__('excel.header.tags'),__('excel.header.split')].forEach(h => {
     xml += `    <Cell ss:StyleID="header"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
   });
   xml += '   </Row>\n';
@@ -4983,8 +5183,10 @@ function exportToExcel() {
       ? '🧾 ' + __('excel.label.splitBill') + ' · ' + __('excel.label.myShare') + ' ' + fmtNum(splitBillMap[r.splitBillId].selfShare || 0)
       : '🧾 ' + __('excel.label.splitBill')) : '';
     const tagsVal = Array.isArray(r.tags) ? r.tags.join('、') : '';
+    const isIncome = isIncomeRec(r);
     xml += '   <Row>\n';
     xml += `    <Cell><Data ss:Type="Number">${idx+1}</Data></Cell>\n`;
+    xml += `    <Cell${isIncome ? ' ss:StyleID="success"' : ''}><Data ss:Type="String">${esc(isIncome ? __('excel.label.income') : __('excel.label.expense'))}</Data></Cell>\n`;
     xml += `    <Cell><Data ss:Type="String">${esc(dateVal)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(r.amount)}</Data></Cell>\n`;
     // Category: root category name
@@ -5001,10 +5203,8 @@ function exportToExcel() {
   });
 
   // --- Summary footer with formulas (row after data) ---
-  const summaryRow = dataEndRow + 1;
-  const lastDataRow = dataEndRow; // R1C3 = C1, so data is R2C3 to R{end}C3
   // R1C1 notation: R{row}C{col}
-  const cAmountCol = 3; // column C = 3
+  const cAmountCol = 4; // column D = 4
   const rFirst = dataStartRow;
   const rLast = dataEndRow;
 
@@ -5039,8 +5239,7 @@ function exportToExcel() {
 
   // ===== SHEET 2: 分类统计 (Category Breakdown) =====
   // Columns: A=分类, B=总支出, C=占比, D=记录数
-  xml += ' <Worksheet ss:Name="' + __('excel.sheet.categoryBreakdown') + '">\n';
-  xml += '  <Table>\n';
+  xml += ' <Worksheet ss:Name="' + __('excel.sheet.categoryBreakdown') + '">\n';  xml += '  <Table>\n';
   xml += '   <Column ss:Width="150"/>\n';
   xml += '   <Column ss:Width="100"/>\n';
   xml += '   <Column ss:Width="80"/>\n';
@@ -5054,7 +5253,7 @@ function exportToExcel() {
   const catStartRow = 2;
   sortedCats.forEach((c, idx) => {
     const rowNum = catStartRow + idx;
-    const catRecs = records.filter(r => getRootCatId(r.categoryId) === c.id);
+    const catRecs = expenseRecs.filter(r => getRootCatId(r.categoryId) === c.id);
     const catCount = catRecs.length;
     // Also include sub-breakdown: children
     const children = DataStore.getChildren(c.id);
@@ -5076,7 +5275,7 @@ function exportToExcel() {
     // Subcategories under this root
     if (children.length > 0) {
       children.forEach(child => {
-        const childRecs = records.filter(r => r.categoryId === child.id);
+        const childRecs = expenseRecs.filter(r => r.categoryId === child.id);
         const childTotal = childRecs.reduce((s, r) => s + r.amount, 0);
         const childCount = childRecs.length;
         xml += '   <Row>\n';
@@ -5108,7 +5307,10 @@ function exportToExcel() {
   xml += ' </Worksheet>\n';
 
   // ===== SHEET 3: 月度统计 (Monthly Summary) =====
-  // Columns: A=月份, B=总支出, C=记录数, D=日均支出, E=预算, F=可支配, G=储蓄, H=预算使用率
+  // Columns: A=月份, B=总支出, C=记录数, D=日均支出, E=预算, F=可支配, G=储蓄,
+  //          H=预算使用率, I=收入记录, J=结余
+  // I and J are appended rather than interleaved so every existing R1C1 relative
+  // reference (G's `RC[-5]`, H's `RC[-6]`) keeps pointing where it used to.
   xml += ' <Worksheet ss:Name="' + __('excel.sheet.monthlySummary') + '">\n';
   xml += '  <Table>\n';
   xml += '   <Column ss:Width="90"/>\n';
@@ -5119,8 +5321,10 @@ function exportToExcel() {
   xml += '   <Column ss:Width="100"/>\n';
   xml += '   <Column ss:Width="100"/>\n';
   xml += '   <Column ss:Width="100"/>\n';
+  xml += '   <Column ss:Width="100"/>\n';  // I: 收入记录
+  xml += '   <Column ss:Width="100"/>\n';  // J: 结余
   xml += '   <Row>\n';
-  [__('excel.header.month'),__('excel.header.totalExpenditure'),__('excel.header.recordCount'),__('excel.header.dailyAvgExpenditure'),__('excel.header.budget'),__('excel.header.spendable'),__('excel.header.savings'),__('excel.header.budgetUsageRate')].forEach(h => {
+  [__('excel.header.month'),__('excel.header.totalExpenditure'),__('excel.header.recordCount'),__('excel.header.dailyAvgExpenditure'),__('excel.header.budget'),__('excel.header.spendable'),__('excel.header.savings'),__('excel.header.budgetUsageRate'),__('excel.header.recordedIncome'),__('excel.header.net')].forEach(h => {
     xml += `    <Cell ss:StyleID="header"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
   });
   xml += '   </Row>\n';
@@ -5157,8 +5361,11 @@ function exportToExcel() {
     if (budget > 0) {
       xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-3]>0, RC[-6]/RC[-3], 0)"><Data ss:Type="Number">${fmtNum(md.total / budget)}</Data></Cell>\n`;
     } else {
-      xml += `    <Cell><Data ss:Type="String">${__('excel.summary.noBudget')}</Data></Cell>\n`;
+      xml += `    <Cell><Data ss:Type="String">${esc(__('excel.summary.noBudget'))}</Data></Cell>\n`;
     }
+    xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(md.income)}</Data></Cell>\n`;
+    // 结余 = 收入记录 − 总支出 (I − B), as a formula so editing a row above updates it
+    xml += `    <Cell ss:StyleID="money" ss:Formula="=RC[-1]-RC[-8]"><Data ss:Type="Number">${fmtNum(md.net)}</Data></Cell>\n`;
     xml += '   </Row>\n';
   });
 
@@ -5180,6 +5387,10 @@ function exportToExcel() {
   xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C7:R${monthEndRow}C7)"><Data ss:Type="Number">0</Data></Cell>\n`;
   // Average usage rate
   xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=AVERAGE(R${monthStartRow}C8:R${monthEndRow}C8)"><Data ss:Type="Number">0</Data></Cell>\n`;
+  // Total recorded income
+  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C9:R${monthEndRow}C9)"><Data ss:Type="Number">0</Data></Cell>\n`;
+  // Net across the window
+  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C10:R${monthEndRow}C10)"><Data ss:Type="Number">0</Data></Cell>\n`;
   xml += '   </Row>\n';
 
   xml += '  </Table>\n';
@@ -5468,6 +5679,60 @@ function exportToExcel() {
   xml += '  </Table>\n';
   xml += ' </Worksheet>\n';
 
+  // ===== SHEET: 收入分类统计 (Income Breakdown) =====
+  // Only emitted when the ledger actually holds income rows. A workbook that
+  // opens with an empty "Income" tab reads as a bug, not as a zero.
+  if (incomeRecs.length > 0) {
+    const incomeCats = DataStore.getIncomeRootCategories();
+    const incomeCatTotals = {};
+    incomeRecs.forEach(r => {
+      const rootId = getRootCatId(r.categoryId);
+      incomeCatTotals[rootId] = (incomeCatTotals[rootId] || 0) + r.amount;
+    });
+    const sortedIncomeCats = incomeCats
+      .map(c => ({ id: c.id, name: c.name, icon: c.icon, total: incomeCatTotals[c.id] || 0 }))
+      .filter(c => c.total > 0)
+      .sort((a, b) => b.total - a.total);
+    const incomeGrandTotal = sortedIncomeCats.reduce((s, c) => s + c.total, 0);
+
+    xml += ' <Worksheet ss:Name="' + __('excel.sheet.incomeBreakdown') + '">\n';
+    xml += '  <Table>\n';
+    xml += '   <Column ss:Width="150"/>\n';
+    xml += '   <Column ss:Width="110"/>\n';
+    xml += '   <Column ss:Width="80"/>\n';
+    xml += '   <Column ss:Width="80"/>\n';
+    xml += '   <Row>\n';
+    [__('excel.header.category'),__('excel.header.recordedIncome'),__('excel.header.percentage'),__('excel.header.recordCount')].forEach(h => {
+      xml += `    <Cell ss:StyleID="headerGreen"><Data ss:Type="String">${esc(h)}</Data></Cell>\n`;
+    });
+    xml += '   </Row>\n';
+
+    const incStartRow = 2;
+    sortedIncomeCats.forEach((c, idx) => {
+      const recs = incomeRecs.filter(r => getRootCatId(r.categoryId) === c.id);
+      xml += '   <Row>\n';
+      xml += `    <Cell><Data ss:Type="String">${esc(c.icon + ' ' + c.name)}</Data></Cell>\n`;
+      xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(c.total)}</Data></Cell>\n`;
+      if (incomeGrandTotal > 0) {
+        xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(SUM(R2C2:R${incStartRow + sortedIncomeCats.length - 1}C2)>0, RC[-1]/SUM(R2C2:R${incStartRow + sortedIncomeCats.length - 1}C2), 0)"><Data ss:Type="Number">${fmtNum(c.total / incomeGrandTotal)}</Data></Cell>\n`;
+      } else {
+        xml += `    <Cell ss:StyleID="pct"><Data ss:Type="Number">0</Data></Cell>\n`;
+      }
+      xml += `    <Cell><Data ss:Type="Number">${recs.length}</Data></Cell>\n`;
+      xml += '   </Row>\n';
+    });
+
+    const incEndRow = incStartRow + sortedIncomeCats.length - 1;
+    xml += '   <Row>\n';
+    xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.grandTotal')}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${incStartRow}C2:R${incEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=IF(R[-1]C[-1]>0, RC[-1]/R[-1]C[-1], 0)"><Data ss:Type="Number">1</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="total" ss:Formula="=SUM(R${incStartRow}C4:R${incEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
+    xml += '   </Row>\n';
+    xml += '  </Table>\n';
+    xml += ' </Worksheet>\n';
+  }
+
   xml += '</Workbook>';
 
   // Trigger download as .xlsx (the XML Spreadsheet format — Excel opens it fine)
@@ -5498,6 +5763,12 @@ function exportToExcel() {
     'excel.sheet.savingsStats': { zh: '储蓄统计', en: 'Savings Stats' },
     'excel.sheet.splitBills': { zh: '分摊账单', en: 'Split Bills' },
     'excel.sheet.plans': { zh: '大额计划', en: 'Purchase Plans' },
+    'excel.sheet.incomeBreakdown': { zh: '收入分类统计', en: 'Income Breakdown' },
+    'excel.header.type': { zh: '类型', en: 'Type' },
+    'excel.header.recordedIncome': { zh: '收入记录 (RM)', en: 'Recorded Income (RM)' },
+    'excel.header.net': { zh: '结余 (RM)', en: 'Net (RM)' },
+    'excel.label.income': { zh: '收入', en: 'Income' },
+    'excel.label.expense': { zh: '支出', en: 'Expense' },
     'excel.plan.label.item': { zh: '目标物', en: 'Item' },
     'excel.plan.label.mode': { zh: '模式', en: 'Mode' },
     'excel.plan.label.total': { zh: '总额', en: 'Total' },
@@ -5578,8 +5849,30 @@ try{
 'use strict';
 
 const StatsEngine = {
+  // ===== The income boundary =====
+  // Everything below this line that answers a SPENDING question goes through
+  // getRecordsInMonth / getPeriodRecords, and those two deliberately drop income
+  // rows. That is why no individual total had to be rewritten when income landed:
+  // the two chokepoints were already where every monthly and period-wide figure
+  // was assembled. Income is summed separately by getMonthIncome & friends.
   getRecordsInMonth(month) {
-    return DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month);
+    return expenseRecords(DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month));
+  },
+  getIncomeRecordsInMonth(month) {
+    return incomeRecords(DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month));
+  },
+  getMonthIncome(month) {
+    return this.getIncomeRecordsInMonth(month).reduce((s, r) => s + (r.amount || 0), 0);
+  },
+  getMonthNet(month) {
+    return round2(this.getMonthIncome(month) - this.getMonthTotal(month));
+  },
+  getIncomeCategoryTotals(month) {
+    const result = {};
+    this.getIncomeRecordsInMonth(month).forEach(r => {
+      result[r.categoryId] = (result[r.categoryId] || 0) + r.amount;
+    });
+    return result;
   },
 
   getMonthTotal(month) {
@@ -5717,23 +6010,42 @@ const StatsEngine = {
   getCustomRangeTotals(startDate, endDate) {
     const start = new Date(startDate);
     const end = new Date(endDate);
-    const records = DataStore.getRecords().filter(r => {
+    const inRange = DataStore.getRecords().filter(r => {
       const d = new Date(r.date || r.createdAt);
       return d >= start && d <= end;
     });
+    const records = expenseRecords(inRange);
+    const incomeRecs = incomeRecords(inRange);
     const daily = {};
     records.forEach(r => {
       const key = (r.date || r.createdAt).substr(0, 10);
       daily[key] = (daily[key] || 0) + r.amount;
     });
+    const incomeDaily = {};
+    incomeRecs.forEach(r => {
+      const key = (r.date || r.createdAt).substr(0, 10);
+      incomeDaily[key] = (incomeDaily[key] || 0) + r.amount;
+    });
+    const incomeTotal = incomeRecs.reduce((s, r) => s + (r.amount || 0), 0);
+    const total = records.reduce((s, r) => s + r.amount, 0) - this._splitContribBetween(start, end);
     return {
-      total: records.reduce((s, r) => s + r.amount, 0) - this._splitContribBetween(start, end),
+      total,
+      incomeTotal,
+      net: round2(incomeTotal - total),
       count: records.length,
       splitContrib: this._splitContribBetween(start, end),
       daily: Object.entries(daily).sort((a,b) => a[0].localeCompare(b[0])).map(([day, total]) => ({ day, total })),
+      incomeDaily: Object.entries(incomeDaily).sort((a,b) => a[0].localeCompare(b[0])).map(([day, total]) => ({ day, total })),
       categoryTotals: (() => {
         const ct = {};
         records.forEach(r => {
+          ct[r.categoryId] = (ct[r.categoryId] || 0) + r.amount;
+        });
+        return ct;
+      })(),
+      incomeCategoryTotals: (() => {
+        const ct = {};
+        incomeRecs.forEach(r => {
           ct[r.categoryId] = (ct[r.categoryId] || 0) + r.amount;
         });
         return ct;
@@ -5882,10 +6194,10 @@ const StatsEngine = {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const key = d.toISOString().substr(0, 10);
-      const dayTotal = DataStore.getRecords().filter(r => {
+      const dayTotal = expenseRecords(DataStore.getRecords().filter(r => {
         const rd = (r.date || r.createdAt).substr(0, 10);
         return rd === key;
-      }).reduce((s, r) => s + r.amount, 0);
+      })).reduce((s, r) => s + r.amount, 0);
       result.push({ date: key, total: dayTotal, label: (d.getMonth()+1)+'/'+d.getDate() });
     }
     return result;
@@ -6000,7 +6312,8 @@ const StatsEngine = {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
       const total = this.getMonthTotal(key);
-      result.push({ month: key, total, label: key });
+      const income = this.getMonthIncome(key);
+      result.push({ month: key, total, income, net: round2(income - total), label: key });
     }
     return result;
   },
@@ -6008,10 +6321,30 @@ const StatsEngine = {
   // ===== Period-Aware Methods (Stats Range: month or rolling30) =====
   getPeriodRecords() {
     const { start, end } = getPeriodDateRange();
-    return DataStore.getRecords().filter(r => {
+    return expenseRecords(DataStore.getRecords().filter(r => {
       const d = new Date(r.date || r.createdAt);
       return d >= start && d <= end;
+    }));
+  },
+  getPeriodIncomeRecords() {
+    const { start, end } = getPeriodDateRange();
+    return incomeRecords(DataStore.getRecords().filter(r => {
+      const d = new Date(r.date || r.createdAt);
+      return d >= start && d <= end;
+    }));
+  },
+  getPeriodIncome() {
+    return this.getPeriodIncomeRecords().reduce((s, r) => s + (r.amount || 0), 0);
+  },
+  getPeriodNet() {
+    return round2(this.getPeriodIncome() - this.getPeriodTotal());
+  },
+  getPeriodIncomeCategoryTotals() {
+    const totals = {};
+    this.getPeriodIncomeRecords().forEach(r => {
+      totals[r.categoryId] = (totals[r.categoryId] || 0) + r.amount;
     });
+    return totals;
   },
   getPeriodTotal() {
     return this.getPeriodRecords().reduce((s, r) => s + r.amount, 0) - this.getPeriodSplitContrib();
@@ -6462,14 +6795,14 @@ const SimulationEngine = {
     const spendable = sp.spendableBudget;
 
     // Get actual spending to date (variable categories only)
-    const allRecords = isRolling
+    const allRecords = expenseRecords((isRolling
       ? DataStore.getRecords()
           .filter(r => {
             const d = new Date(r.date || r.createdAt);
             return d >= periodOpts.start && d <= periodOpts.end && !StatsEngine.isBillCategory(r.categoryId);
           })
       : DataStore.getRecords()
-          .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
+          .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId))));
     // Split bills: records are stored at the full bill amount, but others' shares
     // (paid OR unpaid) are not my spending. Subtract them so the simulation only
     // projects MY real share — consistent with the overview daily avg/prediction.
@@ -6495,7 +6828,7 @@ const SimulationEngine = {
     // Build full category tree with current stats
     const allCats = DataStore.getCategories();
     const catMap = {}; allCats.forEach(c => catMap[c.id] = c);
-    const rootCats = DataStore.getRootCategories();
+    const rootCats = DataStore.getExpenseRootCategories();
 
     // Compute leaf category ids
     const leafCatIds = new Set();
@@ -7826,14 +8159,31 @@ function pickerRestore() {
   closeModal();
 }
 
+// Which tree to show. An income record must be filed under an income category and
+// an expense under an expense one — otherwise the two disagree and the row lands
+// in neither set of totals (DataStore._repairRecordTypes would silently drag it
+// back later, undoing the user's choice). Callers set the kind before opening;
+// it defaults to expense, which is what every picker in the app wants except the
+// add/edit form in income mode.
+let _pickerKind = 'expense';
+
+function _kindForContext(context) {
+  if (context === 'add') return window._addRecordType === 'income' ? 'income' : 'expense';
+  if (context === 'edit') return window._editRecordType === 'income' ? 'income' : 'expense';
+  // 'split-edit' and anything else always files spending
+  return 'expense';
+}
+
 function openCategoryPicker(context) {
-  const cats = DataStore.getRootCategories();
-  const billCats = DataStore.getBillCategories();
+  _pickerKind = _kindForContext(context);
+  const isIncome = _pickerKind === 'income';
+  const cats = isIncome ? DataStore.getIncomeRootCategories() : DataStore.getExpenseRootCategories();
+  const billCats = isIncome ? [] : DataStore.getBillCategories();
   _pickerCapture();
   let html = '<div class="modal-title">' + __('categoryPicker.title') + '</div><div style="max-height:50vh;overflow-y:auto">';
 
   // Regular categories section
-  html += '<div class="text-sm font-semibold" style="padding:6px 4px;color:var(--text-secondary)">' + __('categoryPicker.daily') + '</div>';
+  html += '<div class="text-sm font-semibold" style="padding:6px 4px;color:var(--text-secondary)">' + (isIncome ? __('categoryPicker.income') : __('categoryPicker.daily')) + '</div>';
   html += buildCategoryTreePicker(cats, 0, context);
 
   // Bill categories section
@@ -7932,6 +8282,7 @@ setDisplay(displayAdd);
   addI18nEntries({
     'categoryPicker.title': { zh: '选择分类', en: 'Select Category' },
     'categoryPicker.daily': { zh: '日常消费', en: 'Daily Expenses' },
+    'categoryPicker.income': { zh: '💰 收入', en: '💰 Income' },
     'categoryPicker.monthlyBills': { zh: '📋 月账单', en: '📋 Monthly Bills' },
     'categoryPicker.billBadge': { zh: '📋 账单', en: '📋 Bill' },
     'categoryPicker.cancel': { zh: '取消', en: 'Cancel' }
@@ -7983,13 +8334,24 @@ function renderOverview() {
   const splitPending = SplitEngine.getPendingSummary();
   const splitUnpaidTotal = isRolling ? StatsEngine.getPeriodSplitUnpaid() : StatsEngine.getSplitUnpaid(month);
 
-  // Today's and yesterday's spending
+  // Today's and yesterday's spending — expenses only. Income recorded today is
+  // money coming in, and folding it into 今日消费 would make a payday look like
+  // the most extravagant day of the month.
   const todayKey = now.toISOString().substr(0, 10);
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayKey = yesterday.toISOString().substr(0, 10);
-  const todayTotal = DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === todayKey).reduce((s, r) => s + r.amount, 0);
-  const yesterdayTotal = DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === yesterdayKey).reduce((s, r) => s + r.amount, 0);
+  const todayTotal = expenseRecords(DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === todayKey)).reduce((s, r) => s + r.amount, 0);
+  const yesterdayTotal = expenseRecords(DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === yesterdayKey)).reduce((s, r) => s + r.amount, 0);
+
+  // Actual cash flow from the records themselves. Deliberately kept separate from
+  // 月收入 (a per-month setting that drives the whole budget chain) — this is what
+  // really arrived, not what the user planned. Hidden until an income record
+  // exists, so a ledger that has never used the feature sees exactly the page it
+  // saw before.
+  const recordedIncome = isRolling ? StatsEngine.getPeriodIncome() : StatsEngine.getMonthIncome(month);
+  const recordedSpend = monthTotal;
+  const recordedNet = Math.round((recordedIncome - recordedSpend) * 100) / 100;
 
   // Savings / spendable chain — single source of truth in StatsEngine.getSpendablePlan.
   // spendableBudget now also has active instalment plans carved out of it, which is
@@ -8090,6 +8452,27 @@ function renderOverview() {
         <div class="text-xl font-bold">${formatMoney(predicted)}</div>
       </div>
     </div>
+
+    <!-- Cash flow actually recorded: income entries vs expenses vs what is left -->
+    ${recordedIncome > 0 ? `
+    <div class="card mb-16">
+      <div class="card-title">${isRolling ? __('overview.flow.title.rolling') : __('overview.flow.title.monthly')}</div>
+      <div class="grid-3">
+        <div>
+          <div class="text-xs text-secondary">${__('overview.flow.income')}</div>
+          <div class="text-lg font-bold" style="color:var(--success)">${formatMoney(recordedIncome)}</div>
+        </div>
+        <div>
+          <div class="text-xs text-secondary">${__('overview.flow.expense')}</div>
+          <div class="text-lg font-bold" style="color:var(--danger)">${formatMoney(recordedSpend)}</div>
+        </div>
+        <div>
+          <div class="text-xs text-secondary">${__('overview.flow.net')}</div>
+          <div class="text-lg font-bold" style="color:${recordedNet >= 0 ? 'var(--success)' : 'var(--danger)'}">${recordedNet >= 0 ? '+' : ''}${formatMoney(recordedNet)}</div>
+        </div>
+      </div>
+      <div class="text-xs text-muted mt-4">${__('overview.flow.note')}</div>
+    </div>` : ''}
 
     <!-- Daily spending row -->
     <div class="grid-2 mb-16">
@@ -8366,6 +8749,12 @@ function refreshOverviewBudget() {
     'overview.dailyBillsBreakdown': { zh: '日常 {0} · 账单 {1}', en: 'Daily {0} · Bills {1}' },
     'overview.realSpendingNote': { zh: '真实支出 {0} + 未收回账目 {1}', en: 'Real spending {0} + Uncollected {1}' },
     'overview.monthlyIncome': { zh: '月收入', en: 'Monthly Income' },
+    'overview.flow.title.monthly': { zh: '💵 本月实际收支', en: '💵 Cash Flow This Month' },
+    'overview.flow.title.rolling': { zh: '💵 近30天实际收支', en: '💵 Cash Flow (Last 30 Days)' },
+    'overview.flow.income': { zh: '收入记录', en: 'Recorded Income' },
+    'overview.flow.expense': { zh: '支出记录', en: 'Recorded Spending' },
+    'overview.flow.net': { zh: '结余', en: 'Net' },
+    'overview.flow.note': { zh: '按流水记录统计，与上方「月收入」设定值无关', en: 'Summed from the ledger, independent of the Monthly Income setting above' },
     'overview.notSet': { zh: '未设置', en: 'Not Set' },
     'overview.netIncome': { zh: '净收入', en: 'Net Income' },
     'overview.dailyAvg': { zh: '日均支出', en: 'Daily Avg' },
@@ -8488,7 +8877,7 @@ function toggleBudgetView(month) {
 }
 
 function showBudgetSelector(month) {
-  const rootCats = DataStore.getRootCategories();
+  const rootCats = DataStore.getExpenseRootCategories();
   const catBudgets = DataStore.getAllCategoryBudgets();
   // Get categories with budgets (including children)
   const budgeted = [];
@@ -8543,7 +8932,7 @@ function confirmBudgetSelection(month) {
     showToast(__('budgetProgress.selectAtLeastOne'), 'warning');
     return;
   }
-  if (ids.length === DataStore.getRootCategories().filter(c => {
+  if (ids.length === DataStore.getExpenseRootCategories().filter(c => {
     const bk = c.id + ':' + month;
     return (DataStore.getAllCategoryBudgets()[bk] || 0) > 0;
   }).length) {
@@ -8559,9 +8948,9 @@ function confirmBudgetSelection(month) {
 
 function renderBudgetProgressCard(month, showHeader) {
   console.log('[budgetProgress] renderBudgetProgressCard month:', month, 'view:', budgetProgressView, 'sort:', budgetProgressSort);
-  const rootCats = DataStore.getRootCategories();
+  const rootCats = DataStore.getExpenseRootCategories();
   const catBudgets = DataStore.getAllCategoryBudgets();
-  const records = DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month);
+  const records = expenseRecords(DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month));
   
   // Calculate spent per root category
   const catSpent = {};
@@ -8639,9 +9028,9 @@ function renderBudgetProgressCard(month, showHeader) {
 
 function renderBudgetProgressCardInner(month) {
   console.log('[budgetProgress] renderBudgetProgressCardInner month:', month);
-  const rootCats = DataStore.getRootCategories();
+  const rootCats = DataStore.getExpenseRootCategories();
   const catBudgets = DataStore.getAllCategoryBudgets();
-  const records = DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month);
+  const records = expenseRecords(DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month));
   
   const catSpent = {};
   records.forEach(r => {
@@ -8978,15 +9367,24 @@ try{
 'use strict';
 function renderAddPage() {
   selectedCategoryId = null;
+  window._addRecordType = 'expense';
   const el = document.getElementById('page-add');
   el.innerHTML = `
     <div class="card">
       <div class="card-title mb-16">${__('addRecord.title')}</div>
       <form id="addForm" onsubmit="submitRecord(event)">
         <div class="input-group">
+          <label class="input-label">${__('addRecord.typeLabel')}</label>
+          <div style="display:flex;gap:8px" role="group">
+            <button type="button" id="addTypeExpense" class="btn btn-sm" style="flex:1" onclick="setAddRecordType('expense')">💸 ${__('addRecord.typeExpense')}</button>
+            <button type="button" id="addTypeIncome" class="btn btn-sm" style="flex:1" onclick="setAddRecordType('income')">💰 ${__('addRecord.typeIncome')}</button>
+          </div>
+        </div>
+
+        <div class="input-group">
           <label class="input-label">${__('addRecord.amountLabel')}</label>
           <div style="position:relative">
-            <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:var(--primary);font-size:1.1rem">RM</span>
+            <span id="addAmountPrefix" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:var(--primary);font-size:1.1rem">RM</span>
             <input type="text" id="addAmount" class="input-field" placeholder="0.00" style="padding-left:44px;font-size:1.2rem;font-weight:700" inputmode="decimal" autocomplete="off">
           </div>
         </div>
@@ -9017,20 +9415,22 @@ function renderAddPage() {
           <button type="button" class="btn btn-sm btn-outline" onclick="openTagPickerForAdd()">${__('addRecord.addTag')}</button>
         </div>
 
-        <div class="input-group">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
-            <input type="checkbox" id="addExcludeAvg" style="width:18px;height:18px;cursor:pointer">
-            <span class="text-sm text-secondary">${__('addRecord.excludeLabel')}</span>
-          </label>
-        </div>
+        <div id="addExpenseOnlyFields">
+          <div class="input-group">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
+              <input type="checkbox" id="addExcludeAvg" style="width:18px;height:18px;cursor:pointer">
+              <span class="text-sm text-secondary">${__('addRecord.excludeLabel')}</span>
+            </label>
+          </div>
 
-        <div class="input-group">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
-            <input type="checkbox" id="addSplitToggle" style="width:18px;height:18px;cursor:pointer" onchange="toggleAddSplitForm(this.checked)">
-            <span class="text-sm text-secondary">${__('split.addToggle')}</span>
-          </label>
+          <div class="input-group">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
+              <input type="checkbox" id="addSplitToggle" style="width:18px;height:18px;cursor:pointer" onchange="toggleAddSplitForm(this.checked)">
+              <span class="text-sm text-secondary">${__('split.addToggle')}</span>
+            </label>
+          </div>
+          <div id="addSplitSection" style="display:none"></div>
         </div>
-        <div id="addSplitSection" style="display:none"></div>
 
         <button type="submit" class="btn btn-primary btn-lg btn-block" id="submitBtn" style="font-size:1.05rem">
           ${__('addRecord.saveBtn')}
@@ -9038,6 +9438,8 @@ function renderAddPage() {
       </form>
     </div>
   `;
+
+  setAddRecordType('expense');
 
   // Set default date/time
   const now = new Date();
@@ -9056,6 +9458,44 @@ function renderAddPage() {
     if (typeof previewSplitShares === 'function') previewSplitShares();
   });
 }
+// Flip between expense and income. The selected category is cleared because an
+// expense category is not a valid income category — leaving it selected would let
+// the record be saved as income under 餐饮, which DataStore.addRecord would then
+// have to silently correct.
+function setAddRecordType(type) {
+  const kind = type === 'income' ? 'income' : 'expense';
+  window._addRecordType = kind;
+  const btnExpense = document.getElementById('addTypeExpense');
+  const btnIncome = document.getElementById('addTypeIncome');
+  const expenseActive = kind === 'expense';
+  if (btnExpense) {
+    btnExpense.className = 'btn btn-sm' + (expenseActive ? ' btn-primary' : ' btn-outline');
+  }
+  if (btnIncome) {
+    btnIncome.className = 'btn btn-sm' + (!expenseActive ? ' btn-primary' : ' btn-outline');
+  }
+  const expenseOnly = document.getElementById('addExpenseOnlyFields');
+  if (expenseOnly) expenseOnly.style.display = expenseActive ? '' : 'none';
+  const prefix = document.getElementById('addAmountPrefix');
+  if (prefix) prefix.style.color = expenseActive ? 'var(--primary)' : 'var(--success)';
+
+  selectedCategoryId = null;
+  window.selectedCategoryId = null;
+  const disp = document.getElementById('addCategoryDisplay');
+  if (disp) {
+    disp.textContent = __('addRecord.selectCategory');
+    disp.style.color = 'var(--text-muted)';
+  }
+  // Reset the split form too: it was rendered for expense categories only.
+  if (!expenseActive) {
+    const splitToggle = document.getElementById('addSplitToggle');
+    if (splitToggle && splitToggle.checked) {
+      splitToggle.checked = false;
+      toggleAddSplitForm(false);
+    }
+  }
+}
+
 function submitRecord(e) {
   e.preventDefault();
   const amountEl = document.getElementById('addAmount');
@@ -9064,6 +9504,7 @@ function submitRecord(e) {
   const date = document.getElementById('addDateTime').value;
   const note = document.getElementById('addNote').value.trim();
   const form = document.getElementById('addForm');
+  const recKind = window._addRecordType === 'income' ? 'income' : 'expense';
 
   function shakeForm() {
     form.classList.add('shake');
@@ -9084,7 +9525,10 @@ function submitRecord(e) {
     return;
   }
   const splitToggle = document.getElementById('addSplitToggle');
-  const splitMode = !!(splitToggle && splitToggle.checked);
+  // Splitting is a way of sharing an expense you paid for. An income entry has
+  // nobody to collect from, so the toggle is hidden in income mode and ignored
+  // here — a stale checked box must not be able to force an income bill.
+  const splitMode = recKind === 'expense' && !!(splitToggle && splitToggle.checked);
   if (!categoryId && !splitMode) {
     showToast(__('addRecord.noCategory'), 'error');
     shakeForm();
@@ -9161,10 +9605,11 @@ function submitRecord(e) {
   const record = {
     amount,
     categoryId,
+    type: recKind,
     date: date || new Date().toISOString().slice(0, 16),
     note,
     tags,
-    excludeFromAvg: document.getElementById('addExcludeAvg').checked,
+    excludeFromAvg: recKind === 'income' ? false : document.getElementById('addExcludeAvg').checked,
     createdAt: new Date().toISOString()
   };
 
@@ -9221,6 +9666,9 @@ function removeAddTag(tag) {
   // i18n translations
   addI18nEntries({
     'addRecord.title': { zh: '新增记录', en: 'New Record' },
+    'addRecord.typeLabel': { zh: '类型', en: 'Type' },
+    'addRecord.typeExpense': { zh: '支出', en: 'Expense' },
+    'addRecord.typeIncome': { zh: '收入', en: 'Income' },
     'addRecord.amountLabel': { zh: '金额 (RM)', en: 'Amount (RM)' },
     'addRecord.categoryLabel': { zh: '分类', en: 'Category' },
     'addRecord.selectCategory': { zh: '请选择分类', en: 'Please select a category' },
@@ -9240,6 +9688,7 @@ function removeAddTag(tag) {
 
   // === EXPORTS ===
   window.renderAddPage = renderAddPage;
+  window.setAddRecordType = setAddRecordType;
   window.submitRecord = submitRecord;
   window.openTagPickerForAdd = openTagPickerForAdd;
   window.renderAddTagsDisplay = renderAddTagsDisplay;
@@ -9255,7 +9704,7 @@ try{
    ============================================================ */
 (function() {
 'use strict';
-let recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, tags: [] };
+let recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, tags: [], kind: 'all' };
 let recordsPage = 0;
 let compactRecordsView = (function() { try { return JSON.parse(localStorage.getItem('budgetCompactView') || 'false'); } catch(e) { return false; } })();
 let recordsPerPage = window.recordsPerPage = parseInt(localStorage.getItem('budgetRecordsPerPage') || '20');
@@ -9324,6 +9773,9 @@ function renderRecords() {
       </div>
       <div class="flex gap-8 mt-8" style="flex-wrap:wrap">
         <button class="btn btn-outline btn-sm" onclick="clearRecordsFilter()">${__('records.filter.clear')}</button>
+        <button class="btn btn-sm ${(recordsFilter.kind || 'all') !== 'all' ? 'btn-primary' : 'btn-outline'}" onclick="cycleRecordsKindFilter()" title="${__('records.filter.kindTitle')}">
+          ${recordsFilter.kind === 'income' ? '💰 ' + __('records.filter.kindIncome') : recordsFilter.kind === 'expense' ? '💸 ' + __('records.filter.kindExpense') : '💸💰 ' + __('records.filter.kindAll')}
+        </button>
         <button class="btn btn-sm ${recordsFilter.overspentOnly ? 'btn-danger' : 'btn-outline'}" onclick="toggleOverspentFilter()" title="${__('records.filter.overspentTitle')}">
           ${recordsFilter.overspentOnly ? __('records.filter.overspentActive') : __('records.filter.overspent')}
         </button>
@@ -9456,6 +9908,14 @@ function getFilteredRecords() {
   if (f.tags && f.tags.length > 0) {
     records = records.filter(r => r.tags && f.tags.some(t => r.tags.includes(t)));
   }
+  // Type filter — the ledger holds both sides of the flow, so "show me only what
+  // came in" has to be selectable rather than implied by which tree the category
+  // filter happens to be pointing at.
+  if (f.kind === 'expense') {
+    records = expenseRecords(records);
+  } else if (f.kind === 'income') {
+    records = incomeRecords(records);
+  }
   // Apply sorting
   if (recordsSort && recordsSort.length > 0) {
     records.sort((a, b) => {
@@ -9493,6 +9953,13 @@ function toggleOverspentFilter() {
   renderRecords();
 }
 
+function cycleRecordsKindFilter() {
+  const order = ['all', 'expense', 'income'];
+  recordsFilter.kind = order[(order.indexOf(recordsFilter.kind || 'all') + 1) % order.length];
+  window.recordsPage = 0;
+  renderRecords();
+}
+
 function applyRecordsFilter() {
   recordsFilter.keyword = document.getElementById('filterKeyword').value;
   recordsFilter.dateStart = document.getElementById('filterDateStart').value;
@@ -9503,15 +9970,24 @@ function applyRecordsFilter() {
   renderRecordsList();
 }
 
+// Filtering reads both trees on purpose — this is how you isolate a category, and
+  // 工资 is a category just like 餐饮. The type filter above is what narrows by
+  // side of the flow.
 function openCategoryFilterPicker() {
-  const cats = DataStore.getRootCategories();
+  const expenseRoots = DataStore.getExpenseRootCategories();
+  const incomeRoots = DataStore.getIncomeRootCategories();
   let html = '<div class="modal-title">' + __('records.filter.pickCategory') + '</div><div style="max-height:50vh;overflow-y:auto">';
   html += `<div style="padding:8px 12px;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast);display:flex;align-items:center;gap:8px"
        onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"
        onclick="selectCategoryFilter('')">
     <span>📁</span><span>${__('records.filter.allCategories')}</span>
   </div>`;
-  html += buildCategoryTreeFilterPicker(cats, 0);
+  html += '<div class="picker-section-header">' + __('categoryPicker.daily') + '</div>';
+  html += buildCategoryTreeFilterPicker(expenseRoots, 0);
+  if (incomeRoots.length) {
+    html += '<div class="picker-section-header">' + __('categoryPicker.income') + '</div>';
+    html += buildCategoryTreeFilterPicker(incomeRoots, 0);
+  }
   html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('records.cancel') + '</button></div>';
   showModal(html);
 }
@@ -9554,7 +10030,7 @@ function selectCategoryFilter(catId) {
 }
 
 function clearRecordsFilter() {
-  recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false };
+  recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, kind: 'all' };
   renderRecords();
 }
 
@@ -9583,6 +10059,7 @@ function renderRecordsList() {
   let html = '';
   pageRecords.forEach(r => {
     const isSplit = !!r.splitBillId;
+    const isIncome = !isSplit && isIncomeRec(r);
     let dispIcon = '❓';
     let dispName = __('records.unknown');
     let dispColor = '#eee';
@@ -9607,6 +10084,12 @@ function renderRecordsList() {
     const dateStr = (r.date || r.createdAt).replace('T', ' ');
     const isSelected = selectedRecordIds.has(r.id);
     const selStyle = isSelected ? 'border-color:var(--primary);background:rgba(99,102,241,0.05)' : '';
+    // Money coming IN is a different thing from money going out, and the list is
+    // where the user reads that at a glance: green, signed with a plus. Same
+    // layout, opposite meaning — no new colour token, just var(--success), which
+    // every theme already defines.
+    const amountColor = isIncome ? 'var(--success)' : 'var(--primary)';
+    const amountText = (isIncome ? '+' : '') + formatMoney(dispAmount);
     if (compactRecordsView) {
       // ===== COMPACT VIEW =====
       html += `
@@ -9618,7 +10101,7 @@ function renderRecordsList() {
             <span class="compact-note">${r.note ? '📝 ' + escHtml(r.note) : ''}</span>
             ${r.tags && r.tags.length > 0 ? `<span style="display:inline-flex;flex-wrap:wrap;gap:2px;margin-left:4px">${r.tags.map(t => `<span style="padding:0 4px;background:var(--bg);border-radius:4px;font-size:0.6rem;color:var(--text-muted)">${escHtml(t)}</span>`).join('')}</span>` : ''}
             ${r.excludeFromAvg ? '<span class="text-xs text-muted" style="font-size:0.6rem;margin-left:2px" title="' + __('records.excludeFromAvg') + '">📌</span>' : ''}
-            <span class="compact-amount" style="color:var(--primary)">${formatMoney(dispAmount)}${unpaidHtml}</span>
+            <span class="compact-amount" style="color:${amountColor}">${amountText}${unpaidHtml}</span>
             ${!batchMode ? `<button class="btn btn-ghost btn-sm record-del-btn" style="padding:0 4px;font-size:0.7rem;opacity:0.5;flex-shrink:0;background:none;border:none;cursor:pointer"
               onclick="event.stopPropagation();deleteRecordConfirm('${r.id}')" title="${__('records.delete')}">🗑️</button>` : ''}
           </div>
@@ -9635,7 +10118,7 @@ function renderRecordsList() {
               ${escHtml(dispIcon)}
             </div>
             <div>
-              <div class="font-semibold">${escHtml(dispName)}</div>
+              <div class="font-semibold">${escHtml(dispName)}${isIncome ? ' <span class="badge badge-success" style="font-size:0.6rem">' + __('records.incomeBadge') + '</span>' : ''}</div>
               <div class="text-sm text-muted">${dateStr.slice(0, 16)}</div>
               ${r.note ? '<div class="text-sm text-secondary">' + escHtml(r.note) + '</div>' : ''}
               ${r.tags && r.tags.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:2px">${r.tags.map(t => `<span style="padding:0 4px;background:var(--bg);border-radius:4px;font-size:0.65rem;color:var(--text-muted)">${escHtml(t)}</span>`).join('')}</div>` : ''}
@@ -9643,7 +10126,7 @@ function renderRecordsList() {
             </div>
           </div>
           <div class="text-right">
-            <div class="font-bold text-lg" style="color:var(--primary)">${formatMoney(dispAmount)}${unpaidHtml}</div>
+            <div class="font-bold text-lg" style="color:${amountColor}">${amountText}${unpaidHtml}</div>
           </div>
         </div>
         ${!batchMode ? `
@@ -9823,11 +10306,26 @@ function batchChangeCategory() {
     showToast(__('records.batch.selectFirstMod'), 'warning');
     return;
   }
+  // The two category trees are disjoint, so a batch move can only ever produce a
+  // legal result for records that all live in the same one. Offering both trees
+  // for a mixed selection would let a single click flip a 餐饮 expense into
+  // income (DataStore.updateRecord re-derives the type from the new category), so
+  // mixed selections are refused instead of silently reshaped.
+  const selectedRecs = [...selectedRecordIds]
+    .map(id => DataStore.getRecord(id))
+    .filter(r => r && !r.splitBillId);
+  const kinds = new Set(selectedRecs.map(r => (isIncomeRec(r) ? 'income' : 'expense')));
+  if (kinds.size > 1) {
+    showToast(__('records.batch.mixedKinds'), 'warning');
+    return;
+  }
+  const kind = kinds.has('income') ? 'income' : 'expense';
   // Show category picker
-  const roots = DataStore.getRootCategories();
+  const roots = kind === 'income' ? DataStore.getIncomeRootCategories() : DataStore.getExpenseRootCategories();
   let html = `<div class="modal-title">${__('records.batch.changeTitle')}</div>
     <p class="text-sm text-secondary mb-8">${__('records.batch.changeText', count)}</p>
-    <div style="max-height:50vh;overflow-y:auto">`;
+    <div style="max-height:50vh;overflow-y:auto">
+      <div class="text-sm font-semibold" style="padding:6px 4px;color:var(--text-secondary)">${kind === 'income' ? __('categoryPicker.income') : __('categoryPicker.daily')}</div>`;
   html += buildBatchCategoryTree(roots, 0);
   html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('records.cancel') + '</button></div>';
   showModal(html);
@@ -9993,14 +10491,25 @@ function openEditRecord(id) {
     ? (bill ? "openCategoryPicker('split-edit')" : '')
     : "openCategoryPicker('edit')";
   selectedCategoryId = record.categoryId;
+  const recKind = isSplit ? 'expense' : (isIncomeRec(record) ? 'income' : 'expense');
+  window._editRecordType = recKind;
+  const isIncome = recKind === 'income';
 
   showModal(`
     <div class="modal-title">${__('records.edit.title')}</div>
     <form id="editForm" onsubmit="submitEditRecord(event, '${id}')">
+      ${isSplit ? '' : `
+      <div class="input-group">
+        <label class="input-label">${__('addRecord.typeLabel')}</label>
+        <div style="display:flex;gap:8px" role="group">
+          <button type="button" id="editTypeExpense" class="btn btn-sm" style="flex:1" onclick="setEditRecordType('expense')">💸 ${__('addRecord.typeExpense')}</button>
+          <button type="button" id="editTypeIncome" class="btn btn-sm" style="flex:1" onclick="setEditRecordType('income')">💰 ${__('addRecord.typeIncome')}</button>
+        </div>
+      </div>`}
       <div class="input-group">
         <label class="input-label">${__('records.edit.amount')}</label>
         <div style="position:relative">
-          <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:var(--primary)">RM</span>
+          <span id="editAmountPrefix" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:${isIncome ? 'var(--success)' : 'var(--primary)'}">RM</span>
           <input type="text" id="editAmount" class="input-field" value="${record.amount}" style="padding-left:44px;font-size:1.2rem;font-weight:700" inputmode="decimal">
         </div>
       </div>
@@ -10030,7 +10539,7 @@ function openEditRecord(id) {
         <input type="hidden" id="editTagsInput" value='${JSON.stringify(record.tags || [])}'>
       </div>
       ${isSplit ? '' : `
-      <div class="input-group">
+      <div class="input-group" id="editExcludeAvgRow">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
           <input type="checkbox" id="editExcludeAvg" ${record.excludeFromAvg ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
           <span class="text-sm text-secondary">${__('records.edit.excludeAvg')}</span>
@@ -10055,6 +10564,32 @@ function openEditRecord(id) {
       this.value = val;
     });
   }
+  if (!isSplit) setEditRecordType(recKind, true);
+}
+
+// Flip an existing record between expense and income. The category is cleared for
+// the same reason as on the add form: the two trees are disjoint. `initial` skips
+// the reset so reopening the editor does not wipe the category it just rendered.
+function setEditRecordType(type, initial) {
+  const kind = type === 'income' ? 'income' : 'expense';
+  window._editRecordType = kind;
+  const btnExpense = document.getElementById('editTypeExpense');
+  const btnIncome = document.getElementById('editTypeIncome');
+  const expenseActive = kind === 'expense';
+  if (btnExpense) btnExpense.className = 'btn btn-sm' + (expenseActive ? ' btn-primary' : ' btn-outline');
+  if (btnIncome) btnIncome.className = 'btn btn-sm' + (!expenseActive ? ' btn-primary' : ' btn-outline');
+  const avgRow = document.getElementById('editExcludeAvgRow');
+  if (avgRow) avgRow.style.display = expenseActive ? '' : 'none';
+  const prefix = document.getElementById('editAmountPrefix');
+  if (prefix) prefix.style.color = expenseActive ? 'var(--primary)' : 'var(--success)';
+  if (initial) return;
+  selectedCategoryId = null;
+  window.selectedCategoryId = null;
+  const disp = document.getElementById('editCategoryDisplay');
+  if (disp) {
+    disp.textContent = __('records.edit.select');
+    disp.style.color = 'var(--text-muted)';
+  }
 }
 
 function submitEditRecord(e, id) {
@@ -10062,8 +10597,12 @@ function submitEditRecord(e, id) {
   const record = DataStore.getRecord(id);
   const isSplit = !!(record && record.splitBillId);
   const amount = parseFloat(document.getElementById('editAmount').value);
+  const recKind = isSplit ? 'expense' : (window._editRecordType === 'income' ? 'income' : 'expense');
   if (!amount || amount <= 0) { showToast(__('records.edit.invalidAmount'), 'error'); return; }
-  if (!isSplit && !selectedCategoryId) { showToast(__('records.edit.selectCategory'), 'error'); return; }
+  if (!isSplit && !selectedCategoryId) {
+    showToast(recKind === 'income' ? __('records.edit.selectIncomeCategory') : __('records.edit.selectCategory'), 'error');
+    return;
+  }
   if (isSplit && window._editingSplitBillId) {
     SplitEngine.applyRecordEditToBill(window._editingSplitBillId, {
       amount,
@@ -10078,9 +10617,10 @@ function submitEditRecord(e, id) {
   DataStore.updateRecord(id, {
     amount,
     categoryId: isSplit ? record.categoryId : selectedCategoryId,
+    type: recKind,
     date: document.getElementById('editDateTime').value,
     note: document.getElementById('editNote').value.trim(),
-    excludeFromAvg: isSplit ? false : document.getElementById('editExcludeAvg').checked,
+    excludeFromAvg: (isSplit || recKind === 'income') ? false : document.getElementById('editExcludeAvg').checked,
     tags: (() => {
       try { return JSON.parse(document.getElementById('editTagsInput').value); }
       catch(e) { return []; }
@@ -10089,6 +10629,7 @@ function submitEditRecord(e, id) {
   });
   selectedCategoryId = null;
   window._editingSplitBillId = null;
+  window._editRecordType = 'expense';
   closeModal();
   showToast(__('records.edit.saved'));
   refreshCurrentPage();
@@ -10220,6 +10761,7 @@ function removeEditTag(tag) {
   window.toggleRecordsView = toggleRecordsView;
   window.getFilteredRecords = getFilteredRecords;
   window.toggleOverspentFilter = toggleOverspentFilter;
+  window.cycleRecordsKindFilter = cycleRecordsKindFilter;
   window.applyRecordsFilter = applyRecordsFilter;
   window.openCategoryFilterPicker = openCategoryFilterPicker;
   window.buildCategoryTreeFilterPicker = buildCategoryTreeFilterPicker;
@@ -10241,6 +10783,7 @@ function removeEditTag(tag) {
   window.confirmHardDeleteRecord = confirmHardDeleteRecord;
   window.undoDelete = undoDelete;
   window.openEditRecord = openEditRecord;
+  window.setEditRecordType = setEditRecordType;
   window.openRecordOrSplitEditor = openRecordOrSplitEditor;
   window.submitEditRecord = submitEditRecord;
   window.recordsSort = recordsSort;
@@ -10317,6 +10860,7 @@ function setRecordsTagFilter(tag) {
     'records.batch.confirmDeleteBtn': { zh: '删除 {0} 条', en: 'Delete {0} items' },
     'records.batch.deleted': { zh: '🗑️ 已删除 {0} 条记录', en: '🗑️ Deleted {0} records' },
     'records.batch.selectFirstMod': { zh: '请先选择要修改的记录', en: 'Please select records to modify first' },
+    'records.batch.mixedKinds': { zh: '所选记录混合了支出与收入，请分开批量修改分类', en: 'Selection mixes expenses and income — change their categories separately' },
     'records.batch.changeTitle': { zh: '批量修改分类', en: 'Batch change category' },
     'records.batch.changeText': { zh: '将选中的 <strong>{0}</strong> 条记录分类修改为：', en: 'Change category for <strong>{0}</strong> selected records to:' },
     'records.batch.changed': { zh: '✅ 已将 {0} 条记录分类改为 {1} {2}', en: '✅ Changed {0} records to {1} {2}' },
@@ -10369,6 +10913,12 @@ function setRecordsTagFilter(tag) {
     'records.edit.addTag': { zh: '＋ 添加标签', en: '＋ Add tag' },
     'records.edit.excludeAvg': { zh: '📌 不计日均（一次性大额消费）', en: '📌 Exclude from daily average' },
     'records.excludeFromAvg': { zh: '不计日均', en: 'Exclude from daily average' },
+    'records.incomeBadge': { zh: '收入', en: 'Income' },
+    'records.filter.kindTitle': { zh: '在「全部 / 支出 / 收入」之间切换', en: 'Cycle between all / expenses / income' },
+    'records.filter.kindAll': { zh: '全部', en: 'All' },
+    'records.filter.kindExpense': { zh: '仅支出', en: 'Expenses' },
+    'records.filter.kindIncome': { zh: '仅收入', en: 'Income' },
+    'records.edit.selectIncomeCategory': { zh: '切换为收入后，请选择一个收入分类', en: 'After switching to income, pick an income category' },
     'records.edit.delete': { zh: '🗑️ 删除', en: '🗑️ Delete' },
     'records.edit.save': { zh: '保存', en: 'Save' },
     'records.edit.invalidAmount': { zh: '请输入有效金额', en: 'Please enter a valid amount' },
@@ -10393,19 +10943,28 @@ let expandedCategories = new Set();
 
 function renderCategories() {
   const el = document.getElementById('page-categories');
-  const roots = DataStore.getRootCategories();
+  const roots = DataStore.getExpenseRootCategories();
+  const incomeRoots = DataStore.getIncomeRootCategories();
 
   el.innerHTML = `
     <div class="mb-16">
       <button class="btn btn-primary btn-lg btn-block" onclick="addRootCategory()">${__('categories.addRoot')}</button>
     </div>
     <p class="text-sm text-secondary mb-8" style="line-height:1.5">
-      ${__('categories.headerInfo', DataStore.getCategories().length)}
+      ${__('categories.headerInfo', DataStore.getExpenseRootCategories().length + DataStore.getIncomeRootCategories().length)}
       <span class="text-xs text-muted" style="cursor:pointer" onclick="document.querySelectorAll('.cat-item').forEach(function(e){expandedCategories.add(e.dataset.id);});renderCategories()">${__('categories.expandAll')}</span>
-      · 
+      ·
       <span class="text-xs text-muted" style="cursor:pointer" onclick="expandedCategories.clear();renderCategories()">${__('categories.collapseAll')}</span>
     </p>
-    <div id="categoryTree">${buildCategoryTreeHTML(roots, 0)}</div>
+    <div class="cat-section-header">${__('categories.expenseSection')}</div>
+    <div id="categoryTree">${buildCategoryTreeHTML(roots, 0, 'expense')}</div>
+    ${incomeRoots.length ? `
+    <div class="cat-section-header" style="margin-top:20px">${__('categories.incomeSection')}</div>
+    <p class="text-xs text-muted mb-8" style="line-height:1.5">${__('categories.incomeSectionHint')}</p>
+    <div id="incomeCategoryTree">${buildCategoryTreeHTML(incomeRoots, 0, 'income')}</div>
+    <div class="mb-16" style="margin-top:12px">
+      <button class="btn btn-outline btn-block" onclick="addRootCategory('income')">${__('categories.addIncomeRoot')}</button>
+    </div>` : ''}
   `;
 }
 
@@ -10414,9 +10973,15 @@ function getBudgetMonth() {
   return getMonthKey(now.toISOString());
 }
 
-function buildCategoryTreeHTML(cats, depth) {
+// `kind` only changes what sits at the right of the row: an expense category
+// gets a budget to stay under, an income one gets what actually arrived. There is
+// no such thing as overspending your salary, and a budget box on 工资 would only
+// ever be a figure the user has to re-derive by hand.
+function buildCategoryTreeHTML(cats, depth, kind) {
+  const treeKind = kind === 'income' ? 'income' : 'expense';
   let html = '';
   const currentMonth = getBudgetMonth();
+  const incomeTotals = treeKind === 'income' ? StatsEngine.getIncomeCategoryTotals(currentMonth) : {};
   cats.forEach(cat => {
     const children = DataStore.getChildren(cat.id);
     const hasChildren = children.length > 0;
@@ -10424,9 +10989,9 @@ function buildCategoryTreeHTML(cats, depth) {
     const catBudget = DataStore.getCategoryBudget(cat.id, currentMonth);
     const budgetVal = catBudget.value || '';
     const budgetType = catBudget.type || 'fixed';
-    
+
     html += `<div class="cat-item" data-id="${cat.id}">`;
-    
+
     // === HEADER (always visible) ===
     html += `<div class="cat-header">`;
     if (hasChildren) {
@@ -10442,12 +11007,17 @@ function buildCategoryTreeHTML(cats, depth) {
     html += `<span class="cat-action-icon" onclick="event.stopPropagation();addChildCategory('${cat.id}')" title="${__('categories.addChild')}">➕</span>`;
     html += `<span class="cat-action-icon" onclick="event.stopPropagation();editCategory('${cat.id}')" title="${__('categories.edit')}">⚙️</span>`;
     html += `</span>`;
+    if (treeKind === 'income') {
+      const got = incomeTotals[cat.id] || 0;
+      html += `<div class="cat-budget" style="border:none;background:none"><span class="font-bold" style="color:${got > 0 ? 'var(--success)' : 'var(--text-muted)'};font-size:0.85rem">${got > 0 ? '+' + formatMoney(got) : '—'}</span><span class="budget-unit">${__('categories.receivedThisMonth')}</span></div>`;
+    } else {
     // Budget input group
     html += `<div class="cat-budget">`;
     html += `<input type="number" class="budget-input" value="${budgetVal}" placeholder="0" onchange="saveCategoryBudget('${cat.id}','${currentMonth}',this.value,'${budgetType}')" min="0" step="0.01">`;
     html += `<button class="budget-toggle" onclick="var inp=this.parentElement.querySelector('.budget-input');var nxt=this.innerText==='RM'?'%':'RM';this.innerText=nxt;saveCategoryBudget('${cat.id}','${currentMonth}',inp.value,nxt==='%'?'percent':'fixed')">${budgetType === 'percent' ? '%' : 'RM'}</button>`;
     html += `<span class="budget-unit">${__('categories.perMonth')}</span>`;
     html += `</div>`;
+    }
     html += `</div>`; // end header
 
     // === BODY (collapsible) ===
@@ -10461,9 +11031,9 @@ function buildCategoryTreeHTML(cats, depth) {
 
     // Children (recursive)
     if (hasChildren) {
-      html += `<div class="cat-children">${buildCategoryTreeHTML(children, depth + 1)}</div>`;
+      html += `<div class="cat-children">${buildCategoryTreeHTML(children, depth + 1, treeKind)}</div>`;
     }
-    
+
     html += `</div>`; // end cat-body-inner
     html += `</div>`; // end cat-body
     html += `</div>`; // end cat-item
@@ -10501,14 +11071,19 @@ function saveCategoryBudget(catId, month, value, type) {
 }
 
 /* ===== CATEGORY MERGE ===== */
+// A merge may not cross the two trees. Merging 工资 into 餐饮 would have to
+// re-type every income record under it, which is a data change the user did not
+// ask for; refusing is the only answer that leaves the ledger honest.
 function mergeCategory(sourceId) {
   const sourceCat = DataStore.getCategory(sourceId);
   if (!sourceCat) return;
+  const sourceKind = sourceCat.kind === 'income' ? 'income' : 'expense';
   _mergeSourceId = sourceId;
   _mergeTargetId = null;
   const children = DataStore.getChildren(sourceId);
   const descendants = DataStore.getDescendantIds(sourceId);
-  const allCats = DataStore.getCategories().filter(c => !descendants.includes(c.id) && c.id !== sourceId);
+  const allCats = DataStore.getCategories()
+    .filter(c => !descendants.includes(c.id) && c.id !== sourceId && (c.kind === 'income' ? 'income' : 'expense') === sourceKind);
 
   let html = `
     <div class="modal-title">${__('categories.merge.title')}</div>
@@ -10680,29 +11255,32 @@ function toggleCatItem(arrowEl) {
   }
 }
 
-function addRootCategory() {
+function addRootCategory(kind) {
+  const isIncome = kind === 'income';
   showModal(`
-    <div class="modal-title">${__('categories.addRootModal.title')}</div>
+    <div class="modal-title">${isIncome ? __('categories.addRootModal.incomeTitle') : __('categories.addRootModal.title')}</div>
     <div class="input-group">
       <label class="input-label">${__('categories.name')}</label>
       <input type="text" id="newCatName" class="input-field" placeholder="${__('categories.namePlaceholder')}">
     </div>
     <div class="input-group">
       <label class="input-label">${__('categories.icon')}</label>
-      <input type="text" id="newCatIcon" class="input-field" value="📁" placeholder="${__('categories.iconPlaceholder')}">
+      <input type="text" id="newCatIcon" class="input-field" value="${isIncome ? '💰' : '📁'}" placeholder="${__('categories.iconPlaceholder')}">
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">${__('categories.cancel')}</button>
-      <button class="btn btn-primary" onclick="confirmAddRootCategory()">${__('categories.add')}</button>
+      <button class="btn btn-primary" onclick="confirmAddRootCategory('${isIncome ? 'income' : 'expense'}')">${__('categories.add')}</button>
     </div>
   `);
 }
 
-function confirmAddRootCategory() {
+function confirmAddRootCategory(kind) {
   const name = document.getElementById('newCatName').value.trim();
   const icon = document.getElementById('newCatIcon').value.trim();
   if (!name) { showToast(__('categories.nameRequired'), 'error'); return; }
-  DataStore.addCategory({ name, icon: icon || '📁', parentId: null, sortOrder: DataStore.getRootCategories().length });
+  const isIncome = kind === 'income';
+  const roots = isIncome ? DataStore.getIncomeRootCategories() : DataStore.getExpenseRootCategories();
+  DataStore.addCategory({ name, icon: icon || (isIncome ? '💰' : '📁'), parentId: null, sortOrder: roots.length, kind: isIncome ? 'income' : 'expense' });
   closeModal();
   showToast(__('categories.added'));
   renderCategories();
@@ -10848,7 +11426,10 @@ function confirmCustomColor(id) {
 function moveCategory(id) {
   const cat = DataStore.getCategory(id);
   if (!cat) return;
-  const cats = DataStore.getRootCategories();
+  // Same reason as merge: a move is a re-parent, and re-parenting across the two
+  // trees would silently re-type every record underneath.
+  const kind = cat.kind === 'income' ? 'income' : 'expense';
+  const cats = kind === 'income' ? DataStore.getIncomeRootCategories() : DataStore.getExpenseRootCategories();
   const descendants = DataStore.getDescendantIds(id);
 
   let html = `<div class="modal-title">${__('categories.move.title', escHtml(cat.icon), escHtml(cat.name))}</div>
@@ -11111,6 +11692,12 @@ function saveCategoryEdit(catId) {
   // === I18N ENTRIES ===
   addI18nEntries({
     'categories.addRoot': { zh: '➕ 添加根分类', en: '➕ Add root category' },
+    'categories.addIncomeRoot': { zh: '➕ 添加收入分类', en: '➕ Add income category' },
+    'categories.expenseSection': { zh: '💸 支出分类', en: '💸 Expense Categories' },
+    'categories.incomeSection': { zh: '💰 收入分类', en: '💰 Income Categories' },
+    'categories.incomeSectionHint': { zh: '收入分类不设预算，右侧显示本月实际到账金额', en: 'Income categories have no budget — the right column shows what actually arrived this month' },
+    'categories.receivedThisMonth': { zh: '本月到账', en: 'received' },
+    'categories.addRootModal.incomeTitle': { zh: '添加收入分类', en: 'Add income category' },
     'categories.headerInfo': { zh: '{0} 个分类 · 点击 ▶ 展开查看子分类 · 预算输入框始终可见 · ', en: '{0} categories · Click ▶ to expand subcategories · Budget inputs always visible · ' },
     'categories.expandAll': { zh: '展开全部', en: 'Expand all' },
     'categories.collapseAll': { zh: '折叠全部', en: 'Collapse all' },
@@ -11399,10 +11986,10 @@ function showDayRecords(dateStr) {
   if (!target) return;
   if (!isExpand && popup) popup.style.display = 'block';
 
-  const records = DataStore.getRecords().filter(r => {
+  const records = expenseRecords(DataStore.getRecords().filter(r => {
     const rd = (r.date || r.createdAt).slice(0, 10);
     return rd === dateStr;
-  });
+  }));
   
   if (!records.length) {
     target.innerHTML = `<div style="font-size:0.9rem;font-weight:600;margin-bottom:12px">📅 ${dateStr}</div>
@@ -11675,10 +12262,10 @@ function renderHierarchyToggle() {
 /* Direct records for the current view (custom range / rolling30 / month) */
 function getHierarchyRecords(month, startDate, endDate) {
   if (startDate && endDate) {
-    return DataStore.getRecords().filter(function (r) {
+    return expenseRecords(DataStore.getRecords().filter(function (r) {
       const d = new Date(r.date || r.createdAt);
       return d >= new Date(startDate) && d <= new Date(endDate);
-    });
+    }));
   }
   const isRolling = getStatsRange() === 'rolling30' && month === getMonthKey(new Date().toISOString());
   if (!month) return [];
@@ -12123,7 +12710,7 @@ function renderStats() {
 
   // Compute extra stats
   let records = isCustom
-    ? DataStore.getRecords().filter(r => { const d = new Date(r.date || r.createdAt); return d >= new Date(statsStartDate) && d <= new Date(statsEndDate); })
+    ? expenseRecords(DataStore.getRecords().filter(r => { const d = new Date(r.date || r.createdAt); return d >= new Date(statsStartDate) && d <= new Date(statsEndDate); }))
     : (isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(statsMonth));
   const totalCount = records.length;
   const avgAmount = totalCount > 0 ? (isCustom ? rangeTotal.total : monthTotal) / totalCount : 0;
@@ -12133,6 +12720,20 @@ function renderStats() {
   const dailyTotals = isCustom ? (rangeTotal ? rangeTotal.daily : []) : (isRolling ? StatsEngine.getPeriodDailyTotals({ excludeBills: false }) : StatsEngine.getDailyTotals(statsMonth));
   const maxDay = dailyTotals.reduce((max, d) => (d.total > (max?.total || 0) ? d : max), null);
   const daysWithTxns = dailyTotals.filter(d => d.total > 0).length;
+
+  // Recorded income for the same window the rest of the page is describing
+  const recordedIncomeTotal = isCustom
+    ? (rangeTotal ? rangeTotal.incomeTotal : 0)
+    : (isRolling ? StatsEngine.getPeriodIncome() : StatsEngine.getMonthIncome(statsMonth));
+  const recordedNet = Math.round((recordedIncomeTotal - (isCustom ? rangeTotal.total : monthTotal)) * 100) / 100;
+  const incomeCatTotals = isCustom
+    ? (rangeTotal ? rangeTotal.incomeCategoryTotals : {})
+    : (isRolling ? StatsEngine.getPeriodIncomeCategoryTotals() : StatsEngine.getIncomeCategoryTotals(statsMonth));
+  const incomeBreakdown = Object.entries(incomeCatTotals)
+    .map(([id, total]) => ({ cat: DataStore.getCategory(id), total }))
+    .filter(x => x.cat && x.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
 
   // Previous month comparison
   // (prevMonthTotal / prevChange removed)
@@ -12164,6 +12765,44 @@ function renderStats() {
       <div class="card"><div class="card-title">${isRolling ? __('stats.predictedRolling') : __('stats.predicted')}</div><div class="text-xl font-bold">${formatMoney(predicted)}</div></div>
       <div class="card"><div class="card-title">${__('stats.savingsPrediction')}</div><div class="text-xl font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div></div>
     </div>
+
+    <!-- Recorded cash flow: what actually came in against what went out.
+         Hidden until an income record exists, so a ledger that never uses the
+         feature sees exactly the stats page it saw before. -->
+    ${recordedIncomeTotal > 0 ? `
+    <div class="card mb-16">
+      <div class="card-title">💰 ${isCustom ? __('stats.flow.title.custom') : isRolling ? __('stats.flow.title.rolling') : __('stats.flow.title.monthly')}</div>
+      <div class="grid-3" style="margin-bottom:8px">
+        <div>
+          <div class="text-xs text-secondary">${__('stats.flow.income')}</div>
+          <div class="text-lg font-bold" style="color:var(--success)">${formatMoney(recordedIncomeTotal)}</div>
+        </div>
+        <div>
+          <div class="text-xs text-secondary">${isCustom ? __('stats.rangeTotal') : (isRolling ? __('stats.rollingTotal') : __('stats.monthTotal'))}</div>
+          <div class="text-lg font-bold" style="color:var(--danger)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>
+        </div>
+        <div>
+          <div class="text-xs text-secondary">${__('stats.flow.net')}</div>
+          <div class="text-lg font-bold" style="color:${recordedNet >= 0 ? 'var(--success)' : 'var(--danger)'}">${recordedNet >= 0 ? '+' : ''}${formatMoney(recordedNet)}</div>
+        </div>
+      </div>
+      ${incomeBreakdown.length ? `
+      <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+        ${incomeBreakdown.map((r, i) => `
+        <div class="flex items-center justify-between" style="padding:4px 0">
+          <div class="flex items-center gap-8">
+            <span style="width:20px;height:20px;border-radius:50%;background:${r.cat.color};display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:white;font-weight:700">${i+1}</span>
+            <span>${escHtml(r.cat.icon)}</span>
+            <span class="text-sm">${escHtml(r.cat.name)}</span>
+          </div>
+          <div class="flex items-center gap-8">
+            <span class="font-bold" style="color:var(--success)">+${formatMoney(r.total)}</span>
+            <span class="text-sm text-muted">${recordedIncomeTotal > 0 ? (r.total / recordedIncomeTotal * 100).toFixed(1) + '%' : ''}</span>
+          </div>
+        </div>`).join('')}
+      </div>` : ''}
+      <div class="text-xs text-muted mt-4">${__('stats.flow.note')}</div>
+    </div>` : ''}
 
     <!-- Stats cards row 2: Transaction analysis -->
     <div class="grid-4 mb-16">
@@ -13248,7 +13887,11 @@ function drawMonthlyChart(canvasId) {
   const padding = { top: 20, bottom: 35, left: 55, right: 15 };
   const plotW = w - padding.left - padding.right;
   const plotH = h - padding.top - padding.bottom;
-  const maxVal = Math.max(...data.map(d => d.total), 0.01);
+  // Income shares the axis with spending — they are the same money in opposite
+  // directions, so one scale is the whole point. Only raised to cover it when
+  // there is any, so the existing chart is pixel-identical without income.
+  const hasIncome = data.some(d => (d.income || 0) > 0);
+  const maxVal = Math.max(...data.map(d => Math.max(d.total, hasIncome ? (d.income || 0) : 0)), 0.01);
 
   // Grid
   ctx.strokeStyle = tc.border;
@@ -13293,6 +13936,33 @@ function drawMonthlyChart(canvasId) {
   ctx.lineWidth = 2.5;
   ctx.lineJoin = 'round';
   ctx.stroke();
+
+  // Income line — drawn under the spending dots so a month's value label never
+  // has to dodge it. Green, the same token the ledger uses for money in.
+  if (hasIncome) {
+    const incPoints = data.map((d, i) => ({
+      x: padding.left + (i / (data.length - 1)) * plotW,
+      y: padding.top + plotH - ((d.income || 0) / maxVal) * plotH
+    }));
+    ctx.beginPath();
+    incPoints.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.strokeStyle = '#10B981';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    incPoints.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#10B981';
+      ctx.fill();
+    });
+    // Legend
+    ctx.fillStyle = tc.textMuted;
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('— ' + __('stats.legendSpending') + '   — - ' + __('stats.legendIncome'), w - padding.right, padding.top - 6);
+  }
 
   // Dots + labels
   points.forEach((p, i) => {
@@ -13633,7 +14303,7 @@ function buildCategoryTreeNodes(level, startDate, endDate) {
     }
     return nodes.sort((a, b) => b.value - a.value);
   }
-  rootIds = (DataStore.getRootCategories() || [])
+  rootIds = (DataStore.getExpenseRootCategories() || [])
     .filter(c => !(billSet && billSet.has(c.id)))
     .map(c => c.id);
   // Colour by descending spend so the palette matches the pie and the waffle
@@ -14247,6 +14917,14 @@ addI18nEntries({
   'stats.estimatedMonthEnd': { zh: '预计月末储蓄', en: 'Est. month-end savings' },
   'stats.balance': { zh: '收支结余', en: 'Balance' },
   'stats.remainingTotalPerDay': { zh: '剩余总额/天', en: 'Remaining total/day' },
+  'stats.flow.title.monthly': { zh: '本月实际收支', en: 'Cash Flow This Month' },
+  'stats.flow.title.rolling': { zh: '近30天实际收支', en: 'Cash Flow (Last 30 Days)' },
+  'stats.flow.title.custom': { zh: '所选区间实际收支', en: 'Cash Flow in Range' },
+  'stats.flow.income': { zh: '收入记录', en: 'Recorded Income' },
+  'stats.flow.net': { zh: '结余', en: 'Net' },
+  'stats.flow.note': { zh: '按流水记录统计，与「月收入」设定值无关', en: 'Summed from the ledger, independent of the Monthly Income setting' },
+  'stats.legendSpending': { zh: '支出', en: 'Spending' },
+  'stats.legendIncome': { zh: '收入', en: 'Income' },
   'stats.dayUnit': { zh: '天', en: 'day' },
   'stats.dailyAvailablePerDay': { zh: '日常可用/天（已扣账单+储蓄）', en: 'Daily available/day (ex-bills & savings)' },
   'stats.savingsHint': { zh: '💡 在「月账单中心」设定月收入后可查看储蓄预估', en: '💡 Set monthly income in Bills Center to see savings estimate' },
@@ -14798,6 +15476,11 @@ function renderDataInspector() {
   if (typeof StatsEngine !== 'undefined') {
     const auditRecords = StatsEngine.getRecordsInMonth(currentAuditMonth);
     const auditTotal = auditRecords.reduce((s, r) => s + r.amount, 0);
+    const auditIncomeCount = StatsEngine.getIncomeRecordsInMonth(currentAuditMonth).length;
+    const auditIncomeTotal = StatsEngine.getMonthIncome(currentAuditMonth);
+    const auditIncomeHtml = auditIncomeCount > 0
+      ? '<div class="text-xs text-secondary mb-4" style="color:var(--success)">' + __('settings.diag.monthIncome', currentAuditMonth, auditIncomeCount, formatMoney(auditIncomeTotal)) + '</div>'
+      : '';
     if (auditRecords.length > 0) {
       html += '<div class="text-xs text-secondary mb-4">' + __('settings.diag.monthStats', currentAuditMonth, auditRecords.length, formatMoney(auditTotal)) + '</div>';
       html += '<div style="max-height:200px;overflow-y:auto;font-size:0.7rem;font-family:monospace">';
@@ -14812,6 +15495,9 @@ function renderDataInspector() {
         '</div>';
       });
       html += '</div>';
+      html += auditIncomeHtml;
+    } else if (auditIncomeCount > 0) {
+      html += auditIncomeHtml;
     } else {
       html += '<div class="text-sm text-muted">' + __('settings.diag.noRecordsForMonth') + '</div>';
     }
@@ -14844,14 +15530,20 @@ function renderDataInspector() {
     allRecords.forEach(r => {
       const cat = DataStore.getCategory(r.categoryId);
       const monthKey2 = getMonthKey(r.date || r.createdAt);
-      // Check if this record is in the current audit month's result
+      // Check if this record is in the current audit month's result. Income rows
+      // are audited against the income side — getRecordsInMonth() is expenses
+      // only by design, so testing them there would flag every one of them red.
       const auditMonthEl = document.getElementById('auditMonth');
       const auditMonthVal = auditMonthEl ? auditMonthEl.value : '';
-      const inAudit = auditMonthVal ? StatsEngine.getRecordsInMonth(auditMonthVal).some(ra => ra.id === r.id) : true;
-      
+      const inAudit = !auditMonthVal
+        ? true
+        : (isIncomeRec(r)
+            ? StatsEngine.getIncomeRecordsInMonth(auditMonthVal).some(ra => ra.id === r.id)
+            : StatsEngine.getRecordsInMonth(auditMonthVal).some(ra => ra.id === r.id));
+
       html += '<div style="display:flex;padding:3px 6px;border-bottom:1px solid var(--border);align-items:center' + (!inAudit ? ';background:rgba(239,68,68,0.05)' : '') + '">';
       html += '<span style="width:70px;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted)" title="' + r.id + '">' + r.id.substring(0, 6) + '</span>';
-      html += '<span style="width:45px;font-weight:500">' + formatMoney(r.amount) + '</span>';
+      html += '<span style="width:45px;font-weight:500;color:' + (isIncomeRec(r) ? 'var(--success)' : 'inherit') + '">' + (isIncomeRec(r) ? '+' : '') + formatMoney(r.amount) + '</span>';
       html += '<span style="width:55px;overflow:hidden;text-overflow:ellipsis" title="catId=' + r.categoryId + '">' + (cat ? cat.icon + cat.name.substring(0,3) : '❓' + r.categoryId.substring(0,4)) + '</span>';
       html += '<span style="width:80px;color:var(--text-muted)">' + (r.date ? r.date.substring(0, 10) : '-') + '</span>';
       html += '<span style="width:70px;color:var(--text-muted)">' + (r.createdAt ? r.createdAt.substring(0, 10) : '-') + '</span>';
@@ -15030,7 +15722,15 @@ function refreshStatsAudit() {
   
   const records = StatsEngine.getRecordsInMonth(month);
   const total = records.reduce((s, r) => s + r.amount, 0);
-  
+  // getRecordsInMonth() is expenses by design, so the income side of the same
+  // month is read separately. Without this line a month that held only a salary
+  // entry would report "no records" and read as data loss.
+  const incomeTotal = StatsEngine.getMonthIncome(month);
+  const incomeCount = StatsEngine.getIncomeRecordsInMonth(month).length;
+  const incomeHtml = incomeCount > 0
+    ? '<div class="text-xs text-secondary mb-4" style="color:var(--success)">' + __('settings.diag.monthIncome', month, incomeCount, formatMoney(incomeTotal)) + '</div>'
+    : '';
+
   if (records.length > 0) {
     let auditHtml = '<div class="text-xs text-secondary mb-4">' + __('settings.diag.monthStats', month, records.length, formatMoney(total)) + '</div>';
     auditHtml += '<div style="max-height:200px;overflow-y:auto;font-size:0.7rem;font-family:monospace">';
@@ -15045,7 +15745,9 @@ function refreshStatsAudit() {
       '</div>';
     });
     auditHtml += '</div>';
-    container.innerHTML = auditHtml;
+    container.innerHTML = auditHtml + incomeHtml;
+  } else if (incomeCount > 0) {
+    container.innerHTML = incomeHtml;
   } else {
     container.innerHTML = '<div class="text-sm text-muted">' + __('settings.diag.noRecordsForMonth') + '</div>';
   }
@@ -15198,7 +15900,8 @@ function deleteTag(tag) {
     'settings.diag.statsEngineDesc': { zh: '查看任意月份统计引擎实际使用的记录列表', en: 'View records used by the stats engine for any month' },
     'settings.diag.statsEngineNotLoaded': { zh: 'StatsEngine 未加载', en: 'StatsEngine not loaded' },
     'settings.diag.month': { zh: '月份', en: 'Month' },
-    'settings.diag.monthStats': { zh: '{0} 月: {1} 条记录, 合计 {2}', en: '{0}: {1} records, total {2}' },
+    'settings.diag.monthStats': { zh: '{0} 月: {1} 笔支出, 合计 {2}', en: '{0}: {1} expense records, total {2}' },
+    'settings.diag.monthIncome': { zh: '{0} 月: {1} 笔收入, 合计 {2}', en: '{0}: {1} income records, total {2}' },
     'settings.diag.noRecordsForMonth': { zh: '该月暂无记录', en: 'No records for this period' },
     'settings.diag.allRecords': { zh: '📋 全量记录原始数据 (无过滤) (点击展开)', en: '📋 All Records Raw Data (unfiltered) (click to expand)' },
     'settings.diag.allRecordsDesc': { zh: '直接从 DataStore.getRecords() 读取，无任何过滤。用于排查流水页看不到的记录。', en: 'Read directly from DataStore.getRecords(), unfiltered. Use to debug missing records in the ledger.' },
@@ -15281,9 +15984,19 @@ function renderReport() {
   const variableSpending = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month);
   const actualSavings = Math.max(0, budget - (monthTotal + unpaidPlannedBillsRep));
   const savingsRate = budget > 0 ? (actualSavings / budget * 100) : 0;
-  // Cash-flow reading, not the daily-average trend — matches the overview card (A-1).
+  // Cash-flow projection, not the daily-average trend — matches the overview card (A-1).
   const predicted = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
   const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(month) - unpaidPlannedBillsRep);
+
+  // Recorded income for the same window — a separate ledger read from the 月收入
+  // setting above, which is a declaration the user maintains by hand.
+  const recordedIncome = isRolling ? StatsEngine.getPeriodIncome() : StatsEngine.getMonthIncome(month);
+  const recordedNet = Math.round((recordedIncome - monthTotal) * 100) / 100;
+  const incomeCatTotals = isRolling ? StatsEngine.getPeriodIncomeCategoryTotals() : StatsEngine.getIncomeCategoryTotals(month);
+  const incomeRows = DataStore.getIncomeRootCategories()
+    .map(c => ({ cat: c, total: incomeCatTotals[c.id] || 0 }))
+    .filter(r => r.total > 0)
+    .sort((a, b) => b.total - a.total);
 
   // Aggregate to root categories for table
   const rootTotals = {};
@@ -15291,7 +16004,7 @@ function renderReport() {
     const rootId = getRootAncestorId(id);
     if (rootId) rootTotals[rootId] = (rootTotals[rootId] || 0) + total;
   });
-  const rootCats = DataStore.getRootCategories();
+  const rootCats = DataStore.getExpenseRootCategories();
   const catTableRows = rootCats.map(c => {
     const spent = rootTotals[c.id] || 0;
     const catBudget = DataStore.getCategoryBudget(c.id, month).value || 0;
@@ -15368,6 +16081,40 @@ function renderReport() {
           </div>
         </div>
       </div>
+
+      <!-- Recorded cash flow. Only rendered once an income record exists, so a
+           ledger that never uses the feature prints exactly what it printed before. -->
+      ${recordedIncome > 0 ? `
+      <div class="card mb-16" style="border-left:4px solid var(--success)">
+        <div class="card-title">💰 ${__('report.incomeBreakdown')}</div>
+        <div class="grid-3 mb-8">
+          <div>
+            <div class="text-xs text-secondary">${__('report.recordedIncome')}</div>
+            <div class="text-lg font-bold" style="color:var(--success)">${formatMoney(recordedIncome)}</div>
+          </div>
+          <div>
+            <div class="text-xs text-secondary">${__('report.recordedSpending')}</div>
+            <div class="text-lg font-bold" style="color:var(--danger)">${formatMoney(monthTotal)}</div>
+          </div>
+          <div>
+            <div class="text-xs text-secondary">${__('report.recordedNet')}</div>
+            <div class="text-lg font-bold" style="color:${recordedNet >= 0 ? 'var(--success)' : 'var(--danger)'}">${recordedNet >= 0 ? '+' : ''}${formatMoney(recordedNet)}</div>
+          </div>
+        </div>
+        ${incomeRows.map((r, i) => `
+          <div class="flex items-center justify-between" style="padding:4px 0;border-bottom:1px solid var(--border)">
+            <div class="flex items-center gap-8">
+              <span style="width:20px;height:20px;border-radius:50%;background:${r.cat.color};display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:white;font-weight:700">${i+1}</span>
+              <span>${escHtml(r.cat.icon)}</span>
+              <span>${escHtml(r.cat.name)}</span>
+            </div>
+            <div class="flex items-center gap-8">
+              <span class="font-bold" style="color:var(--success)">+${formatMoney(r.total)}</span>
+              <span class="text-sm text-muted">${(r.total / recordedIncome * 100).toFixed(1)}%</span>
+            </div>
+          </div>`).join('')}
+        <div class="text-xs text-muted mt-4">${__('report.recordedNote')}</div>
+      </div>` : ''}
 
       <!-- Category breakdown table -->
       <div class="card mb-16">
@@ -15530,7 +16277,12 @@ function printReport() {
     'report.predictionPositive': { zh: '📈 如果维持当前消费习惯，预计月末可存 <strong style="color:var(--success)">{0}</strong>。', en: '📈 At this rate, est. to save <strong style="color:var(--success)">{0}</strong> by month end.' },
     'report.predictionNegative': { zh: '⚠️ 按当前趋势预计超支 <strong style="color:var(--danger)">{0}</strong>，建议控制支出。', en: '⚠️ On track to overspend <strong style="color:var(--danger)">{0}</strong>, consider cutting back.' },
     'report.predictionSetupHint': { zh: '💡 在「月账单中心」设定月收入，在「设置」设定储蓄目标后可查看完整预测。', en: '💡 Set income in Bills Center & savings target in Settings for full forecast.' },
-    'report.reimbursed': { zh: '✅ 已还', en: '✅ Paid back' }
+    'report.reimbursed': { zh: '✅ 已还', en: '✅ Paid back' },
+    'report.incomeBreakdown': { zh: '💰 收入明细', en: '💰 Recorded Income' },
+    'report.recordedIncome': { zh: '收入记录', en: 'Recorded Income' },
+    'report.recordedSpending': { zh: '支出记录', en: 'Recorded Spending' },
+    'report.recordedNet': { zh: '结余', en: 'Net' },
+    'report.recordedNote': { zh: '按流水记录统计，与上方「月收入」设定值无关', en: 'Summed from the ledger, independent of the Monthly Income setting above' }
   });
 })();
 
@@ -15639,14 +16391,16 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
     : new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
   const daysPassed = isRolling ? periodOpts.daysPassed : today;
 
-  // Get actual spending per category for the period
-  const records = isRolling
+  // Get actual spending per category for the period (expenses only — an income
+  // row has no spendable behaviour to project, and what-if reasons entirely about
+  // cutting spending down)
+  const records = expenseRecords(isRolling
     ? DataStore.getRecords().filter(r => {
         const d = new Date(r.date || r.createdAt);
         return d >= periodOpts.start && d <= periodOpts.end && !StatsEngine.isBillCategory(r.categoryId);
       })
     : DataStore.getRecords()
-        .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
+        .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId)));
   const catActual = {};
   records.forEach(r => {
     // Split records store the full bill amount; only my share is my real spending
@@ -17651,8 +18405,12 @@ window.showRecordRaw = function showRecordRaw(id) {
   const monthKey = getMonthKey(record.date || record.createdAt);
   const datePrefix = (record.date || record.createdAt).slice(0, 10);
   
-  // Check if this record appears in StatsEngine audit
-  const inStatsEngine = StatsEngine.getRecordsInMonth(monthKey).some(r => r.id === id);
+  // Check if this record appears in StatsEngine audit. getRecordsInMonth() is
+  // expenses only, so an income record has to be looked up on the income side —
+  // otherwise the raw-data panel tells the user their salary is in no month at all.
+  const inStatsEngine = isIncomeRec(record)
+    ? StatsEngine.getIncomeRecordsInMonth(monthKey).some(r => r.id === id)
+    : StatsEngine.getRecordsInMonth(monthKey).some(r => r.id === id);
   
   // Check if this record appears in getFilteredRecords
   let inFilteredRecords = false;
@@ -17677,6 +18435,7 @@ window.showRecordRaw = function showRecordRaw(id) {
         <div>${__('diag.category')}${cat ? cat.icon + ' ' + cat.name + ' (id=' + cat.id + ', parentId=' + cat.parentId + ')' : __('diag.deleted', record.categoryId)}</div>
         ${cat && cat.parentId ? '<div style="color:var(--warning)">' + __('diag.hasParentWarning') + '</div>' : ''}
         ${record.excludeFromAvg ? '<div>📌 excludeFromAvg = true</div>' : ''}
+        <div>${__('diag.recordType')}${isIncomeRec(record) ? __('excel.label.income') : __('excel.label.expense')} · kind = ${cat ? (cat.kind === 'income' ? 'income' : 'expense') : '—'}</div>
       </div>
       <div style="font-weight:600;margin-bottom:4px">${__('diag.fullJson')}</div>
       <pre style="background:var(--bg);padding:8px;border-radius:8px;border:1px solid var(--border);overflow-x:auto;white-space:pre-wrap;word-break:break-all">${escHtml(recordJSON)}</pre>
@@ -17700,6 +18459,7 @@ window.showRecordRaw = function showRecordRaw(id) {
     'diag.yes': { zh: '✅ 是', en: '✅ Yes' },
     'diag.no': { zh: '❌ 否', en: '❌ No' },
     'diag.datePrefix': { zh: '日期前10字符: ', en: 'Date first 10 chars: ' },
+    'diag.recordType': { zh: '类型: ', en: 'Type: ' },
     'diag.category': { zh: '分类: ', en: 'Category: ' },
     'diag.deleted': { zh: '❌ 已删除 (id={0})', en: '❌ Deleted (id={0})' },
     'diag.hasParentWarning': { zh: '⚠️ 注意：该记录分类有父级，不是根分类', en: '⚠️ Note: This record\'s category has a parent, not a root category' },
@@ -24040,6 +24800,17 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
+    id: '2026-10-06',
+    version: '3.4.0',
+    date: '2026-10-06',
+    title: 'changelog.a3.title',
+    items: [
+      { icon: '💰', text: 'changelog.a3.item1' },
+      { icon: '🗂️', text: 'changelog.a3.item2' },
+      { icon: '📊', text: 'changelog.a3.item3' }
+    ]
+  },
+  {
     id: '2026-10-05',
     version: '3.3.0',
     date: '2026-10-05',
@@ -24293,6 +25064,20 @@ function close() {
     'changelog.settingsHint': { zh: '随时回看历次更新内容', en: 'Browse every past update' },
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
+
+    'changelog.a3.title': { zh: 'v3.4.0 新增：收入记账', en: 'What\'s in v3.4.0: income' },
+    'changelog.a3.item1': {
+      zh: '<strong>可以记收入了</strong>:新增记录页顶部有「支出 / 收入」切换,收入默认带工资、副业、报销/退款、理财收益、其他收入五棵分类树。流水里收入显示为绿色带 + 号。',
+      en: '<strong>Income entries</strong> - the new-record page has an expense / income switch, with five ready-made income categories (salary, side work, reimbursements, returns, investments). Income rows show green with a leading + in the ledger.'
+    },
+    'changelog.a3.item2': {
+      zh: '<strong>收入有自己的分类树</strong>:分类页分成「支出分类」和「收入分类」两块,收入分类右侧显示本月实际到账金额而不是预算框 —— 工资没有「超支」这回事。',
+      en: '<strong>Income has its own tree</strong> - the categories page is split into expenses and income. Income rows show what actually arrived this month instead of a budget box, because there is no such thing as overspending your salary.'
+    },
+    'changelog.a3.item3': {
+      zh: '<strong>收支结余</strong>:总览、统计、报表多了「收入 / 支出 / 结余」,近半年趋势图多了一条绿色收入线,Excel 与 CSV 导出也带上了类型和收入列。',
+      en: '<strong>Net cash flow</strong> - the overview, stats and report gained income / spending / net, the six-month trend chart gained a green income line, and the Excel and CSV exports carry a type column and income totals.'
+    },
 
     'changelog.a1.title': { zh: '版本公告', en: 'Version Announcements' },
     'changelog.a1.item1': {

@@ -5,15 +5,24 @@
 'use strict';
 function renderAddPage() {
   selectedCategoryId = null;
+  window._addRecordType = 'expense';
   const el = document.getElementById('page-add');
   el.innerHTML = `
     <div class="card">
       <div class="card-title mb-16">${__('addRecord.title')}</div>
       <form id="addForm" onsubmit="submitRecord(event)">
         <div class="input-group">
+          <label class="input-label">${__('addRecord.typeLabel')}</label>
+          <div style="display:flex;gap:8px" role="group">
+            <button type="button" id="addTypeExpense" class="btn btn-sm" style="flex:1" onclick="setAddRecordType('expense')">💸 ${__('addRecord.typeExpense')}</button>
+            <button type="button" id="addTypeIncome" class="btn btn-sm" style="flex:1" onclick="setAddRecordType('income')">💰 ${__('addRecord.typeIncome')}</button>
+          </div>
+        </div>
+
+        <div class="input-group">
           <label class="input-label">${__('addRecord.amountLabel')}</label>
           <div style="position:relative">
-            <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:var(--primary);font-size:1.1rem">RM</span>
+            <span id="addAmountPrefix" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:var(--primary);font-size:1.1rem">RM</span>
             <input type="text" id="addAmount" class="input-field" placeholder="0.00" style="padding-left:44px;font-size:1.2rem;font-weight:700" inputmode="decimal" autocomplete="off">
           </div>
         </div>
@@ -44,20 +53,22 @@ function renderAddPage() {
           <button type="button" class="btn btn-sm btn-outline" onclick="openTagPickerForAdd()">${__('addRecord.addTag')}</button>
         </div>
 
-        <div class="input-group">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
-            <input type="checkbox" id="addExcludeAvg" style="width:18px;height:18px;cursor:pointer">
-            <span class="text-sm text-secondary">${__('addRecord.excludeLabel')}</span>
-          </label>
-        </div>
+        <div id="addExpenseOnlyFields">
+          <div class="input-group">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
+              <input type="checkbox" id="addExcludeAvg" style="width:18px;height:18px;cursor:pointer">
+              <span class="text-sm text-secondary">${__('addRecord.excludeLabel')}</span>
+            </label>
+          </div>
 
-        <div class="input-group">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
-            <input type="checkbox" id="addSplitToggle" style="width:18px;height:18px;cursor:pointer" onchange="toggleAddSplitForm(this.checked)">
-            <span class="text-sm text-secondary">${__('split.addToggle')}</span>
-          </label>
+          <div class="input-group">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
+              <input type="checkbox" id="addSplitToggle" style="width:18px;height:18px;cursor:pointer" onchange="toggleAddSplitForm(this.checked)">
+              <span class="text-sm text-secondary">${__('split.addToggle')}</span>
+            </label>
+          </div>
+          <div id="addSplitSection" style="display:none"></div>
         </div>
-        <div id="addSplitSection" style="display:none"></div>
 
         <button type="submit" class="btn btn-primary btn-lg btn-block" id="submitBtn" style="font-size:1.05rem">
           ${__('addRecord.saveBtn')}
@@ -65,6 +76,8 @@ function renderAddPage() {
       </form>
     </div>
   `;
+
+  setAddRecordType('expense');
 
   // Set default date/time
   const now = new Date();
@@ -83,6 +96,44 @@ function renderAddPage() {
     if (typeof previewSplitShares === 'function') previewSplitShares();
   });
 }
+// Flip between expense and income. The selected category is cleared because an
+// expense category is not a valid income category — leaving it selected would let
+// the record be saved as income under 餐饮, which DataStore.addRecord would then
+// have to silently correct.
+function setAddRecordType(type) {
+  const kind = type === 'income' ? 'income' : 'expense';
+  window._addRecordType = kind;
+  const btnExpense = document.getElementById('addTypeExpense');
+  const btnIncome = document.getElementById('addTypeIncome');
+  const expenseActive = kind === 'expense';
+  if (btnExpense) {
+    btnExpense.className = 'btn btn-sm' + (expenseActive ? ' btn-primary' : ' btn-outline');
+  }
+  if (btnIncome) {
+    btnIncome.className = 'btn btn-sm' + (!expenseActive ? ' btn-primary' : ' btn-outline');
+  }
+  const expenseOnly = document.getElementById('addExpenseOnlyFields');
+  if (expenseOnly) expenseOnly.style.display = expenseActive ? '' : 'none';
+  const prefix = document.getElementById('addAmountPrefix');
+  if (prefix) prefix.style.color = expenseActive ? 'var(--primary)' : 'var(--success)';
+
+  selectedCategoryId = null;
+  window.selectedCategoryId = null;
+  const disp = document.getElementById('addCategoryDisplay');
+  if (disp) {
+    disp.textContent = __('addRecord.selectCategory');
+    disp.style.color = 'var(--text-muted)';
+  }
+  // Reset the split form too: it was rendered for expense categories only.
+  if (!expenseActive) {
+    const splitToggle = document.getElementById('addSplitToggle');
+    if (splitToggle && splitToggle.checked) {
+      splitToggle.checked = false;
+      toggleAddSplitForm(false);
+    }
+  }
+}
+
 function submitRecord(e) {
   e.preventDefault();
   const amountEl = document.getElementById('addAmount');
@@ -91,6 +142,7 @@ function submitRecord(e) {
   const date = document.getElementById('addDateTime').value;
   const note = document.getElementById('addNote').value.trim();
   const form = document.getElementById('addForm');
+  const recKind = window._addRecordType === 'income' ? 'income' : 'expense';
 
   function shakeForm() {
     form.classList.add('shake');
@@ -111,7 +163,10 @@ function submitRecord(e) {
     return;
   }
   const splitToggle = document.getElementById('addSplitToggle');
-  const splitMode = !!(splitToggle && splitToggle.checked);
+  // Splitting is a way of sharing an expense you paid for. An income entry has
+  // nobody to collect from, so the toggle is hidden in income mode and ignored
+  // here — a stale checked box must not be able to force an income bill.
+  const splitMode = recKind === 'expense' && !!(splitToggle && splitToggle.checked);
   if (!categoryId && !splitMode) {
     showToast(__('addRecord.noCategory'), 'error');
     shakeForm();
@@ -188,10 +243,11 @@ function submitRecord(e) {
   const record = {
     amount,
     categoryId,
+    type: recKind,
     date: date || new Date().toISOString().slice(0, 16),
     note,
     tags,
-    excludeFromAvg: document.getElementById('addExcludeAvg').checked,
+    excludeFromAvg: recKind === 'income' ? false : document.getElementById('addExcludeAvg').checked,
     createdAt: new Date().toISOString()
   };
 
@@ -248,6 +304,9 @@ function removeAddTag(tag) {
   // i18n translations
   addI18nEntries({
     'addRecord.title': { zh: '新增记录', en: 'New Record' },
+    'addRecord.typeLabel': { zh: '类型', en: 'Type' },
+    'addRecord.typeExpense': { zh: '支出', en: 'Expense' },
+    'addRecord.typeIncome': { zh: '收入', en: 'Income' },
     'addRecord.amountLabel': { zh: '金额 (RM)', en: 'Amount (RM)' },
     'addRecord.categoryLabel': { zh: '分类', en: 'Category' },
     'addRecord.selectCategory': { zh: '请选择分类', en: 'Please select a category' },
@@ -267,6 +326,7 @@ function removeAddTag(tag) {
 
   // === EXPORTS ===
   window.renderAddPage = renderAddPage;
+  window.setAddRecordType = setAddRecordType;
   window.submitRecord = submitRecord;
   window.openTagPickerForAdd = openTagPickerForAdd;
   window.renderAddTagsDisplay = renderAddTagsDisplay;

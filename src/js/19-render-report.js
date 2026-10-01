@@ -38,9 +38,19 @@ function renderReport() {
   const variableSpending = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month);
   const actualSavings = Math.max(0, budget - (monthTotal + unpaidPlannedBillsRep));
   const savingsRate = budget > 0 ? (actualSavings / budget * 100) : 0;
-  // Cash-flow reading, not the daily-average trend — matches the overview card (A-1).
+  // Cash-flow projection, not the daily-average trend — matches the overview card (A-1).
   const predicted = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
   const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(month) - unpaidPlannedBillsRep);
+
+  // Recorded income for the same window — a separate ledger read from the 月收入
+  // setting above, which is a declaration the user maintains by hand.
+  const recordedIncome = isRolling ? StatsEngine.getPeriodIncome() : StatsEngine.getMonthIncome(month);
+  const recordedNet = Math.round((recordedIncome - monthTotal) * 100) / 100;
+  const incomeCatTotals = isRolling ? StatsEngine.getPeriodIncomeCategoryTotals() : StatsEngine.getIncomeCategoryTotals(month);
+  const incomeRows = DataStore.getIncomeRootCategories()
+    .map(c => ({ cat: c, total: incomeCatTotals[c.id] || 0 }))
+    .filter(r => r.total > 0)
+    .sort((a, b) => b.total - a.total);
 
   // Aggregate to root categories for table
   const rootTotals = {};
@@ -48,7 +58,7 @@ function renderReport() {
     const rootId = getRootAncestorId(id);
     if (rootId) rootTotals[rootId] = (rootTotals[rootId] || 0) + total;
   });
-  const rootCats = DataStore.getRootCategories();
+  const rootCats = DataStore.getExpenseRootCategories();
   const catTableRows = rootCats.map(c => {
     const spent = rootTotals[c.id] || 0;
     const catBudget = DataStore.getCategoryBudget(c.id, month).value || 0;
@@ -125,6 +135,40 @@ function renderReport() {
           </div>
         </div>
       </div>
+
+      <!-- Recorded cash flow. Only rendered once an income record exists, so a
+           ledger that never uses the feature prints exactly what it printed before. -->
+      ${recordedIncome > 0 ? `
+      <div class="card mb-16" style="border-left:4px solid var(--success)">
+        <div class="card-title">💰 ${__('report.incomeBreakdown')}</div>
+        <div class="grid-3 mb-8">
+          <div>
+            <div class="text-xs text-secondary">${__('report.recordedIncome')}</div>
+            <div class="text-lg font-bold" style="color:var(--success)">${formatMoney(recordedIncome)}</div>
+          </div>
+          <div>
+            <div class="text-xs text-secondary">${__('report.recordedSpending')}</div>
+            <div class="text-lg font-bold" style="color:var(--danger)">${formatMoney(monthTotal)}</div>
+          </div>
+          <div>
+            <div class="text-xs text-secondary">${__('report.recordedNet')}</div>
+            <div class="text-lg font-bold" style="color:${recordedNet >= 0 ? 'var(--success)' : 'var(--danger)'}">${recordedNet >= 0 ? '+' : ''}${formatMoney(recordedNet)}</div>
+          </div>
+        </div>
+        ${incomeRows.map((r, i) => `
+          <div class="flex items-center justify-between" style="padding:4px 0;border-bottom:1px solid var(--border)">
+            <div class="flex items-center gap-8">
+              <span style="width:20px;height:20px;border-radius:50%;background:${r.cat.color};display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:white;font-weight:700">${i+1}</span>
+              <span>${escHtml(r.cat.icon)}</span>
+              <span>${escHtml(r.cat.name)}</span>
+            </div>
+            <div class="flex items-center gap-8">
+              <span class="font-bold" style="color:var(--success)">+${formatMoney(r.total)}</span>
+              <span class="text-sm text-muted">${(r.total / recordedIncome * 100).toFixed(1)}%</span>
+            </div>
+          </div>`).join('')}
+        <div class="text-xs text-muted mt-4">${__('report.recordedNote')}</div>
+      </div>` : ''}
 
       <!-- Category breakdown table -->
       <div class="card mb-16">
@@ -287,6 +331,11 @@ function printReport() {
     'report.predictionPositive': { zh: '📈 如果维持当前消费习惯，预计月末可存 <strong style="color:var(--success)">{0}</strong>。', en: '📈 At this rate, est. to save <strong style="color:var(--success)">{0}</strong> by month end.' },
     'report.predictionNegative': { zh: '⚠️ 按当前趋势预计超支 <strong style="color:var(--danger)">{0}</strong>，建议控制支出。', en: '⚠️ On track to overspend <strong style="color:var(--danger)">{0}</strong>, consider cutting back.' },
     'report.predictionSetupHint': { zh: '💡 在「月账单中心」设定月收入，在「设置」设定储蓄目标后可查看完整预测。', en: '💡 Set income in Bills Center & savings target in Settings for full forecast.' },
-    'report.reimbursed': { zh: '✅ 已还', en: '✅ Paid back' }
+    'report.reimbursed': { zh: '✅ 已还', en: '✅ Paid back' },
+    'report.incomeBreakdown': { zh: '💰 收入明细', en: '💰 Recorded Income' },
+    'report.recordedIncome': { zh: '收入记录', en: 'Recorded Income' },
+    'report.recordedSpending': { zh: '支出记录', en: 'Recorded Spending' },
+    'report.recordedNet': { zh: '结余', en: 'Net' },
+    'report.recordedNote': { zh: '按流水记录统计，与上方「月收入」设定值无关', en: 'Summed from the ledger, independent of the Monthly Income setting above' }
   });
 })();

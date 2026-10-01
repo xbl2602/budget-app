@@ -51,14 +51,31 @@ function pickerRestore() {
   closeModal();
 }
 
+// Which tree to show. An income record must be filed under an income category and
+// an expense under an expense one — otherwise the two disagree and the row lands
+// in neither set of totals (DataStore._repairRecordTypes would silently drag it
+// back later, undoing the user's choice). Callers set the kind before opening;
+// it defaults to expense, which is what every picker in the app wants except the
+// add/edit form in income mode.
+let _pickerKind = 'expense';
+
+function _kindForContext(context) {
+  if (context === 'add') return window._addRecordType === 'income' ? 'income' : 'expense';
+  if (context === 'edit') return window._editRecordType === 'income' ? 'income' : 'expense';
+  // 'split-edit' and anything else always files spending
+  return 'expense';
+}
+
 function openCategoryPicker(context) {
-  const cats = DataStore.getRootCategories();
-  const billCats = DataStore.getBillCategories();
+  _pickerKind = _kindForContext(context);
+  const isIncome = _pickerKind === 'income';
+  const cats = isIncome ? DataStore.getIncomeRootCategories() : DataStore.getExpenseRootCategories();
+  const billCats = isIncome ? [] : DataStore.getBillCategories();
   _pickerCapture();
   let html = '<div class="modal-title">' + __('categoryPicker.title') + '</div><div style="max-height:50vh;overflow-y:auto">';
 
   // Regular categories section
-  html += '<div class="text-sm font-semibold" style="padding:6px 4px;color:var(--text-secondary)">' + __('categoryPicker.daily') + '</div>';
+  html += '<div class="text-sm font-semibold" style="padding:6px 4px;color:var(--text-secondary)">' + (isIncome ? __('categoryPicker.income') : __('categoryPicker.daily')) + '</div>';
   html += buildCategoryTreePicker(cats, 0, context);
 
   // Bill categories section
@@ -157,6 +174,7 @@ setDisplay(displayAdd);
   addI18nEntries({
     'categoryPicker.title': { zh: '选择分类', en: 'Select Category' },
     'categoryPicker.daily': { zh: '日常消费', en: 'Daily Expenses' },
+    'categoryPicker.income': { zh: '💰 收入', en: '💰 Income' },
     'categoryPicker.monthlyBills': { zh: '📋 月账单', en: '📋 Monthly Bills' },
     'categoryPicker.billBadge': { zh: '📋 账单', en: '📋 Bill' },
     'categoryPicker.cancel': { zh: '取消', en: 'Cancel' }

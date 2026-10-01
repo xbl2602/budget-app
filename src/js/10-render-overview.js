@@ -32,13 +32,24 @@ function renderOverview() {
   const splitPending = SplitEngine.getPendingSummary();
   const splitUnpaidTotal = isRolling ? StatsEngine.getPeriodSplitUnpaid() : StatsEngine.getSplitUnpaid(month);
 
-  // Today's and yesterday's spending
+  // Today's and yesterday's spending — expenses only. Income recorded today is
+  // money coming in, and folding it into 今日消费 would make a payday look like
+  // the most extravagant day of the month.
   const todayKey = now.toISOString().substr(0, 10);
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayKey = yesterday.toISOString().substr(0, 10);
-  const todayTotal = DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === todayKey).reduce((s, r) => s + r.amount, 0);
-  const yesterdayTotal = DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === yesterdayKey).reduce((s, r) => s + r.amount, 0);
+  const todayTotal = expenseRecords(DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === todayKey)).reduce((s, r) => s + r.amount, 0);
+  const yesterdayTotal = expenseRecords(DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === yesterdayKey)).reduce((s, r) => s + r.amount, 0);
+
+  // Actual cash flow from the records themselves. Deliberately kept separate from
+  // 月收入 (a per-month setting that drives the whole budget chain) — this is what
+  // really arrived, not what the user planned. Hidden until an income record
+  // exists, so a ledger that has never used the feature sees exactly the page it
+  // saw before.
+  const recordedIncome = isRolling ? StatsEngine.getPeriodIncome() : StatsEngine.getMonthIncome(month);
+  const recordedSpend = monthTotal;
+  const recordedNet = Math.round((recordedIncome - recordedSpend) * 100) / 100;
 
   // Savings / spendable chain — single source of truth in StatsEngine.getSpendablePlan.
   // spendableBudget now also has active instalment plans carved out of it, which is
@@ -139,6 +150,27 @@ function renderOverview() {
         <div class="text-xl font-bold">${formatMoney(predicted)}</div>
       </div>
     </div>
+
+    <!-- Cash flow actually recorded: income entries vs expenses vs what is left -->
+    ${recordedIncome > 0 ? `
+    <div class="card mb-16">
+      <div class="card-title">${isRolling ? __('overview.flow.title.rolling') : __('overview.flow.title.monthly')}</div>
+      <div class="grid-3">
+        <div>
+          <div class="text-xs text-secondary">${__('overview.flow.income')}</div>
+          <div class="text-lg font-bold" style="color:var(--success)">${formatMoney(recordedIncome)}</div>
+        </div>
+        <div>
+          <div class="text-xs text-secondary">${__('overview.flow.expense')}</div>
+          <div class="text-lg font-bold" style="color:var(--danger)">${formatMoney(recordedSpend)}</div>
+        </div>
+        <div>
+          <div class="text-xs text-secondary">${__('overview.flow.net')}</div>
+          <div class="text-lg font-bold" style="color:${recordedNet >= 0 ? 'var(--success)' : 'var(--danger)'}">${recordedNet >= 0 ? '+' : ''}${formatMoney(recordedNet)}</div>
+        </div>
+      </div>
+      <div class="text-xs text-muted mt-4">${__('overview.flow.note')}</div>
+    </div>` : ''}
 
     <!-- Daily spending row -->
     <div class="grid-2 mb-16">
@@ -415,6 +447,12 @@ function refreshOverviewBudget() {
     'overview.dailyBillsBreakdown': { zh: '日常 {0} · 账单 {1}', en: 'Daily {0} · Bills {1}' },
     'overview.realSpendingNote': { zh: '真实支出 {0} + 未收回账目 {1}', en: 'Real spending {0} + Uncollected {1}' },
     'overview.monthlyIncome': { zh: '月收入', en: 'Monthly Income' },
+    'overview.flow.title.monthly': { zh: '💵 本月实际收支', en: '💵 Cash Flow This Month' },
+    'overview.flow.title.rolling': { zh: '💵 近30天实际收支', en: '💵 Cash Flow (Last 30 Days)' },
+    'overview.flow.income': { zh: '收入记录', en: 'Recorded Income' },
+    'overview.flow.expense': { zh: '支出记录', en: 'Recorded Spending' },
+    'overview.flow.net': { zh: '结余', en: 'Net' },
+    'overview.flow.note': { zh: '按流水记录统计，与上方「月收入」设定值无关', en: 'Summed from the ledger, independent of the Monthly Income setting above' },
     'overview.notSet': { zh: '未设置', en: 'Not Set' },
     'overview.netIncome': { zh: '净收入', en: 'Net Income' },
     'overview.dailyAvg': { zh: '日均支出', en: 'Daily Avg' },

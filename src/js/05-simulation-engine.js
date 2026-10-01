@@ -38,14 +38,14 @@ const SimulationEngine = {
     const spendable = sp.spendableBudget;
 
     // Get actual spending to date (variable categories only)
-    const allRecords = isRolling
+    const allRecords = expenseRecords((isRolling
       ? DataStore.getRecords()
           .filter(r => {
             const d = new Date(r.date || r.createdAt);
             return d >= periodOpts.start && d <= periodOpts.end && !StatsEngine.isBillCategory(r.categoryId);
           })
       : DataStore.getRecords()
-          .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
+          .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId))));
     // Split bills: records are stored at the full bill amount, but others' shares
     // (paid OR unpaid) are not my spending. Subtract them so the simulation only
     // projects MY real share — consistent with the overview daily avg/prediction.
@@ -71,7 +71,7 @@ const SimulationEngine = {
     // Build full category tree with current stats
     const allCats = DataStore.getCategories();
     const catMap = {}; allCats.forEach(c => catMap[c.id] = c);
-    const rootCats = DataStore.getRootCategories();
+    const rootCats = DataStore.getExpenseRootCategories();
 
     // Compute leaf category ids
     const leafCatIds = new Set();

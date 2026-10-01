@@ -138,9 +138,36 @@ _defaults() {
 
 | 字段 | 兼容做法 |
 |---|---|
-| `splitBills[].participants[].paidAmount` | 老账单只有布尔 `paid`，由 `SplitEngine.partPaid()` 读作「全有或全无」；每次写入同时更新两者 |
+| `splitBills[].participants[].paidAmount` | 老账单只有布尔 `paid`，由 `SplitEngine.partPaid()` 读作「全有或无」；每次写入同时更新两者 |
 | `splitBills[].mode` / `selfUnknown` | 缺失时由 `openSplitBillEditor` 按份额偏差推断 |
 | `purchasePlans[].overrides` | 缺失视作 `{}`（无手动干预） |
+
+**支出 / 收入（v3.4）：`type` 与 `kind` 都「缺省即支出」**
+
+| 字段 | 所在 | 取值 | 缺省含义 |
+|---|---|---|---|
+| `records[].type` | 记录 | **只有 `'income'` 会真的被写下来** | 缺失 = 支出 |
+| `categories[].kind` | 分类 | `'income'` / `'expense'` | 缺失 = 支出 |
+
+三条由此推出的硬规则：
+
+1. **`type` 只在收入时才存在。** 写 `type:'expense'` 会给每条老记录加一个字段；
+   更糟的是写入方与清洗方（`_repairRecordTypes()`）会 disagree，于是每次
+   `normalize()`（开机、每次同步合并都会跑）都会把刚写进去的字段删掉，本机指纹
+   永远对不上推送时的 base，`P4` 那种「来回同步收敛不了」的问题立刻出现。
+2. **记录与分类的归属必须一致**，由 `DataStore.addRecord()` / `updateRecord()` 按
+   `categoryId` 反推 `type` 钉死。分类页的「移动 / 合并」因此被限制在各自的树内
+   ——跨树会静默改写一整棵子树的记录类型。
+3. **回答「我花了多少」的地方必须过 `expenseRecords()`**（`01-constants.js`）。
+   `StatsEngine.getRecordsInMonth()` 与 `getPeriodRecords()` 这两个咽喉点已经
+   过滤了收入，所以绝大多数统计函数一行都不用改；直接读 `DataStore.getRecords()`
+   的地方（预算进度、模拟、What-If、报表、日/年趋势图）必须显式过滤。
+
+老账本无需迁移即可继续工作：`incomeCatsSeeded` 之类的持久化标记是**故意没有**加的
+——新字段要参与同步，第一个 normalize 它的设备会把一次「自己没做过的改动」推给所有人。
+`_migrateIncomeCategories()` 改成从 `categories` 推导（整棵收入树不存在时才补种），
+唯一放弃的行为是：把收入分类全删光后，下次启动会把默认的补回来。
+
 
 **`init()` 中的迁移模式：**
 ```javascript

@@ -8,19 +8,28 @@ let expandedCategories = new Set();
 
 function renderCategories() {
   const el = document.getElementById('page-categories');
-  const roots = DataStore.getRootCategories();
+  const roots = DataStore.getExpenseRootCategories();
+  const incomeRoots = DataStore.getIncomeRootCategories();
 
   el.innerHTML = `
     <div class="mb-16">
       <button class="btn btn-primary btn-lg btn-block" onclick="addRootCategory()">${__('categories.addRoot')}</button>
     </div>
     <p class="text-sm text-secondary mb-8" style="line-height:1.5">
-      ${__('categories.headerInfo', DataStore.getCategories().length)}
+      ${__('categories.headerInfo', DataStore.getExpenseRootCategories().length + DataStore.getIncomeRootCategories().length)}
       <span class="text-xs text-muted" style="cursor:pointer" onclick="document.querySelectorAll('.cat-item').forEach(function(e){expandedCategories.add(e.dataset.id);});renderCategories()">${__('categories.expandAll')}</span>
-      · 
+      ·
       <span class="text-xs text-muted" style="cursor:pointer" onclick="expandedCategories.clear();renderCategories()">${__('categories.collapseAll')}</span>
     </p>
-    <div id="categoryTree">${buildCategoryTreeHTML(roots, 0)}</div>
+    <div class="cat-section-header">${__('categories.expenseSection')}</div>
+    <div id="categoryTree">${buildCategoryTreeHTML(roots, 0, 'expense')}</div>
+    ${incomeRoots.length ? `
+    <div class="cat-section-header" style="margin-top:20px">${__('categories.incomeSection')}</div>
+    <p class="text-xs text-muted mb-8" style="line-height:1.5">${__('categories.incomeSectionHint')}</p>
+    <div id="incomeCategoryTree">${buildCategoryTreeHTML(incomeRoots, 0, 'income')}</div>
+    <div class="mb-16" style="margin-top:12px">
+      <button class="btn btn-outline btn-block" onclick="addRootCategory('income')">${__('categories.addIncomeRoot')}</button>
+    </div>` : ''}
   `;
 }
 
@@ -29,9 +38,15 @@ function getBudgetMonth() {
   return getMonthKey(now.toISOString());
 }
 
-function buildCategoryTreeHTML(cats, depth) {
+// `kind` only changes what sits at the right of the row: an expense category
+// gets a budget to stay under, an income one gets what actually arrived. There is
+// no such thing as overspending your salary, and a budget box on 工资 would only
+// ever be a figure the user has to re-derive by hand.
+function buildCategoryTreeHTML(cats, depth, kind) {
+  const treeKind = kind === 'income' ? 'income' : 'expense';
   let html = '';
   const currentMonth = getBudgetMonth();
+  const incomeTotals = treeKind === 'income' ? StatsEngine.getIncomeCategoryTotals(currentMonth) : {};
   cats.forEach(cat => {
     const children = DataStore.getChildren(cat.id);
     const hasChildren = children.length > 0;
@@ -39,9 +54,9 @@ function buildCategoryTreeHTML(cats, depth) {
     const catBudget = DataStore.getCategoryBudget(cat.id, currentMonth);
     const budgetVal = catBudget.value || '';
     const budgetType = catBudget.type || 'fixed';
-    
+
     html += `<div class="cat-item" data-id="${cat.id}">`;
-    
+
     // === HEADER (always visible) ===
     html += `<div class="cat-header">`;
     if (hasChildren) {
@@ -57,12 +72,17 @@ function buildCategoryTreeHTML(cats, depth) {
     html += `<span class="cat-action-icon" onclick="event.stopPropagation();addChildCategory('${cat.id}')" title="${__('categories.addChild')}">➕</span>`;
     html += `<span class="cat-action-icon" onclick="event.stopPropagation();editCategory('${cat.id}')" title="${__('categories.edit')}">⚙️</span>`;
     html += `</span>`;
+    if (treeKind === 'income') {
+      const got = incomeTotals[cat.id] || 0;
+      html += `<div class="cat-budget" style="border:none;background:none"><span class="font-bold" style="color:${got > 0 ? 'var(--success)' : 'var(--text-muted)'};font-size:0.85rem">${got > 0 ? '+' + formatMoney(got) : '—'}</span><span class="budget-unit">${__('categories.receivedThisMonth')}</span></div>`;
+    } else {
     // Budget input group
     html += `<div class="cat-budget">`;
     html += `<input type="number" class="budget-input" value="${budgetVal}" placeholder="0" onchange="saveCategoryBudget('${cat.id}','${currentMonth}',this.value,'${budgetType}')" min="0" step="0.01">`;
     html += `<button class="budget-toggle" onclick="var inp=this.parentElement.querySelector('.budget-input');var nxt=this.innerText==='RM'?'%':'RM';this.innerText=nxt;saveCategoryBudget('${cat.id}','${currentMonth}',inp.value,nxt==='%'?'percent':'fixed')">${budgetType === 'percent' ? '%' : 'RM'}</button>`;
     html += `<span class="budget-unit">${__('categories.perMonth')}</span>`;
     html += `</div>`;
+    }
     html += `</div>`; // end header
 
     // === BODY (collapsible) ===
@@ -76,9 +96,9 @@ function buildCategoryTreeHTML(cats, depth) {
 
     // Children (recursive)
     if (hasChildren) {
-      html += `<div class="cat-children">${buildCategoryTreeHTML(children, depth + 1)}</div>`;
+      html += `<div class="cat-children">${buildCategoryTreeHTML(children, depth + 1, treeKind)}</div>`;
     }
-    
+
     html += `</div>`; // end cat-body-inner
     html += `</div>`; // end cat-body
     html += `</div>`; // end cat-item
@@ -116,14 +136,19 @@ function saveCategoryBudget(catId, month, value, type) {
 }
 
 /* ===== CATEGORY MERGE ===== */
+// A merge may not cross the two trees. Merging 工资 into 餐饮 would have to
+// re-type every income record under it, which is a data change the user did not
+// ask for; refusing is the only answer that leaves the ledger honest.
 function mergeCategory(sourceId) {
   const sourceCat = DataStore.getCategory(sourceId);
   if (!sourceCat) return;
+  const sourceKind = sourceCat.kind === 'income' ? 'income' : 'expense';
   _mergeSourceId = sourceId;
   _mergeTargetId = null;
   const children = DataStore.getChildren(sourceId);
   const descendants = DataStore.getDescendantIds(sourceId);
-  const allCats = DataStore.getCategories().filter(c => !descendants.includes(c.id) && c.id !== sourceId);
+  const allCats = DataStore.getCategories()
+    .filter(c => !descendants.includes(c.id) && c.id !== sourceId && (c.kind === 'income' ? 'income' : 'expense') === sourceKind);
 
   let html = `
     <div class="modal-title">${__('categories.merge.title')}</div>
@@ -295,29 +320,32 @@ function toggleCatItem(arrowEl) {
   }
 }
 
-function addRootCategory() {
+function addRootCategory(kind) {
+  const isIncome = kind === 'income';
   showModal(`
-    <div class="modal-title">${__('categories.addRootModal.title')}</div>
+    <div class="modal-title">${isIncome ? __('categories.addRootModal.incomeTitle') : __('categories.addRootModal.title')}</div>
     <div class="input-group">
       <label class="input-label">${__('categories.name')}</label>
       <input type="text" id="newCatName" class="input-field" placeholder="${__('categories.namePlaceholder')}">
     </div>
     <div class="input-group">
       <label class="input-label">${__('categories.icon')}</label>
-      <input type="text" id="newCatIcon" class="input-field" value="📁" placeholder="${__('categories.iconPlaceholder')}">
+      <input type="text" id="newCatIcon" class="input-field" value="${isIncome ? '💰' : '📁'}" placeholder="${__('categories.iconPlaceholder')}">
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal()">${__('categories.cancel')}</button>
-      <button class="btn btn-primary" onclick="confirmAddRootCategory()">${__('categories.add')}</button>
+      <button class="btn btn-primary" onclick="confirmAddRootCategory('${isIncome ? 'income' : 'expense'}')">${__('categories.add')}</button>
     </div>
   `);
 }
 
-function confirmAddRootCategory() {
+function confirmAddRootCategory(kind) {
   const name = document.getElementById('newCatName').value.trim();
   const icon = document.getElementById('newCatIcon').value.trim();
   if (!name) { showToast(__('categories.nameRequired'), 'error'); return; }
-  DataStore.addCategory({ name, icon: icon || '📁', parentId: null, sortOrder: DataStore.getRootCategories().length });
+  const isIncome = kind === 'income';
+  const roots = isIncome ? DataStore.getIncomeRootCategories() : DataStore.getExpenseRootCategories();
+  DataStore.addCategory({ name, icon: icon || (isIncome ? '💰' : '📁'), parentId: null, sortOrder: roots.length, kind: isIncome ? 'income' : 'expense' });
   closeModal();
   showToast(__('categories.added'));
   renderCategories();
@@ -463,7 +491,10 @@ function confirmCustomColor(id) {
 function moveCategory(id) {
   const cat = DataStore.getCategory(id);
   if (!cat) return;
-  const cats = DataStore.getRootCategories();
+  // Same reason as merge: a move is a re-parent, and re-parenting across the two
+  // trees would silently re-type every record underneath.
+  const kind = cat.kind === 'income' ? 'income' : 'expense';
+  const cats = kind === 'income' ? DataStore.getIncomeRootCategories() : DataStore.getExpenseRootCategories();
   const descendants = DataStore.getDescendantIds(id);
 
   let html = `<div class="modal-title">${__('categories.move.title', escHtml(cat.icon), escHtml(cat.name))}</div>
@@ -726,6 +757,12 @@ function saveCategoryEdit(catId) {
   // === I18N ENTRIES ===
   addI18nEntries({
     'categories.addRoot': { zh: '➕ 添加根分类', en: '➕ Add root category' },
+    'categories.addIncomeRoot': { zh: '➕ 添加收入分类', en: '➕ Add income category' },
+    'categories.expenseSection': { zh: '💸 支出分类', en: '💸 Expense Categories' },
+    'categories.incomeSection': { zh: '💰 收入分类', en: '💰 Income Categories' },
+    'categories.incomeSectionHint': { zh: '收入分类不设预算，右侧显示本月实际到账金额', en: 'Income categories have no budget — the right column shows what actually arrived this month' },
+    'categories.receivedThisMonth': { zh: '本月到账', en: 'received' },
+    'categories.addRootModal.incomeTitle': { zh: '添加收入分类', en: 'Add income category' },
     'categories.headerInfo': { zh: '{0} 个分类 · 点击 ▶ 展开查看子分类 · 预算输入框始终可见 · ', en: '{0} categories · Click ▶ to expand subcategories · Budget inputs always visible · ' },
     'categories.expandAll': { zh: '展开全部', en: 'Expand all' },
     'categories.collapseAll': { zh: '折叠全部', en: 'Collapse all' },

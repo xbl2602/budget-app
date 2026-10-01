@@ -204,10 +204,10 @@ function showDayRecords(dateStr) {
   if (!target) return;
   if (!isExpand && popup) popup.style.display = 'block';
 
-  const records = DataStore.getRecords().filter(r => {
+  const records = expenseRecords(DataStore.getRecords().filter(r => {
     const rd = (r.date || r.createdAt).slice(0, 10);
     return rd === dateStr;
-  });
+  }));
   
   if (!records.length) {
     target.innerHTML = `<div style="font-size:0.9rem;font-weight:600;margin-bottom:12px">📅 ${dateStr}</div>
@@ -480,10 +480,10 @@ function renderHierarchyToggle() {
 /* Direct records for the current view (custom range / rolling30 / month) */
 function getHierarchyRecords(month, startDate, endDate) {
   if (startDate && endDate) {
-    return DataStore.getRecords().filter(function (r) {
+    return expenseRecords(DataStore.getRecords().filter(function (r) {
       const d = new Date(r.date || r.createdAt);
       return d >= new Date(startDate) && d <= new Date(endDate);
-    });
+    }));
   }
   const isRolling = getStatsRange() === 'rolling30' && month === getMonthKey(new Date().toISOString());
   if (!month) return [];
@@ -928,7 +928,7 @@ function renderStats() {
 
   // Compute extra stats
   let records = isCustom
-    ? DataStore.getRecords().filter(r => { const d = new Date(r.date || r.createdAt); return d >= new Date(statsStartDate) && d <= new Date(statsEndDate); })
+    ? expenseRecords(DataStore.getRecords().filter(r => { const d = new Date(r.date || r.createdAt); return d >= new Date(statsStartDate) && d <= new Date(statsEndDate); }))
     : (isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(statsMonth));
   const totalCount = records.length;
   const avgAmount = totalCount > 0 ? (isCustom ? rangeTotal.total : monthTotal) / totalCount : 0;
@@ -938,6 +938,20 @@ function renderStats() {
   const dailyTotals = isCustom ? (rangeTotal ? rangeTotal.daily : []) : (isRolling ? StatsEngine.getPeriodDailyTotals({ excludeBills: false }) : StatsEngine.getDailyTotals(statsMonth));
   const maxDay = dailyTotals.reduce((max, d) => (d.total > (max?.total || 0) ? d : max), null);
   const daysWithTxns = dailyTotals.filter(d => d.total > 0).length;
+
+  // Recorded income for the same window the rest of the page is describing
+  const recordedIncomeTotal = isCustom
+    ? (rangeTotal ? rangeTotal.incomeTotal : 0)
+    : (isRolling ? StatsEngine.getPeriodIncome() : StatsEngine.getMonthIncome(statsMonth));
+  const recordedNet = Math.round((recordedIncomeTotal - (isCustom ? rangeTotal.total : monthTotal)) * 100) / 100;
+  const incomeCatTotals = isCustom
+    ? (rangeTotal ? rangeTotal.incomeCategoryTotals : {})
+    : (isRolling ? StatsEngine.getPeriodIncomeCategoryTotals() : StatsEngine.getIncomeCategoryTotals(statsMonth));
+  const incomeBreakdown = Object.entries(incomeCatTotals)
+    .map(([id, total]) => ({ cat: DataStore.getCategory(id), total }))
+    .filter(x => x.cat && x.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
 
   // Previous month comparison
   // (prevMonthTotal / prevChange removed)
@@ -969,6 +983,44 @@ function renderStats() {
       <div class="card"><div class="card-title">${isRolling ? __('stats.predictedRolling') : __('stats.predicted')}</div><div class="text-xl font-bold">${formatMoney(predicted)}</div></div>
       <div class="card"><div class="card-title">${__('stats.savingsPrediction')}</div><div class="text-xl font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div></div>
     </div>
+
+    <!-- Recorded cash flow: what actually came in against what went out.
+         Hidden until an income record exists, so a ledger that never uses the
+         feature sees exactly the stats page it saw before. -->
+    ${recordedIncomeTotal > 0 ? `
+    <div class="card mb-16">
+      <div class="card-title">💰 ${isCustom ? __('stats.flow.title.custom') : isRolling ? __('stats.flow.title.rolling') : __('stats.flow.title.monthly')}</div>
+      <div class="grid-3" style="margin-bottom:8px">
+        <div>
+          <div class="text-xs text-secondary">${__('stats.flow.income')}</div>
+          <div class="text-lg font-bold" style="color:var(--success)">${formatMoney(recordedIncomeTotal)}</div>
+        </div>
+        <div>
+          <div class="text-xs text-secondary">${isCustom ? __('stats.rangeTotal') : (isRolling ? __('stats.rollingTotal') : __('stats.monthTotal'))}</div>
+          <div class="text-lg font-bold" style="color:var(--danger)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>
+        </div>
+        <div>
+          <div class="text-xs text-secondary">${__('stats.flow.net')}</div>
+          <div class="text-lg font-bold" style="color:${recordedNet >= 0 ? 'var(--success)' : 'var(--danger)'}">${recordedNet >= 0 ? '+' : ''}${formatMoney(recordedNet)}</div>
+        </div>
+      </div>
+      ${incomeBreakdown.length ? `
+      <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+        ${incomeBreakdown.map((r, i) => `
+        <div class="flex items-center justify-between" style="padding:4px 0">
+          <div class="flex items-center gap-8">
+            <span style="width:20px;height:20px;border-radius:50%;background:${r.cat.color};display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:white;font-weight:700">${i+1}</span>
+            <span>${escHtml(r.cat.icon)}</span>
+            <span class="text-sm">${escHtml(r.cat.name)}</span>
+          </div>
+          <div class="flex items-center gap-8">
+            <span class="font-bold" style="color:var(--success)">+${formatMoney(r.total)}</span>
+            <span class="text-sm text-muted">${recordedIncomeTotal > 0 ? (r.total / recordedIncomeTotal * 100).toFixed(1) + '%' : ''}</span>
+          </div>
+        </div>`).join('')}
+      </div>` : ''}
+      <div class="text-xs text-muted mt-4">${__('stats.flow.note')}</div>
+    </div>` : ''}
 
     <!-- Stats cards row 2: Transaction analysis -->
     <div class="grid-4 mb-16">
@@ -2053,7 +2105,11 @@ function drawMonthlyChart(canvasId) {
   const padding = { top: 20, bottom: 35, left: 55, right: 15 };
   const plotW = w - padding.left - padding.right;
   const plotH = h - padding.top - padding.bottom;
-  const maxVal = Math.max(...data.map(d => d.total), 0.01);
+  // Income shares the axis with spending — they are the same money in opposite
+  // directions, so one scale is the whole point. Only raised to cover it when
+  // there is any, so the existing chart is pixel-identical without income.
+  const hasIncome = data.some(d => (d.income || 0) > 0);
+  const maxVal = Math.max(...data.map(d => Math.max(d.total, hasIncome ? (d.income || 0) : 0)), 0.01);
 
   // Grid
   ctx.strokeStyle = tc.border;
@@ -2098,6 +2154,33 @@ function drawMonthlyChart(canvasId) {
   ctx.lineWidth = 2.5;
   ctx.lineJoin = 'round';
   ctx.stroke();
+
+  // Income line — drawn under the spending dots so a month's value label never
+  // has to dodge it. Green, the same token the ledger uses for money in.
+  if (hasIncome) {
+    const incPoints = data.map((d, i) => ({
+      x: padding.left + (i / (data.length - 1)) * plotW,
+      y: padding.top + plotH - ((d.income || 0) / maxVal) * plotH
+    }));
+    ctx.beginPath();
+    incPoints.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.strokeStyle = '#10B981';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    incPoints.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#10B981';
+      ctx.fill();
+    });
+    // Legend
+    ctx.fillStyle = tc.textMuted;
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('— ' + __('stats.legendSpending') + '   — - ' + __('stats.legendIncome'), w - padding.right, padding.top - 6);
+  }
 
   // Dots + labels
   points.forEach((p, i) => {
@@ -2438,7 +2521,7 @@ function buildCategoryTreeNodes(level, startDate, endDate) {
     }
     return nodes.sort((a, b) => b.value - a.value);
   }
-  rootIds = (DataStore.getRootCategories() || [])
+  rootIds = (DataStore.getExpenseRootCategories() || [])
     .filter(c => !(billSet && billSet.has(c.id)))
     .map(c => c.id);
   // Colour by descending spend so the palette matches the pie and the waffle
@@ -3052,6 +3135,14 @@ addI18nEntries({
   'stats.estimatedMonthEnd': { zh: '预计月末储蓄', en: 'Est. month-end savings' },
   'stats.balance': { zh: '收支结余', en: 'Balance' },
   'stats.remainingTotalPerDay': { zh: '剩余总额/天', en: 'Remaining total/day' },
+  'stats.flow.title.monthly': { zh: '本月实际收支', en: 'Cash Flow This Month' },
+  'stats.flow.title.rolling': { zh: '近30天实际收支', en: 'Cash Flow (Last 30 Days)' },
+  'stats.flow.title.custom': { zh: '所选区间实际收支', en: 'Cash Flow in Range' },
+  'stats.flow.income': { zh: '收入记录', en: 'Recorded Income' },
+  'stats.flow.net': { zh: '结余', en: 'Net' },
+  'stats.flow.note': { zh: '按流水记录统计，与「月收入」设定值无关', en: 'Summed from the ledger, independent of the Monthly Income setting' },
+  'stats.legendSpending': { zh: '支出', en: 'Spending' },
+  'stats.legendIncome': { zh: '收入', en: 'Income' },
   'stats.dayUnit': { zh: '天', en: 'day' },
   'stats.dailyAvailablePerDay': { zh: '日常可用/天（已扣账单+储蓄）', en: 'Daily available/day (ex-bills & savings)' },
   'stats.savingsHint': { zh: '💡 在「月账单中心」设定月收入后可查看储蓄预估', en: '💡 Set monthly income in Bills Center to see savings estimate' },

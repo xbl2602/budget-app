@@ -50,7 +50,7 @@ function toggleBudgetView(month) {
 }
 
 function showBudgetSelector(month) {
-  const rootCats = DataStore.getRootCategories();
+  const rootCats = DataStore.getExpenseRootCategories();
   const catBudgets = DataStore.getAllCategoryBudgets();
   // Get categories with budgets (including children)
   const budgeted = [];
@@ -105,7 +105,7 @@ function confirmBudgetSelection(month) {
     showToast(__('budgetProgress.selectAtLeastOne'), 'warning');
     return;
   }
-  if (ids.length === DataStore.getRootCategories().filter(c => {
+  if (ids.length === DataStore.getExpenseRootCategories().filter(c => {
     const bk = c.id + ':' + month;
     return (DataStore.getAllCategoryBudgets()[bk] || 0) > 0;
   }).length) {
@@ -121,9 +121,9 @@ function confirmBudgetSelection(month) {
 
 function renderBudgetProgressCard(month, showHeader) {
   console.log('[budgetProgress] renderBudgetProgressCard month:', month, 'view:', budgetProgressView, 'sort:', budgetProgressSort);
-  const rootCats = DataStore.getRootCategories();
+  const rootCats = DataStore.getExpenseRootCategories();
   const catBudgets = DataStore.getAllCategoryBudgets();
-  const records = DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month);
+  const records = expenseRecords(DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month));
   
   // Calculate spent per root category
   const catSpent = {};
@@ -201,9 +201,9 @@ function renderBudgetProgressCard(month, showHeader) {
 
 function renderBudgetProgressCardInner(month) {
   console.log('[budgetProgress] renderBudgetProgressCardInner month:', month);
-  const rootCats = DataStore.getRootCategories();
+  const rootCats = DataStore.getExpenseRootCategories();
   const catBudgets = DataStore.getAllCategoryBudgets();
-  const records = DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month);
+  const records = expenseRecords(DataStore.getRecords().filter(r => getMonthKey(r.date || r.createdAt) === month));
   
   const catSpent = {};
   records.forEach(r => {

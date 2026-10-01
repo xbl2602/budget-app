@@ -63,18 +63,23 @@
 }
 ```
 
-### 3.2 `records[]` — 消费流水
+### 3.2 `records[]` — 流水（支出 + 收入）
 
 | 字段 | 类型 | 必填 | 规则 |
 |---|---|---|---|
 | `id` | string | ✅ | 唯一。生成规则见 §3.4 |
-| `amount` | number | ✅ | **正数**（支出）。禁止字符串 `"300"`；禁止负数；两位小数以内 |
-| `categoryId` | string | ✅ | 必须是 §4 分类表中**已存在**的 id（含本次新建的分类） |
+| `amount` | number | ✅ | **正数**（金额永远为正，方向由 `type` 决定）。禁止字符串 `"300"`；禁止负数；两位小数以内 |
+| `categoryId` | string | ✅ | 必须是 §4 分类表中**已存在**的 id（含本次新建的分类）。**收入必须挂在 `kind:"income"` 的分类下** |
 | `date` | string | ✅ | 格式 `YYYY-MM-DDTHH:MM:SS`（示例 `2026-08-05T12:00:00`）。日期从文本提取；无日期时用「今天」 |
 | `note` | string | 否 | 原始条目描述；非 RM 金额的币种说明写这里 |
 | `tags` | string[] | 否 | 可省略或用 `[]`；文本无标签不编造 |
-| `excludeFromAvg` | boolean | 否 | 仅当文本明确表示「不计入日均」（如一次性大额）才设 `true`，否则 `false` 或省略 |
+| `excludeFromAvg` | boolean | 否 | 仅当文本明确表示「不计入日均」（如一次性大额）才设 `true`，否则 `false` 或省略。收入恒为 `false` |
+| `type` | string | 否 | **`"income"` 表示收入；支出请省略此字段**（不要写 `"expense"`，应用不会保存它） |
 | `createdAt` | string | ✅ | ISO 时间 `YYYY-MM-DDTHH:MM:SS.sssZ`（生成时刻） |
+
+> `type` 与 `categories[].kind` 由应用按 `categoryId` 反推并强制对齐：导入文件里两者
+> 打架时，**以分类的 `kind` 为准**。所以收入记录请务必挂到收入分类（工资 / 副业 /
+> 报销退款 / 理财收益 / 其他收入，或自行新建 `kind:"income"` 的分类）。
 
 ### 3.3 `categories[]` — 分类
 
@@ -88,6 +93,7 @@
 | `color` | string | ✅ | 与父分类颜色一致（见 §4 颜色表） |
 | `parentId` | string | ✅ | 挂到 §4 中合适的根分类 id；无法归类时挂 `cat-root-8`（其他） |
 | `sortOrder` | number | ✅ | 同级最后一个子分类的序号 + 1 |
+| `kind` | string | 否 | 仅**收入分类**写 `"income"`；支出分类省略（默认支出）。收入分类不能挂到支出根分类下，反之亦然 |
 
 ### 3.4 id 生成规则（记录）
 
@@ -152,12 +158,13 @@
 ## 6. 生成步骤（AI 执行顺序）
 
 1. 读取文本，按 §5 逐条抽取 → 得到条目表 `[商户, 金额, 日期, 备注]`
-2. 每条按 §4 归类 → 确定 `categoryId`（记下需要新建的分类）
-3. 新建分类：按 §4.3 生成 `categories[]`
-4. 生成 `records[]`：每条生成 id（§3.4）、`amount`（number）、`date`（`YYYY-MM-DDTHH:MM:SS`）、`note`、`tags: []`、`excludeFromAvg: false`、`createdAt`（ISO）
-5. 组装顶层对象 `{ records, categories }`（categories 无新建时为 `[]`；**替换模式**时须输出 §4 全部默认分类 + 新建分类）
-6. 按 §7 自检
-7. 交付：把 JSON 写入项目目录（如 `budget-import-2026-08-12.json`），并把结果汇总给用户
+2. 判断每条是**支出还是收入**（工资、奖金、报销、退款、利息、卖闲置 → 收入）
+3. 每条按 §4 归类 → 确定 `categoryId`（记下需要新建的分类）；收入归到 §4 收入分类表
+4. 新建分类：按 §4.3 生成 `categories[]`（收入分类写 `kind: "income"`）
+5. 生成 `records[]`：每条生成 id（§3.4）、`amount`（number）、`categoryId`、`date`（`YYYY-MM-DDTHH:MM:SS`）、`note`、`tags: []`、`excludeFromAvg: false`、`createdAt`（ISO）；**收入条目额外加 `type: "income"`**
+6. 组装顶层对象 `{ records, categories }`（categories 无新建时为 `[]`；**替换模式**时须输出 §4 全部默认分类 + 新建分类）
+7. 按 §7 自检
+8. 交付：把 JSON 写入项目目录（如 `budget-import-2026-08-12.json`），并把结果汇总给用户
 
 ---
 
@@ -165,8 +172,9 @@
 
 - [ ] `records` 与 `categories` 两个键都存在
 - [ ] 每条 record：`amount` 是 number 且 > 0；`date` 匹配 `YYYY-MM-DDT..`；`categoryId` 在分类表（默认+新建）中存在
+- [ ] 每条收入记录：所属分类 `kind` 是 `"income"`，且该记录写了 `type: "income"`；每条支出记录没有 `type` 字段
 - [ ] 所有 `id` 唯一
-- [ ] 新建分类的 `parentId` 引用已存在根分类
+- [ ] 新建分类的 `parentId` 引用已存在根分类，且**与自身 `kind` 一致**
 - [ ] 每条都有 note（原始描述）；币种换算已在 note 注明
 - [ ] 未编造 tags / excludeFromAvg / 用户未提的信息
 - [ ] JSON 可被 `JSON.parse` 解析（无尾逗号、无注释、无单引号）

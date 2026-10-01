@@ -115,6 +115,20 @@
   white-space: nowrap;
 }
 
+/* Section header above each tree (支出 / 收入). Plain, no card — the two trees
+   sit in one page and a heavy divider would fight the row borders. */
+.cat-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  padding: 4px 2px 6px;
+  margin-bottom: 4px;
+  border-bottom: 2px solid var(--border);
+}
+
 /* Action icons in header */
 .cat-action-icons {
   display: flex;

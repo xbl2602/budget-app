@@ -14,7 +14,7 @@
 // docs/superpowers/specs/2026-09-28-changelog-announcement-design.md.
 // Do not confuse this with the cloud ledger's monotonic integer `version` in
 // 28-cloud-sync.js — that is a different concept in a different IIFE.
-const APP_VERSION = '3.3.0';
+const APP_VERSION = '3.4.0';
 
 const COLORS = [
   '#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6',
@@ -56,6 +56,44 @@ const DEFAULT_CATEGORIES = [
     { id: 'cat-child-7-1', name: '书籍', icon: '📖', color: '#14B8A6', parentId: 'cat-root-7', sortOrder: 0 },
     { id: 'cat-child-7-2', name: '课程', icon: '🎓', color: '#14B8A6', parentId: 'cat-root-7', sortOrder: 1 },
   { id: 'cat-root-8', name: '其他', icon: '📦', color: '#F97316', parentId: null, sortOrder: 7 }
+];
+
+// Income arrived after the ledger did, so every record written before it has no
+// `type` at all. Absence therefore means expense — and it stays that way on
+// purpose: `type` is only ever PRESENT when it is 'income'. Writing
+// type:'expense' would put a field on every existing row, and worse, would make
+// the sanitizer and the writer disagree about the same value, so a normalize
+// (which every sync merge and every boot runs) would strip what a save had just
+// written and the local fingerprint would never match the pushed base again.
+const REC_TYPE = { EXPENSE: 'expense', INCOME: 'income' };
+
+function isIncomeRec(r) { return !!(r && r.type === 'income'); }
+function recType(r) { return isIncomeRec(r) ? REC_TYPE.INCOME : REC_TYPE.EXPENSE; }
+
+// The single gate every "how much did I spend" question goes through. Stats used
+// to read DataStore.getRecords() directly, which silently meant "spend + income"
+// once income existed; routing them through here keeps the old answers correct.
+function expenseRecords(list) { return (list || []).filter(r => !isIncomeRec(r)); }
+function incomeRecords(list) { return (list || []).filter(r => isIncomeRec(r)); }
+
+// Seeded on upgrade (DataStore._migrateIncomeCategories) rather than only on a
+// fresh install — existing stores already have an expense `categories` array, so
+// the empty-array backfill in _normalize() would never fire for them.
+const DEFAULT_INCOME_CATEGORIES = [
+  { id: 'inc-root-1', name: '工资', icon: '💼', color: '#10B981', parentId: null, sortOrder: 0, kind: 'income' },
+    { id: 'inc-child-1-1', name: '月薪', icon: '📅', color: '#10B981', parentId: 'inc-root-1', sortOrder: 0, kind: 'income' },
+    { id: 'inc-child-1-2', name: '奖金', icon: '🎉', color: '#10B981', parentId: 'inc-root-1', sortOrder: 1, kind: 'income' },
+    { id: 'inc-child-1-3', name: '加班/津贴', icon: '⏰', color: '#10B981', parentId: 'inc-root-1', sortOrder: 2, kind: 'income' },
+  { id: 'inc-root-2', name: '副业', icon: '🚀', color: '#06B6D4', parentId: null, sortOrder: 1, kind: 'income' },
+    { id: 'inc-child-2-1', name: '接单', icon: '🧑‍💻', color: '#06B6D4', parentId: 'inc-root-2', sortOrder: 0, kind: 'income' },
+    { id: 'inc-child-2-2', name: '卖闲置', icon: '📦', color: '#06B6D4', parentId: 'inc-root-2', sortOrder: 1, kind: 'income' },
+  { id: 'inc-root-3', name: '报销/退款', icon: '🧾', color: '#F59E0B', parentId: null, sortOrder: 2, kind: 'income' },
+    { id: 'inc-child-3-1', name: '公司报销', icon: '🏢', color: '#F59E0B', parentId: 'inc-root-3', sortOrder: 0, kind: 'income' },
+    { id: 'inc-child-3-2', name: '退款/返现', icon: '↩️', color: '#F59E0B', parentId: 'inc-root-3', sortOrder: 1, kind: 'income' },
+  { id: 'inc-root-4', name: '理财收益', icon: '📈', color: '#8B5CF6', parentId: null, sortOrder: 3, kind: 'income' },
+    { id: 'inc-child-4-1', name: '利息', icon: '🏦', color: '#8B5CF6', parentId: 'inc-root-4', sortOrder: 0, kind: 'income' },
+    { id: 'inc-child-4-2', name: '投资分红', icon: '💹', color: '#8B5CF6', parentId: 'inc-root-4', sortOrder: 1, kind: 'income' },
+  { id: 'inc-root-5', name: '其他收入', icon: '🎁', color: '#EC4899', parentId: null, sortOrder: 4, kind: 'income' }
 ];
 
 function uuid() {
@@ -108,6 +146,12 @@ function getPeriodDateRange() {
   window.APP_VERSION = APP_VERSION;
   window.COLORS = COLORS;
   window.DEFAULT_CATEGORIES = DEFAULT_CATEGORIES;
+  window.DEFAULT_INCOME_CATEGORIES = DEFAULT_INCOME_CATEGORIES;
+  window.REC_TYPE = REC_TYPE;
+  window.isIncomeRec = isIncomeRec;
+  window.recType = recType;
+  window.expenseRecords = expenseRecords;
+  window.incomeRecords = incomeRecords;
   window.escHtml = escHtml;
   window.uuid = uuid;
   window.getMonthKey = getMonthKey;

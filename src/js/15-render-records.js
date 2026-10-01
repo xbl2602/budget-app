@@ -3,7 +3,7 @@
    ============================================================ */
 (function() {
 'use strict';
-let recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, tags: [] };
+let recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, tags: [], kind: 'all' };
 let recordsPage = 0;
 let compactRecordsView = (function() { try { return JSON.parse(localStorage.getItem('budgetCompactView') || 'false'); } catch(e) { return false; } })();
 let recordsPerPage = window.recordsPerPage = parseInt(localStorage.getItem('budgetRecordsPerPage') || '20');
@@ -72,6 +72,9 @@ function renderRecords() {
       </div>
       <div class="flex gap-8 mt-8" style="flex-wrap:wrap">
         <button class="btn btn-outline btn-sm" onclick="clearRecordsFilter()">${__('records.filter.clear')}</button>
+        <button class="btn btn-sm ${(recordsFilter.kind || 'all') !== 'all' ? 'btn-primary' : 'btn-outline'}" onclick="cycleRecordsKindFilter()" title="${__('records.filter.kindTitle')}">
+          ${recordsFilter.kind === 'income' ? '💰 ' + __('records.filter.kindIncome') : recordsFilter.kind === 'expense' ? '💸 ' + __('records.filter.kindExpense') : '💸💰 ' + __('records.filter.kindAll')}
+        </button>
         <button class="btn btn-sm ${recordsFilter.overspentOnly ? 'btn-danger' : 'btn-outline'}" onclick="toggleOverspentFilter()" title="${__('records.filter.overspentTitle')}">
           ${recordsFilter.overspentOnly ? __('records.filter.overspentActive') : __('records.filter.overspent')}
         </button>
@@ -204,6 +207,14 @@ function getFilteredRecords() {
   if (f.tags && f.tags.length > 0) {
     records = records.filter(r => r.tags && f.tags.some(t => r.tags.includes(t)));
   }
+  // Type filter — the ledger holds both sides of the flow, so "show me only what
+  // came in" has to be selectable rather than implied by which tree the category
+  // filter happens to be pointing at.
+  if (f.kind === 'expense') {
+    records = expenseRecords(records);
+  } else if (f.kind === 'income') {
+    records = incomeRecords(records);
+  }
   // Apply sorting
   if (recordsSort && recordsSort.length > 0) {
     records.sort((a, b) => {
@@ -241,6 +252,13 @@ function toggleOverspentFilter() {
   renderRecords();
 }
 
+function cycleRecordsKindFilter() {
+  const order = ['all', 'expense', 'income'];
+  recordsFilter.kind = order[(order.indexOf(recordsFilter.kind || 'all') + 1) % order.length];
+  window.recordsPage = 0;
+  renderRecords();
+}
+
 function applyRecordsFilter() {
   recordsFilter.keyword = document.getElementById('filterKeyword').value;
   recordsFilter.dateStart = document.getElementById('filterDateStart').value;
@@ -251,15 +269,24 @@ function applyRecordsFilter() {
   renderRecordsList();
 }
 
+// Filtering reads both trees on purpose — this is how you isolate a category, and
+  // 工资 is a category just like 餐饮. The type filter above is what narrows by
+  // side of the flow.
 function openCategoryFilterPicker() {
-  const cats = DataStore.getRootCategories();
+  const expenseRoots = DataStore.getExpenseRootCategories();
+  const incomeRoots = DataStore.getIncomeRootCategories();
   let html = '<div class="modal-title">' + __('records.filter.pickCategory') + '</div><div style="max-height:50vh;overflow-y:auto">';
   html += `<div style="padding:8px 12px;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast);display:flex;align-items:center;gap:8px"
        onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"
        onclick="selectCategoryFilter('')">
     <span>📁</span><span>${__('records.filter.allCategories')}</span>
   </div>`;
-  html += buildCategoryTreeFilterPicker(cats, 0);
+  html += '<div class="picker-section-header">' + __('categoryPicker.daily') + '</div>';
+  html += buildCategoryTreeFilterPicker(expenseRoots, 0);
+  if (incomeRoots.length) {
+    html += '<div class="picker-section-header">' + __('categoryPicker.income') + '</div>';
+    html += buildCategoryTreeFilterPicker(incomeRoots, 0);
+  }
   html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('records.cancel') + '</button></div>';
   showModal(html);
 }
@@ -302,7 +329,7 @@ function selectCategoryFilter(catId) {
 }
 
 function clearRecordsFilter() {
-  recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false };
+  recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, kind: 'all' };
   renderRecords();
 }
 
@@ -331,6 +358,7 @@ function renderRecordsList() {
   let html = '';
   pageRecords.forEach(r => {
     const isSplit = !!r.splitBillId;
+    const isIncome = !isSplit && isIncomeRec(r);
     let dispIcon = '❓';
     let dispName = __('records.unknown');
     let dispColor = '#eee';
@@ -355,6 +383,12 @@ function renderRecordsList() {
     const dateStr = (r.date || r.createdAt).replace('T', ' ');
     const isSelected = selectedRecordIds.has(r.id);
     const selStyle = isSelected ? 'border-color:var(--primary);background:rgba(99,102,241,0.05)' : '';
+    // Money coming IN is a different thing from money going out, and the list is
+    // where the user reads that at a glance: green, signed with a plus. Same
+    // layout, opposite meaning — no new colour token, just var(--success), which
+    // every theme already defines.
+    const amountColor = isIncome ? 'var(--success)' : 'var(--primary)';
+    const amountText = (isIncome ? '+' : '') + formatMoney(dispAmount);
     if (compactRecordsView) {
       // ===== COMPACT VIEW =====
       html += `
@@ -366,7 +400,7 @@ function renderRecordsList() {
             <span class="compact-note">${r.note ? '📝 ' + escHtml(r.note) : ''}</span>
             ${r.tags && r.tags.length > 0 ? `<span style="display:inline-flex;flex-wrap:wrap;gap:2px;margin-left:4px">${r.tags.map(t => `<span style="padding:0 4px;background:var(--bg);border-radius:4px;font-size:0.6rem;color:var(--text-muted)">${escHtml(t)}</span>`).join('')}</span>` : ''}
             ${r.excludeFromAvg ? '<span class="text-xs text-muted" style="font-size:0.6rem;margin-left:2px" title="' + __('records.excludeFromAvg') + '">📌</span>' : ''}
-            <span class="compact-amount" style="color:var(--primary)">${formatMoney(dispAmount)}${unpaidHtml}</span>
+            <span class="compact-amount" style="color:${amountColor}">${amountText}${unpaidHtml}</span>
             ${!batchMode ? `<button class="btn btn-ghost btn-sm record-del-btn" style="padding:0 4px;font-size:0.7rem;opacity:0.5;flex-shrink:0;background:none;border:none;cursor:pointer"
               onclick="event.stopPropagation();deleteRecordConfirm('${r.id}')" title="${__('records.delete')}">🗑️</button>` : ''}
           </div>
@@ -383,7 +417,7 @@ function renderRecordsList() {
               ${escHtml(dispIcon)}
             </div>
             <div>
-              <div class="font-semibold">${escHtml(dispName)}</div>
+              <div class="font-semibold">${escHtml(dispName)}${isIncome ? ' <span class="badge badge-success" style="font-size:0.6rem">' + __('records.incomeBadge') + '</span>' : ''}</div>
               <div class="text-sm text-muted">${dateStr.slice(0, 16)}</div>
               ${r.note ? '<div class="text-sm text-secondary">' + escHtml(r.note) + '</div>' : ''}
               ${r.tags && r.tags.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:2px">${r.tags.map(t => `<span style="padding:0 4px;background:var(--bg);border-radius:4px;font-size:0.65rem;color:var(--text-muted)">${escHtml(t)}</span>`).join('')}</div>` : ''}
@@ -391,7 +425,7 @@ function renderRecordsList() {
             </div>
           </div>
           <div class="text-right">
-            <div class="font-bold text-lg" style="color:var(--primary)">${formatMoney(dispAmount)}${unpaidHtml}</div>
+            <div class="font-bold text-lg" style="color:${amountColor}">${amountText}${unpaidHtml}</div>
           </div>
         </div>
         ${!batchMode ? `
@@ -571,11 +605,26 @@ function batchChangeCategory() {
     showToast(__('records.batch.selectFirstMod'), 'warning');
     return;
   }
+  // The two category trees are disjoint, so a batch move can only ever produce a
+  // legal result for records that all live in the same one. Offering both trees
+  // for a mixed selection would let a single click flip a 餐饮 expense into
+  // income (DataStore.updateRecord re-derives the type from the new category), so
+  // mixed selections are refused instead of silently reshaped.
+  const selectedRecs = [...selectedRecordIds]
+    .map(id => DataStore.getRecord(id))
+    .filter(r => r && !r.splitBillId);
+  const kinds = new Set(selectedRecs.map(r => (isIncomeRec(r) ? 'income' : 'expense')));
+  if (kinds.size > 1) {
+    showToast(__('records.batch.mixedKinds'), 'warning');
+    return;
+  }
+  const kind = kinds.has('income') ? 'income' : 'expense';
   // Show category picker
-  const roots = DataStore.getRootCategories();
+  const roots = kind === 'income' ? DataStore.getIncomeRootCategories() : DataStore.getExpenseRootCategories();
   let html = `<div class="modal-title">${__('records.batch.changeTitle')}</div>
     <p class="text-sm text-secondary mb-8">${__('records.batch.changeText', count)}</p>
-    <div style="max-height:50vh;overflow-y:auto">`;
+    <div style="max-height:50vh;overflow-y:auto">
+      <div class="text-sm font-semibold" style="padding:6px 4px;color:var(--text-secondary)">${kind === 'income' ? __('categoryPicker.income') : __('categoryPicker.daily')}</div>`;
   html += buildBatchCategoryTree(roots, 0);
   html += '</div><div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('records.cancel') + '</button></div>';
   showModal(html);
@@ -741,14 +790,25 @@ function openEditRecord(id) {
     ? (bill ? "openCategoryPicker('split-edit')" : '')
     : "openCategoryPicker('edit')";
   selectedCategoryId = record.categoryId;
+  const recKind = isSplit ? 'expense' : (isIncomeRec(record) ? 'income' : 'expense');
+  window._editRecordType = recKind;
+  const isIncome = recKind === 'income';
 
   showModal(`
     <div class="modal-title">${__('records.edit.title')}</div>
     <form id="editForm" onsubmit="submitEditRecord(event, '${id}')">
+      ${isSplit ? '' : `
+      <div class="input-group">
+        <label class="input-label">${__('addRecord.typeLabel')}</label>
+        <div style="display:flex;gap:8px" role="group">
+          <button type="button" id="editTypeExpense" class="btn btn-sm" style="flex:1" onclick="setEditRecordType('expense')">💸 ${__('addRecord.typeExpense')}</button>
+          <button type="button" id="editTypeIncome" class="btn btn-sm" style="flex:1" onclick="setEditRecordType('income')">💰 ${__('addRecord.typeIncome')}</button>
+        </div>
+      </div>`}
       <div class="input-group">
         <label class="input-label">${__('records.edit.amount')}</label>
         <div style="position:relative">
-          <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:var(--primary)">RM</span>
+          <span id="editAmountPrefix" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:${isIncome ? 'var(--success)' : 'var(--primary)'}">RM</span>
           <input type="text" id="editAmount" class="input-field" value="${record.amount}" style="padding-left:44px;font-size:1.2rem;font-weight:700" inputmode="decimal">
         </div>
       </div>
@@ -778,7 +838,7 @@ function openEditRecord(id) {
         <input type="hidden" id="editTagsInput" value='${JSON.stringify(record.tags || [])}'>
       </div>
       ${isSplit ? '' : `
-      <div class="input-group">
+      <div class="input-group" id="editExcludeAvgRow">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
           <input type="checkbox" id="editExcludeAvg" ${record.excludeFromAvg ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer">
           <span class="text-sm text-secondary">${__('records.edit.excludeAvg')}</span>
@@ -803,6 +863,32 @@ function openEditRecord(id) {
       this.value = val;
     });
   }
+  if (!isSplit) setEditRecordType(recKind, true);
+}
+
+// Flip an existing record between expense and income. The category is cleared for
+// the same reason as on the add form: the two trees are disjoint. `initial` skips
+// the reset so reopening the editor does not wipe the category it just rendered.
+function setEditRecordType(type, initial) {
+  const kind = type === 'income' ? 'income' : 'expense';
+  window._editRecordType = kind;
+  const btnExpense = document.getElementById('editTypeExpense');
+  const btnIncome = document.getElementById('editTypeIncome');
+  const expenseActive = kind === 'expense';
+  if (btnExpense) btnExpense.className = 'btn btn-sm' + (expenseActive ? ' btn-primary' : ' btn-outline');
+  if (btnIncome) btnIncome.className = 'btn btn-sm' + (!expenseActive ? ' btn-primary' : ' btn-outline');
+  const avgRow = document.getElementById('editExcludeAvgRow');
+  if (avgRow) avgRow.style.display = expenseActive ? '' : 'none';
+  const prefix = document.getElementById('editAmountPrefix');
+  if (prefix) prefix.style.color = expenseActive ? 'var(--primary)' : 'var(--success)';
+  if (initial) return;
+  selectedCategoryId = null;
+  window.selectedCategoryId = null;
+  const disp = document.getElementById('editCategoryDisplay');
+  if (disp) {
+    disp.textContent = __('records.edit.select');
+    disp.style.color = 'var(--text-muted)';
+  }
 }
 
 function submitEditRecord(e, id) {
@@ -810,8 +896,12 @@ function submitEditRecord(e, id) {
   const record = DataStore.getRecord(id);
   const isSplit = !!(record && record.splitBillId);
   const amount = parseFloat(document.getElementById('editAmount').value);
+  const recKind = isSplit ? 'expense' : (window._editRecordType === 'income' ? 'income' : 'expense');
   if (!amount || amount <= 0) { showToast(__('records.edit.invalidAmount'), 'error'); return; }
-  if (!isSplit && !selectedCategoryId) { showToast(__('records.edit.selectCategory'), 'error'); return; }
+  if (!isSplit && !selectedCategoryId) {
+    showToast(recKind === 'income' ? __('records.edit.selectIncomeCategory') : __('records.edit.selectCategory'), 'error');
+    return;
+  }
   if (isSplit && window._editingSplitBillId) {
     SplitEngine.applyRecordEditToBill(window._editingSplitBillId, {
       amount,
@@ -826,9 +916,10 @@ function submitEditRecord(e, id) {
   DataStore.updateRecord(id, {
     amount,
     categoryId: isSplit ? record.categoryId : selectedCategoryId,
+    type: recKind,
     date: document.getElementById('editDateTime').value,
     note: document.getElementById('editNote').value.trim(),
-    excludeFromAvg: isSplit ? false : document.getElementById('editExcludeAvg').checked,
+    excludeFromAvg: (isSplit || recKind === 'income') ? false : document.getElementById('editExcludeAvg').checked,
     tags: (() => {
       try { return JSON.parse(document.getElementById('editTagsInput').value); }
       catch(e) { return []; }
@@ -837,6 +928,7 @@ function submitEditRecord(e, id) {
   });
   selectedCategoryId = null;
   window._editingSplitBillId = null;
+  window._editRecordType = 'expense';
   closeModal();
   showToast(__('records.edit.saved'));
   refreshCurrentPage();
@@ -968,6 +1060,7 @@ function removeEditTag(tag) {
   window.toggleRecordsView = toggleRecordsView;
   window.getFilteredRecords = getFilteredRecords;
   window.toggleOverspentFilter = toggleOverspentFilter;
+  window.cycleRecordsKindFilter = cycleRecordsKindFilter;
   window.applyRecordsFilter = applyRecordsFilter;
   window.openCategoryFilterPicker = openCategoryFilterPicker;
   window.buildCategoryTreeFilterPicker = buildCategoryTreeFilterPicker;
@@ -989,6 +1082,7 @@ function removeEditTag(tag) {
   window.confirmHardDeleteRecord = confirmHardDeleteRecord;
   window.undoDelete = undoDelete;
   window.openEditRecord = openEditRecord;
+  window.setEditRecordType = setEditRecordType;
   window.openRecordOrSplitEditor = openRecordOrSplitEditor;
   window.submitEditRecord = submitEditRecord;
   window.recordsSort = recordsSort;
@@ -1065,6 +1159,7 @@ function setRecordsTagFilter(tag) {
     'records.batch.confirmDeleteBtn': { zh: '删除 {0} 条', en: 'Delete {0} items' },
     'records.batch.deleted': { zh: '🗑️ 已删除 {0} 条记录', en: '🗑️ Deleted {0} records' },
     'records.batch.selectFirstMod': { zh: '请先选择要修改的记录', en: 'Please select records to modify first' },
+    'records.batch.mixedKinds': { zh: '所选记录混合了支出与收入，请分开批量修改分类', en: 'Selection mixes expenses and income — change their categories separately' },
     'records.batch.changeTitle': { zh: '批量修改分类', en: 'Batch change category' },
     'records.batch.changeText': { zh: '将选中的 <strong>{0}</strong> 条记录分类修改为：', en: 'Change category for <strong>{0}</strong> selected records to:' },
     'records.batch.changed': { zh: '✅ 已将 {0} 条记录分类改为 {1} {2}', en: '✅ Changed {0} records to {1} {2}' },
@@ -1117,6 +1212,12 @@ function setRecordsTagFilter(tag) {
     'records.edit.addTag': { zh: '＋ 添加标签', en: '＋ Add tag' },
     'records.edit.excludeAvg': { zh: '📌 不计日均（一次性大额消费）', en: '📌 Exclude from daily average' },
     'records.excludeFromAvg': { zh: '不计日均', en: 'Exclude from daily average' },
+    'records.incomeBadge': { zh: '收入', en: 'Income' },
+    'records.filter.kindTitle': { zh: '在「全部 / 支出 / 收入」之间切换', en: 'Cycle between all / expenses / income' },
+    'records.filter.kindAll': { zh: '全部', en: 'All' },
+    'records.filter.kindExpense': { zh: '仅支出', en: 'Expenses' },
+    'records.filter.kindIncome': { zh: '仅收入', en: 'Income' },
+    'records.edit.selectIncomeCategory': { zh: '切换为收入后，请选择一个收入分类', en: 'After switching to income, pick an income category' },
     'records.edit.delete': { zh: '🗑️ 删除', en: '🗑️ Delete' },
     'records.edit.save': { zh: '保存', en: 'Save' },
     'records.edit.invalidAmount': { zh: '请输入有效金额', en: 'Please enter a valid amount' },

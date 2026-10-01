@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    版本公告 —— 行为与不变量
    ------------------------------------------------------------
    覆盖 docs/superpowers/specs/ 里的公告设计：
@@ -20,8 +20,8 @@ const { JSDOM } = require('jsdom');
 const BASE = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
 const LS_KEY = 'budgetAppLastSeenChangelog';
-const A1 = '2026-10-05';   // newest shipped entry
-const A2 = '2026-09-30';   // older shipped entry
+const A1 = '2026-10-06';   // newest shipped entry
+const A2 = '2026-10-05';   // older shipped entry
 const X1 = '2099-01-01';   // test-only entry, injected via Changelog.register
 
 let pass = 0, fail = 0;
@@ -109,7 +109,7 @@ const noStray = w => MC(w).textContent.indexOf('??') === -1;
     const dom = boot({ [LS_KEY]: A1 });
     const w = dom.window, C = w.Changelog;
 
-    ok(typeof w.APP_VERSION === 'string' && w.APP_VERSION === '3.3.0', 'L10 APP_VERSION present and is 3.3.0');
+    ok(typeof w.APP_VERSION === 'string' && w.APP_VERSION === '3.4.0', 'L10 APP_VERSION present and is 3.4.0');
     ok(typeof C === 'object' && C !== null, 'L10 Changelog API present (29 loaded after 01)');
     ok(typeof w.ModalQueue === 'object', 'L10 ModalQueue present');
 
@@ -158,7 +158,7 @@ const noStray = w => MC(w).textContent.indexOf('??') === -1;
     eq(C.pending().length, 1, 'L3b marker at the older entry -> the newer one is pending');
     eq(C.pending()[0].id, A1, 'L3b the pending entry is the newer one');
     C.markSeen('no-such-id');
-    eq(C.pending().length, 2, 'L3b an unknown marker -> everything shows');
+    eq(C.pending().length, C.all().length, 'L3b an unknown marker -> everything shows');
     C.markSeen(A1);
     eq(C.pending().length, 0, 'L3b back to the newest -> nothing pending');
   }
@@ -171,8 +171,13 @@ const noStray = w => MC(w).textContent.indexOf('??') === -1;
     await waitFor(w, x => MC(x).innerHTML.indexOf('cl-title') !== -1, 'changelog on startup');
     ok(overlayOpen(w), 'L2 modal opened on startup');
     ok(MC(w).querySelectorAll('.cl-item').length >= 3, 'L2 the newest entry rendered its items');
-    ok(MC(w).querySelector('.cl-banner') !== null, 'L2 both entries pending -> banner shown');
-    ok(/1\s*\/\s*2/.test(MC(w).querySelector('.cl-counter').textContent), 'L2 counter reads 1 / 2');
+    ok(MC(w).querySelector('.cl-banner') !== null, 'L2 every entry pending -> banner shown');
+    // Derived, not a literal "1 / 2": the registry grows with every release and
+    // this assertion is about the counter tracking the registry, not about how
+    // many entries happen to exist today.
+    const allCount = w.Changelog.all().length;
+    ok(new RegExp('1\\s*\\/\\s*' + allCount).test(MC(w).querySelector('.cl-counter').textContent),
+      'L2 counter reads 1 / ' + allCount);
     eq(w.Changelog.lastSeenId(), A1, 'L2 the newest entry is marked seen as soon as it is shown');
   }
 
@@ -296,7 +301,7 @@ const noStray = w => MC(w).textContent.indexOf('??') === -1;
     ok(noStray(w), 'L12 no "??" anywhere in the rendered modal');
     eq(txt(w, '.cl-item-icon'), entry.items[0].icon, 'L12 the icon span is exactly the emoji');
     eq(txt(w, '.cl-meta'), 'v' + entry.version + ' · ' + entry.date, 'L12 the meta line is exactly "v<ver> · <date>"');
-    eq(txt(w, '.cl-title'), w.__('changelog.a1.title'), 'L12 the title is the resolved i18n string');
+        eq(txt(w, '.cl-title'), w.__(w.Changelog.all()[0].title), 'L12 the title is the resolved i18n string');
     // body text may legitimately contain HTML (<strong>/<code>) — check it rendered
     ok(MC(w).querySelector('.cl-item-text strong') !== null, 'L12 item text still allows inline markup');
 

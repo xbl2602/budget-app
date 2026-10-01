@@ -444,6 +444,11 @@ function renderDataInspector() {
   if (typeof StatsEngine !== 'undefined') {
     const auditRecords = StatsEngine.getRecordsInMonth(currentAuditMonth);
     const auditTotal = auditRecords.reduce((s, r) => s + r.amount, 0);
+    const auditIncomeCount = StatsEngine.getIncomeRecordsInMonth(currentAuditMonth).length;
+    const auditIncomeTotal = StatsEngine.getMonthIncome(currentAuditMonth);
+    const auditIncomeHtml = auditIncomeCount > 0
+      ? '<div class="text-xs text-secondary mb-4" style="color:var(--success)">' + __('settings.diag.monthIncome', currentAuditMonth, auditIncomeCount, formatMoney(auditIncomeTotal)) + '</div>'
+      : '';
     if (auditRecords.length > 0) {
       html += '<div class="text-xs text-secondary mb-4">' + __('settings.diag.monthStats', currentAuditMonth, auditRecords.length, formatMoney(auditTotal)) + '</div>';
       html += '<div style="max-height:200px;overflow-y:auto;font-size:0.7rem;font-family:monospace">';
@@ -458,6 +463,9 @@ function renderDataInspector() {
         '</div>';
       });
       html += '</div>';
+      html += auditIncomeHtml;
+    } else if (auditIncomeCount > 0) {
+      html += auditIncomeHtml;
     } else {
       html += '<div class="text-sm text-muted">' + __('settings.diag.noRecordsForMonth') + '</div>';
     }
@@ -490,14 +498,20 @@ function renderDataInspector() {
     allRecords.forEach(r => {
       const cat = DataStore.getCategory(r.categoryId);
       const monthKey2 = getMonthKey(r.date || r.createdAt);
-      // Check if this record is in the current audit month's result
+      // Check if this record is in the current audit month's result. Income rows
+      // are audited against the income side — getRecordsInMonth() is expenses
+      // only by design, so testing them there would flag every one of them red.
       const auditMonthEl = document.getElementById('auditMonth');
       const auditMonthVal = auditMonthEl ? auditMonthEl.value : '';
-      const inAudit = auditMonthVal ? StatsEngine.getRecordsInMonth(auditMonthVal).some(ra => ra.id === r.id) : true;
-      
+      const inAudit = !auditMonthVal
+        ? true
+        : (isIncomeRec(r)
+            ? StatsEngine.getIncomeRecordsInMonth(auditMonthVal).some(ra => ra.id === r.id)
+            : StatsEngine.getRecordsInMonth(auditMonthVal).some(ra => ra.id === r.id));
+
       html += '<div style="display:flex;padding:3px 6px;border-bottom:1px solid var(--border);align-items:center' + (!inAudit ? ';background:rgba(239,68,68,0.05)' : '') + '">';
       html += '<span style="width:70px;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted)" title="' + r.id + '">' + r.id.substring(0, 6) + '</span>';
-      html += '<span style="width:45px;font-weight:500">' + formatMoney(r.amount) + '</span>';
+      html += '<span style="width:45px;font-weight:500;color:' + (isIncomeRec(r) ? 'var(--success)' : 'inherit') + '">' + (isIncomeRec(r) ? '+' : '') + formatMoney(r.amount) + '</span>';
       html += '<span style="width:55px;overflow:hidden;text-overflow:ellipsis" title="catId=' + r.categoryId + '">' + (cat ? cat.icon + cat.name.substring(0,3) : '❓' + r.categoryId.substring(0,4)) + '</span>';
       html += '<span style="width:80px;color:var(--text-muted)">' + (r.date ? r.date.substring(0, 10) : '-') + '</span>';
       html += '<span style="width:70px;color:var(--text-muted)">' + (r.createdAt ? r.createdAt.substring(0, 10) : '-') + '</span>';
@@ -676,7 +690,15 @@ function refreshStatsAudit() {
   
   const records = StatsEngine.getRecordsInMonth(month);
   const total = records.reduce((s, r) => s + r.amount, 0);
-  
+  // getRecordsInMonth() is expenses by design, so the income side of the same
+  // month is read separately. Without this line a month that held only a salary
+  // entry would report "no records" and read as data loss.
+  const incomeTotal = StatsEngine.getMonthIncome(month);
+  const incomeCount = StatsEngine.getIncomeRecordsInMonth(month).length;
+  const incomeHtml = incomeCount > 0
+    ? '<div class="text-xs text-secondary mb-4" style="color:var(--success)">' + __('settings.diag.monthIncome', month, incomeCount, formatMoney(incomeTotal)) + '</div>'
+    : '';
+
   if (records.length > 0) {
     let auditHtml = '<div class="text-xs text-secondary mb-4">' + __('settings.diag.monthStats', month, records.length, formatMoney(total)) + '</div>';
     auditHtml += '<div style="max-height:200px;overflow-y:auto;font-size:0.7rem;font-family:monospace">';
@@ -691,7 +713,9 @@ function refreshStatsAudit() {
       '</div>';
     });
     auditHtml += '</div>';
-    container.innerHTML = auditHtml;
+    container.innerHTML = auditHtml + incomeHtml;
+  } else if (incomeCount > 0) {
+    container.innerHTML = incomeHtml;
   } else {
     container.innerHTML = '<div class="text-sm text-muted">' + __('settings.diag.noRecordsForMonth') + '</div>';
   }
@@ -844,7 +868,8 @@ function deleteTag(tag) {
     'settings.diag.statsEngineDesc': { zh: '查看任意月份统计引擎实际使用的记录列表', en: 'View records used by the stats engine for any month' },
     'settings.diag.statsEngineNotLoaded': { zh: 'StatsEngine 未加载', en: 'StatsEngine not loaded' },
     'settings.diag.month': { zh: '月份', en: 'Month' },
-    'settings.diag.monthStats': { zh: '{0} 月: {1} 条记录, 合计 {2}', en: '{0}: {1} records, total {2}' },
+    'settings.diag.monthStats': { zh: '{0} 月: {1} 笔支出, 合计 {2}', en: '{0}: {1} expense records, total {2}' },
+    'settings.diag.monthIncome': { zh: '{0} 月: {1} 笔收入, 合计 {2}', en: '{0}: {1} income records, total {2}' },
     'settings.diag.noRecordsForMonth': { zh: '该月暂无记录', en: 'No records for this period' },
     'settings.diag.allRecords': { zh: '📋 全量记录原始数据 (无过滤) (点击展开)', en: '📋 All Records Raw Data (unfiltered) (click to expand)' },
     'settings.diag.allRecordsDesc': { zh: '直接从 DataStore.getRecords() 读取，无任何过滤。用于排查流水页看不到的记录。', en: 'Read directly from DataStore.getRecords(), unfiltered. Use to debug missing records in the ledger.' },

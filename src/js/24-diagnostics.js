@@ -263,8 +263,12 @@ window.showRecordRaw = function showRecordRaw(id) {
   const monthKey = getMonthKey(record.date || record.createdAt);
   const datePrefix = (record.date || record.createdAt).slice(0, 10);
   
-  // Check if this record appears in StatsEngine audit
-  const inStatsEngine = StatsEngine.getRecordsInMonth(monthKey).some(r => r.id === id);
+  // Check if this record appears in StatsEngine audit. getRecordsInMonth() is
+  // expenses only, so an income record has to be looked up on the income side —
+  // otherwise the raw-data panel tells the user their salary is in no month at all.
+  const inStatsEngine = isIncomeRec(record)
+    ? StatsEngine.getIncomeRecordsInMonth(monthKey).some(r => r.id === id)
+    : StatsEngine.getRecordsInMonth(monthKey).some(r => r.id === id);
   
   // Check if this record appears in getFilteredRecords
   let inFilteredRecords = false;
@@ -289,6 +293,7 @@ window.showRecordRaw = function showRecordRaw(id) {
         <div>${__('diag.category')}${cat ? cat.icon + ' ' + cat.name + ' (id=' + cat.id + ', parentId=' + cat.parentId + ')' : __('diag.deleted', record.categoryId)}</div>
         ${cat && cat.parentId ? '<div style="color:var(--warning)">' + __('diag.hasParentWarning') + '</div>' : ''}
         ${record.excludeFromAvg ? '<div>📌 excludeFromAvg = true</div>' : ''}
+        <div>${__('diag.recordType')}${isIncomeRec(record) ? __('excel.label.income') : __('excel.label.expense')} · kind = ${cat ? (cat.kind === 'income' ? 'income' : 'expense') : '—'}</div>
       </div>
       <div style="font-weight:600;margin-bottom:4px">${__('diag.fullJson')}</div>
       <pre style="background:var(--bg);padding:8px;border-radius:8px;border:1px solid var(--border);overflow-x:auto;white-space:pre-wrap;word-break:break-all">${escHtml(recordJSON)}</pre>
@@ -312,6 +317,7 @@ window.showRecordRaw = function showRecordRaw(id) {
     'diag.yes': { zh: '✅ 是', en: '✅ Yes' },
     'diag.no': { zh: '❌ 否', en: '❌ No' },
     'diag.datePrefix': { zh: '日期前10字符: ', en: 'Date first 10 chars: ' },
+    'diag.recordType': { zh: '类型: ', en: 'Type: ' },
     'diag.category': { zh: '分类: ', en: 'Category: ' },
     'diag.deleted': { zh: '❌ 已删除 (id={0})', en: '❌ Deleted (id={0})' },
     'diag.hasParentWarning': { zh: '⚠️ 注意：该记录分类有父级，不是根分类', en: '⚠️ Note: This record\'s category has a parent, not a root category' },

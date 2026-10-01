@@ -86,10 +86,14 @@ const DataStore = {
       try {
         this._data = this._normalize(JSON.parse(raw));
       } catch(e) {
-        this._data = this._defaults();
+        this._data = this._normalize(this._defaults());
       }
     } else {
-      this._data = this._defaults();
+      // Routed through _normalize like the restored branch, so a brand-new store
+      // gets the same migrations a restored one does — without this a fresh
+      // install never seeds the income categories (nothing else adds them) and
+      // the income picker is empty from day one.
+      this._data = this._normalize(this._defaults());
     }
 
     // Process any expired pending deletes from previous sessions (M2)
@@ -126,6 +130,12 @@ const DataStore = {
     if (Array.isArray(data.categories)) {
       data.categories = data.categories.filter(c => c && safeId(c.id) && (c.parentId == null || safeId(c.parentId)))
         .map(c => cleanEntity(c, '#6366F1'));
+      // `kind` splits the two trees. Drop anything that is neither value rather
+      // than defaulting it: absence already means expense, so normalising would
+      // only rewrite every pre-income category and churn the sync fingerprint.
+      data.categories.forEach(c => {
+        if (c.kind != null && c.kind !== 'income' && c.kind !== 'expense') delete c.kind;
+      });
     }
     if (Array.isArray(data.billCategories)) {
       data.billCategories = data.billCategories.filter(c => c && safeId(c.id)).map(c => cleanEntity(c, '#6366F1'));
@@ -138,6 +148,9 @@ const DataStore = {
       data.records.forEach(r => {
         if (r.categoryId != null && !safeId(r.categoryId)) r.categoryId = 'uncategorized';
         if (r.splitBillId != null && !safeId(r.splitBillId)) delete r.splitBillId;
+        // Only these two values are readable; anything else is dropped so the
+        // record falls back to the pre-income default of expense.
+        if (r.type != null && r.type !== 'income' && r.type !== 'expense') delete r.type;
       });
     }
     if (Array.isArray(data.splitBills)) {
@@ -179,7 +192,33 @@ const DataStore = {
       });
     }
 
+    this._repairRecordTypes(data);
+
     return data;
+  },
+
+  // A record's `type` and its category's `kind` must agree. The UI can only keep
+  // them in step for records it creates itself, but an imported file, a LAN peer
+  // or a move in the categories page can cross the line — and a mismatch is
+  // expensive: an income row filed under 餐饮 would vanish from every expense
+  // total while still being counted as income. The category is the side that can
+  // be resolved, so it wins; records with no resolvable category keep whatever
+  // they say.
+  //
+  // Runs inside _sanitizeEntities, not _normalize, because the LAN-merge and
+  // cloud-merge paths only call the former — and those are exactly the paths
+  // that can carry a mismatched record in from another device.
+  _repairRecordTypes(data) {
+    if (!data || !Array.isArray(data.records) || !Array.isArray(data.categories)) return;
+    const kindById = {};
+    data.categories.forEach(c => { if (c && c.id) kindById[c.id] = c.kind === 'income' ? 'income' : 'expense'; });
+    data.records.forEach(r => {
+      if (!r) return;
+      const kind = kindById[r.categoryId];
+      if (!kind) return;
+      if (kind === 'income') r.type = 'income';
+      else delete r.type;
+    });
   },
 
   // Single entry point for making an arbitrary data object safe to use: fills in
@@ -219,6 +258,7 @@ const DataStore = {
 
     // 3. Historical migrations
     this._migrateSplitRecordCategories(data);
+    this._migrateIncomeCategories(data);
     const currentMonth = getMonthKey(new Date().toISOString());
     if (data.budgets && data.budgets[currentMonth] && !data.monthlyIncome[currentMonth]) {
       data.monthlyIncome[currentMonth] = data.budgets[currentMonth];
@@ -226,6 +266,52 @@ const DataStore = {
     if (!data.lastActiveMonth) data.lastActiveMonth = currentMonth;
 
     return data;
+  },
+
+  // Income support arrived long after the stores. Every existing ledger already
+  // has an expense `categories` array, so the empty-array backfill above can
+  // never fire for it and 工资/副业/报销 would simply not exist — the picker
+  // would be empty and the feature unreachable. Seed them when the income tree
+  // is entirely absent.
+  //
+  // Deliberately derived from `categories` rather than guarded by a persisted
+  // flag: a new boolean key would have to sync like any other field, so the
+  // first device to normalise would push it and every peer would see a content
+  // change it never made. The only behaviour this gives up is that deleting
+  // every income category at once brings the defaults back — an empty income
+  // tree is useless anyway, and it costs one restore.
+  _migrateIncomeCategories(data) {
+    if (!data || !Array.isArray(data.categories)) return;
+    if (data.categories.some(c => c && c.kind === 'income')) return;
+    const byId = {};
+    data.categories.forEach(c => { if (c && c.id) byId[c.id] = c; });
+    // Parent first: a child whose parent is missing would land in the expense
+    // picker's tree with no visible root.
+    DEFAULT_INCOME_CATEGORIES.forEach(def => {
+      if (byId[def.id]) return;
+      if (def.parentId && !byId[def.parentId]) return;
+      data.categories.push(JSON.parse(JSON.stringify(def)));
+      byId[def.id] = def;
+    });
+  },
+
+  // A record's `type` and its category's `kind` must agree. The UI can only keep
+  // them in step for records it creates itself, but an imported file, a LAN peer
+  // or a move in the categories page can cross the line — and a mismatch is
+  // expensive: an income row filed under 餐饮 would vanish from every expense
+  // total while still being counted as income. The category is the side that can
+  // be resolved, so it wins; uncategorized records keep whatever they say.
+  _repairRecordTypes(data) {
+    if (!data || !Array.isArray(data.records) || !Array.isArray(data.categories)) return;
+    const kindById = {};
+    data.categories.forEach(c => { if (c && c.id) kindById[c.id] = c.kind === 'income' ? 'income' : 'expense'; });
+    data.records.forEach(r => {
+      if (!r) return;
+      const kind = kindById[r.categoryId];
+      if (!kind) return;
+      if (kind === 'income') r.type = 'income';
+      else delete r.type;
+    });
   },
 
   // Split-bill storage refactor (B): records were stored with the '__split__'
@@ -266,12 +352,22 @@ const DataStore = {
   // Records
   getRecords() { return this._data.records; },
   getRecord(id) { return this._data.records.find(r => r.id === id); },
+  // The two spend-facing accessors. Anything answering "how much did I spend"
+  // must use one of these — bare getRecords() now also carries income rows.
+  getExpenseRecords() { return expenseRecords(this._data.records); },
+  getIncomeRecords() { return incomeRecords(this._data.records); },
 
   addRecord(record) {
     // Fixed: validate amount field (M1)
     if (typeof record.amount !== 'number' || !isFinite(record.amount)) {
       record.amount = 0;
     }
+    // Derived from the category rather than trusted from the caller: the add form
+    // writes both, and if they ever disagree the category is the one that decides
+    // which tree the record is visible in. Written only when it is income, so
+    // this stays byte-identical to what _repairRecordTypes() would leave behind.
+    if (record.categoryId && this.isIncomeCategory(record.categoryId)) record.type = 'income';
+    else delete record.type;
     record.id = uuid();
     record.createdAt = record.createdAt || new Date().toISOString();
     this._data.records.unshift(record);
@@ -284,8 +380,14 @@ const DataStore = {
     if (idx === -1) return null;
     updates.updatedAt = new Date().toISOString();
     Object.assign(this._data.records[idx], updates);
+    // Switching the type without switching the category (the edit form lets you)
+    // would leave the record unreachable from either tree, so the two are pinned
+    // together here the same way addRecord pins them.
+    const rec = this._data.records[idx];
+    if (rec.categoryId && this.isIncomeCategory(rec.categoryId)) rec.type = 'income';
+    else delete rec.type;
     this.save();
-    return this._data.records[idx];
+    return rec;
   },
 
   deleteRecord(id) {
@@ -483,9 +585,20 @@ const DataStore = {
     return this._data.categories.find(c => c.id === id) || null;
   },
 
-  getRootCategories() {
-    return this._data.categories.filter(c => !c.parentId)
-      .sort((a,b) => a.sortOrder - b.sortOrder);
+  // `kind` splits the two trees: 'expense' (the default, and what every category
+  // written before income existed is) and 'income'. Omitting it returns both, so
+  // the many existing callers keep working; the spenders below pass 'expense'
+  // explicitly so 工资 can never show up as an expense category.
+  getRootCategories(kind) {
+    let roots = this._data.categories.filter(c => !c.parentId);
+    if (kind) roots = roots.filter(c => (c.kind === 'income' ? 'income' : 'expense') === kind);
+    return roots.sort((a,b) => a.sortOrder - b.sortOrder);
+  },
+  getExpenseRootCategories() { return this.getRootCategories('expense'); },
+  getIncomeRootCategories() { return this.getRootCategories('income'); },
+  isIncomeCategory(id) {
+    const c = this._data.categories.find(x => x.id === id);
+    return !!(c && c.kind === 'income');
   },
 
   getChildren(parentId) {
@@ -503,6 +616,16 @@ const DataStore = {
 
   addCategory(cat) {
     cat.id = uuid();
+    // A subcategory inherits its parent's tree. Without this a 报销 child added
+    // under 工资 would land in the expense picker while its records, typed
+    // income, would then disagree with it — the exact mismatch
+    // _repairRecordTypes has to undo later.
+    if (cat.parentId) {
+      const parent = this._data.categories.find(c => c.id === cat.parentId);
+      if (parent) cat.kind = parent.kind === 'income' ? 'income' : 'expense';
+    } else {
+      cat.kind = cat.kind === 'income' ? 'income' : 'expense';
+    }
     if (!cat.color) {
       // A child inherits its parent's color so one branch reads as one family in
       // charts and lists; only root categories consume a new palette slot.
@@ -1072,13 +1195,19 @@ const DataStore = {
       const planMark = r.planId ? clean(planMap[r.planId]
         ? ((planMap[r.planId].icon || '') + ' ' + (planMap[r.planId].name || '') + (r.planMonth ? ' · ' + r.planMonth : '')).trim()
         : __('datastore.planGone')) : '';
-      return `${r.id},"${amount}","${safeCatName}","${safeSubName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}","${safeTags}","${splitMark}","${planMark}"`;
+      // Every field is quoted, the id included. It used to be the one bare field, which
+      // was harmless only because the very next character was a comma — put a
+      // quoted column after it and a lenient CSV reader can end up treating the
+      // first comma as data. Uniform quoting removes the special case.
+      return `"${r.id}","${isIncomeRec(r) ? __('datastore.typeIncome') : __('datastore.typeExpense')}","${amount}","${safeCatName}","${safeSubName}","${date}","${safeNote}","${r.createdAt}","${r.excludeFromAvg ? __('datastore.yes') : ''}","${safeTags}","${splitMark}","${planMark}"`;
     });
     return '\uFEFF' + header + '\n' + rows.join('\n');
   },
 
   clearAll() {
-    this._data = this._defaults();
+    // _normalize, not the bare defaults, for the same reason init() is: this must
+    // leave the app in the state a fresh install would produce, migrations and all.
+    this._data = this._normalize(this._defaults());
     this._markBulk('clear');
     this.save();
   },
@@ -1471,7 +1600,9 @@ const DataStore = {
   // i18n translations
   addI18nEntries({
     'datastore.saveFailed': { zh: '❌ 数据保存失败: {0}', en: '❌ Save failed: {0}' },
-    'datastore.csvHeader': { zh: 'ID,金额,分类,子分类,日期,备注,创建时间,不计日均,标签,分摊,所属计划', en: 'ID,Amount,Category,Subcategory,Date,Note,CreatedAt,ExcludeFromAvg,Tags,Split,Plan' },
+    'datastore.csvHeader': { zh: 'ID,类型,金额,分类,子分类,日期,备注,创建时间,不计日均,标签,分摊,所属计划', en: 'ID,Type,Amount,Category,Subcategory,Date,Note,CreatedAt,ExcludeFromAvg,Tags,Split,Plan' },
+    'datastore.typeExpense': { zh: '支出', en: 'Expense' },
+    'datastore.typeIncome': { zh: '收入', en: 'Income' },
     'datastore.planGone': { zh: '（计划已删除）', en: '(plan deleted)' },
     'datastore.unknown': { zh: '未知', en: 'Unknown' },
     'datastore.yes': { zh: '是', en: 'Yes' },

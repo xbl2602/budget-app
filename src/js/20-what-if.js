@@ -100,14 +100,16 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
     : new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
   const daysPassed = isRolling ? periodOpts.daysPassed : today;
 
-  // Get actual spending per category for the period
-  const records = isRolling
+  // Get actual spending per category for the period (expenses only — an income
+  // row has no spendable behaviour to project, and what-if reasons entirely about
+  // cutting spending down)
+  const records = expenseRecords(isRolling
     ? DataStore.getRecords().filter(r => {
         const d = new Date(r.date || r.createdAt);
         return d >= periodOpts.start && d <= periodOpts.end && !StatsEngine.isBillCategory(r.categoryId);
       })
     : DataStore.getRecords()
-        .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId));
+        .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId)));
   const catActual = {};
   records.forEach(r => {
     // Split records store the full bill amount; only my share is my real spending
