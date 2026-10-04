@@ -587,6 +587,91 @@ function refreshExpandedCatChart() {
   }
 }
 
+/* Click a chart block -> show every expense record for that category in the
+   current stats window (month / rolling30 / custom). Descendants included,
+   so a root domain shows its whole subtree; a '-direct' pseudo-box shows
+   only records booked directly on the parent. Drill stays available via the
+   button in the popup and via the detail-table names. */
+function showCategoryRecords(catId) {
+  if (!catId) return;
+  const isDirect = String(catId).slice(-7) === '-direct';
+  const realId = isDirect ? String(catId).slice(0, -7) : catId;
+  const cat = DataStore.getCategory(realId);
+  if (!cat) return;
+  const isCustom = useCustomRange();
+  const sD = isCustom ? statsStartDate : null;
+  const eD = isCustom ? statsEndDate : null;
+  let windowLabel = '';
+  if (isCustom) windowLabel = statsStartDate + ' ~ ' + statsEndDate;
+  else if (getStatsRange() === 'rolling30' && statsMonth === getMonthKey(new Date().toISOString())) {
+    try { windowLabel = getPeriodDateRange().label; } catch (e) { windowLabel = statsMonth; }
+  } else windowLabel = statsMonth || '';
+  let ids;
+  try {
+    ids = isDirect ? [realId] : DataStore.getDescendantIds(realId);
+  } catch (e) { ids = [realId]; }
+  const idSet = new Set(ids);
+  let recs = [];
+  try {
+    recs = getHierarchyRecords(statsMonth, sD, eD).filter(r => idSet.has(r.categoryId));
+  } catch (e) { recs = []; }
+  recs = recs.slice().sort((a, b) => String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')));
+  const total = recs.reduce((s, r) => s + (r.amount || 0), 0);
+  const children = DataStore.getChildren(realId) || [];
+  const canDrill = !isDirect && children.length > 0;
+  let html = `<div class="modal-title">${escHtml(cat.icon || '')} ${escHtml(cat.name)}${isDirect ? ' ' + __('stats.direct') : ''}</div>`;
+  html += `<div class="text-xs text-muted" style="margin-bottom:8px">${escHtml(windowLabel)} · ${__('stats.catRecords.count', recs.length)} · ${__('stats.total')} ${formatMoney(total)}</div>`;
+  if (!recs.length) {
+    html += `<div class="text-sm text-muted" style="padding:16px;text-align:center">${__('stats.noRecords')}</div>`;
+  } else {
+    html += `<div style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:8px">`;
+    recs.slice(0, 200).forEach(r => {
+      const rc = DataStore.getCategory(r.categoryId) || { name: __('stats.unknown'), icon: '' };
+      const dstr = String(r.date || r.createdAt || '').slice(0, 10);
+      html += `<div class="record-card compact" style="cursor:pointer;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card-bg);display:flex;align-items:center;gap:8px;font-size:0.82rem" onclick="closeModal();openEditRecord('${r.id}')">`
+        + `<span style="font-size:0.8rem">${escHtml(rc.icon || '')}</span>`
+        + `<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(rc.name || '')}</span>`
+        + (r.note ? `<span class="text-xs text-muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px">📝 ${escHtml(r.note)}</span>` : '')
+        + `<span class="text-xs text-muted" style="white-space:nowrap">${escHtml(dstr)}</span>`
+        + `<span style="font-weight:600;white-space:nowrap">${formatMoney(r.amount)}</span>`
+        + `</div>`;
+    });
+    if (recs.length > 200) html += `<div class="text-xs text-muted" style="text-align:center">…${__('stats.catRecords.more', recs.length - 200)}</div>`;
+    html += `</div>`;
+  }
+  html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;
+  if (canDrill) html += `<button class="btn btn-sm btn-outline" onclick="closeModal();drillIntoCategory('${realId}')">🔍 ${__('stats.drill.into')}</button>`;
+  html += `<button class="btn btn-sm btn-outline" onclick="closeModal();jumpToCategoryRecords('${realId}')">📋 ${__('stats.catRecords.viewInFlow')}</button>`;
+  html += `<button class="btn btn-sm btn-ghost" onclick="closeModal()">${__('stats.cancel')}</button>`;
+  html += `</div>`;
+  showModal(html);
+}
+
+function jumpToCategoryRecords(catId) {
+  try {
+    if (typeof clearRecordsFilter === 'function') clearRecordsFilter();
+    if (typeof recordsFilter !== 'undefined' && recordsFilter) {
+      recordsFilter.categoryId = catId;
+      if (useCustomRange()) {
+        recordsFilter.dateStart = statsStartDate;
+        recordsFilter.dateEnd = statsEndDate;
+      } else if (!(getStatsRange() === 'rolling30' && statsMonth === getMonthKey(new Date().toISOString()))) {
+        if (statsMonth) {
+          const parts = String(statsMonth).split('-');
+          const y = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+          if (y && m) {
+            const last = new Date(y, m, 0).getDate();
+            recordsFilter.dateStart = statsMonth + '-01';
+            recordsFilter.dateEnd = statsMonth + '-' + String(last).padStart(2, '0');
+          }
+        }
+      }
+      if (typeof recordsPage !== 'undefined') recordsPage = 1;
+    }
+  } catch (e) {}
+  navigateTo('records');
+}
+
 /* Single entry point for "drill into this category", shared by the detail table,
    the pie slices and the waffle blocks. */
 function drillIntoCategory(catId) {
@@ -843,7 +928,7 @@ function drawCompareBarChart(canvasId, month) {
 function renderBillToggle(chartId, checked = true) {
   const stored = localStorage.getItem('chartBillToggle_' + chartId);
   const isChecked = stored !== null ? stored === '1' : checked;
-  return `<label class="bill-toggle">
+  return `<label class="bill-toggle" title="${__('stats.billToggle.hint')}">
     <input type="checkbox" id="toggle-${chartId}" ${isChecked ? 'checked' : ''}
       onchange="toggleBillFilter('${chartId}')">
     📋 ${__('stats.billToggle.includeBills')}
@@ -978,9 +1063,16 @@ function renderStats() {
 
     <!-- Stats cards row 1: Core summary -->
     <div class="grid-4 mb-16">
-      <div class="card"><div class="card-title">${isCustom ? __('stats.rangeTotal') : (isRolling ? __('stats.rollingTotal') : __('stats.monthTotal'))}</div><div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">${__('stats.daily')} ${formatMoney(monthTotal - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)))} · ${__('stats.bills')} ${formatMoney(isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth))}</div>` : ''}</div>
+      <div class="card"><div class="card-title">${isCustom ? __('stats.rangeTotal') : (isRolling ? __('stats.rollingTotal') : __('stats.monthTotal'))}</div><div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">${__('stats.monthTotalBreakdownPrefix')}${__('stats.daily')} ${formatMoney(monthTotal - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)))} · ${__('stats.bills')} ${formatMoney(isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth))}</div>` : ''}</div>
       <div class="card"><div class="card-title">${isCustom ? __('stats.recordCount') : __('stats.dailyAvg')}</div><div class="text-xl font-bold">${isCustom ? rangeTotal.count : formatMoney(dailyAvg)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">${__('stats.dailyAvgDaily')} ${formatMoney(isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(statsMonth))}</div>` : ''}</div>
-      <div class="card"><div class="card-title">${isRolling ? __('stats.predictedRolling') : __('stats.predicted')}</div><div class="text-xl font-bold">${formatMoney(predicted)}</div></div>
+      <div class="card"><div class="card-title">${isRolling ? __('stats.predictedRolling') : __('stats.predicted')}</div><div class="text-xl font-bold">${formatMoney(predicted)}</div>${(() => {
+        if (isCustom) return '';
+        try {
+          const bd = isRolling ? StatsEngine.getPeriodPredictedBreakdown() : StatsEngine.getPredictedBreakdown(statsMonth);
+          if (!bd) return '';
+          return `<div class="text-xs text-muted mt-4" title="${__('stats.predictedHint')}">${__('stats.predictedBreakdown', formatMoney(bd.bills || 0), formatMoney(bd.large || 0), formatMoney(bd.normal || 0))}</div>`;
+        } catch (e) { return ''; }
+      })()}</div>
       <div class="card"><div class="card-title">${__('stats.savingsPrediction')}</div><div class="text-xl font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div></div>
     </div>
 
@@ -1069,9 +1161,10 @@ function renderStats() {
             <div class="text-xs text-secondary">${__('stats.estimatedMonthEnd')}</div>
             <div class="text-lg font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div>
           </div>
-          <div>
+          <div title="${__('stats.balanceHint')}">
             <div class="text-xs text-secondary">${__('stats.balance')}</div>
             <div class="text-lg font-bold" style="color:${(budget - effectiveTotalStats) >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(budget - effectiveTotalStats)}</div>
+            <div class="text-xs text-muted" style="margin-top:2px">${__('stats.balanceHint')}</div>
           </div>
         </div>
         ${budget > 0 ? `
@@ -1093,11 +1186,13 @@ function renderStats() {
               <div class="text-xs text-secondary">${__('stats.remainingTotalPerDay')}</div>
               <div class="font-bold" style="font-size:1rem;color:${remainingTotalPerDay > 0 ? 'var(--warning)' : 'var(--text-muted)'}">${formatMoney(remainingTotalPerDay)}/${__('stats.dayUnit')}</div>
               <div class="text-xs text-muted" style="margin-top:2px">${formatMoney(remainingTotal)} ÷ ${remainingDays}${__('stats.days')}</div>
+              <div class="text-xs text-muted" style="margin-top:2px;opacity:0.85">${__('stats.remainingTotalFormula')}</div>
             </div>
             <div style="flex:1;min-width:140px;padding:6px 10px;border-radius:8px;background:var(--card-bg);border:1px solid var(--border)">
               <div class="text-xs text-secondary">${__('stats.dailyAvailablePerDay')}</div>
               <div class="font-bold" style="font-size:1rem;color:${remainingDailyPerDay > 0 ? 'var(--primary)' : 'var(--text-muted)'}">${formatMoney(remainingDailyPerDay)}/${__('stats.dayUnit')}</div>
               <div class="text-xs text-muted" style="margin-top:2px">${formatMoney(remainingDaily)} ÷ ${remainingDays}${__('stats.days')}</div>
+              <div class="text-xs text-muted" style="margin-top:2px;opacity:0.85">${__('stats.dailyAvailableFormula')}</div>
             </div>
           </div>`;
           })()}
@@ -1675,17 +1770,8 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
       const my = (e.clientY - br.top);
       const hit = hitTestSlice(mx, my);
       const targetIdx = hit ? hit.index : -1;
-      // Only highlight slices that have children (subcategories)
-      let effectiveIdx = -1;
-      if (targetIdx >= 0) {
-        const d = slices[targetIdx];
-        if (d) {
-          const children = DataStore.getChildren(d.id);
-          if (children && children.length > 0) {
-            effectiveIdx = targetIdx;
-          }
-        }
-      }
+      // Every slice is clickable (records popup) — highlight on hover regardless
+      let effectiveIdx = targetIdx >= 0 ? targetIdx : -1;
       if (canvas._hoverIndex !== effectiveIdx) {
         canvas._hoverIndex = effectiveIdx;
         canvas.style.cursor = effectiveIdx >= 0 ? 'pointer' : 'default';
@@ -1712,26 +1798,10 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
       if (!hit) return;
       const d = slices[hit.index];
       if (!d) return;
-      const children = DataStore.getChildren(d.id);
-      if (children && children.length > 0) {
-        const curDrill = getDrillCategory();
-        if (curDrill !== d.id) {
-          statsDrillStack.push(d.id);
-        }
-        if (canvasId === 'expandPieChart') {
-          // In expanded mode: update expanded pie + table, don't close
-          drawPieChart('expandPieChart', statsMonth, null, null, null, 360, false);
-          if (typeof renderExpandPieTable === 'function') renderExpandPieTable();
-        } else {
-          updateDrillCharts();
-          if (onDrill) onDrill();
-        }
-      } else if (onDrill) {
-        // Leaf or single category in expand mode — just close overlay
-        if (canvasId !== 'expandPieChart') {
-          onDrill();
-        }
-      }
+      // Click = records popup for this domain (this month/window) + drill
+      // when it has children (keeps the chart navigable; leaves no-op).
+      showCategoryRecords(d.id);
+      drillIntoCategory(d.id);
     };
 
     canvas.addEventListener('mousemove', onMouseMove);
@@ -2386,8 +2456,9 @@ function drawCategoryWaffle(canvasId, startDate, endDate, height) {
     density: catWaffleDensity,
     legendId: isExpand ? null : null,   // the detail table already lists every row
     emptyText: __('stats.noCategoryData'),
-    // Clicking a block drills in, exactly like clicking its pie slice
-    onItem: function (item) { drillIntoCategory(item.id); }
+    // Click = records popup for that domain (+ drill when it has children,
+    // so the chart still navigates like the pie slice does)
+    onItem: function (item) { showCategoryRecords(item.id); drillIntoCategory(item.id); }
   });
 }
 
@@ -2643,8 +2714,7 @@ function bindTreemapHover(canvas) {
     if (tt + th > window.innerHeight - 8) tt = e.clientY - th - 12;
     tooltip.style.left = tl + 'px';
     tooltip.style.top = tt + 'px';
-    const kids = hit.leafOnly ? [] : (DataStore.getChildren(hit.id) || []);
-    canvas.style.cursor = kids.length ? 'pointer' : 'default';
+    canvas.style.cursor = 'pointer';
   };
   canvas.onmouseleave = function () {
     tooltip.style.display = 'none';
@@ -2652,7 +2722,9 @@ function bindTreemapHover(canvas) {
   };
   canvas.onclick = function () {
     const hit = canvas._treemapHit;
-    if (hit && !hit.leafOnly) drillIntoCategory(hit.id);
+    if (!hit) return;
+    showCategoryRecords(hit.id);
+    if (!hit.leafOnly) drillIntoCategory(hit.id);
   };
 }
 
@@ -3093,16 +3165,17 @@ addI18nEntries({
   'stats.catView.pie': { zh: '饼图', en: 'Pie' },
   'stats.catView.waffle': { zh: '格子图', en: 'Waffle' },
   'stats.catView.treemap': { zh: '矩形图', en: 'Treemap' },
-  'stats.catView.hint': { zh: '同一份分类数据的三种看法：饼图看占比，格子图看「一格 = 多少钱」，矩形图按面积比大小、用嵌套看层级', en: 'Three readings of the same category data: a pie for proportion, a waffle for "one block = this much money", a treemap for size by area with nesting for hierarchy' },
+  'stats.catView.hint': { zh: '同一份分类数据的三种看法：饼图看占比，格子图看「一格 = 多少钱」，矩形图按面积比大小、用嵌套看层级；点击任意色块弹出该领域本月全部消费记录', en: 'Three readings of the same category data: a pie for proportion, a waffle for "one block = this much money", a treemap for size by area with nesting for hierarchy' },
   'stats.category': { zh: '分类', en: 'Category' },
   'stats.amount': { zh: '金额', en: 'Amount' },
   'stats.percentage': { zh: '占比', en: 'Percentage' },
   'stats.thisMonth': { zh: '本月', en: 'This month' },
   'stats.lastMonth': { zh: '上月', en: 'Last month' },
-  'stats.billToggle.includeBills': { zh: '含账单', en: 'Include bills' },
+  'stats.billToggle.includeBills': { zh: '含固定账单', en: 'Incl. fixed bills' },
+  'stats.billToggle.hint': { zh: '勾选=统计含房租水电等固定账单；取消=只看日常消费', en: 'Checked = include fixed bills like rent & utilities; unchecked = daily spending only' },
   'stats.overspent': { zh: '超支', en: 'Overspent' },
   'stats.monthlyIncome': { zh: '月收入', en: 'Monthly income' },
-  'stats.bills': { zh: '账单', en: 'Bills' },
+  'stats.bills': { zh: '账单流水', en: 'Bill records' },
   'stats.savings': { zh: '储蓄', en: 'Savings' },
   'stats.dailyAvailable': { zh: '日常可用', en: 'Daily available' },
   'stats.month': { zh: '月份', en: 'Month' },
@@ -3111,12 +3184,16 @@ addI18nEntries({
   'stats.to': { zh: '至', en: 'to' },
   'stats.rangeTotal': { zh: '范围总支出', en: 'Range total' },
   'stats.rollingTotal': { zh: '近30天支出', en: 'Last 30 days' },
+  'stats.monthTotalBreakdownPrefix': { zh: '其中', en: 'o/w' },
+  'stats.monthTotalBreakdownHint': { zh: '本月总支出 = 日常净支出 + 账单流水；日常净支出已扣掉他人已还款', en: 'Total = daily net + bill records; daily net deducts repayments received' },
   'stats.monthTotal': { zh: '本月总支出', en: 'This month total' },
-  'stats.daily': { zh: '日常', en: 'Daily' },
+  'stats.daily': { zh: '日常净支出', en: 'Daily net' },
   'stats.recordCount': { zh: '记录数', en: 'Records' },
   'stats.dailyAvg': { zh: '日均支出', en: 'Daily avg' },
-  'stats.dailyAvgDaily': { zh: '日常日均', en: 'Daily avg (variable)' },
+  'stats.dailyAvgDaily': { zh: '日常净日均（不含账单）', en: 'Daily net avg (ex-bills)' },
   'stats.predictedRolling': { zh: '预测30天总支出', en: 'Predicted 30-day total' },
+  'stats.predictedBreakdown': { zh: '账单≈{0} ＋ 大额{1} ＋ 日常{2}', en: 'Bills~{0} + large {1} + daily {2}' },
+  'stats.predictedHint': { zh: '预测 = 账单趋势 ＋ 大额已发生（不计入日均） ＋ 日常趋势', en: 'Forecast = bill trend + large actual (excluded from daily avg) + daily trend' },
   'stats.predicted': { zh: '预测月总支出', en: 'Predicted monthly total' },
   'stats.savingsPrediction': { zh: '储蓄预测', en: 'Savings prediction' },
   'stats.transactionCount': { zh: '交易笔数', en: 'Transactions' },
@@ -3133,18 +3210,21 @@ addI18nEntries({
   'stats.netIncome': { zh: '净收入', en: 'Net income' },
   'stats.currentSavings': { zh: '当前已存', en: 'Saved so far' },
   'stats.estimatedMonthEnd': { zh: '预计月末储蓄', en: 'Est. month-end savings' },
-  'stats.balance': { zh: '收支结余', en: 'Balance' },
-  'stats.remainingTotalPerDay': { zh: '剩余总额/天', en: 'Remaining total/day' },
+  'stats.balance': { zh: '预算结余', en: 'Budget balance' },
+  'stats.balanceHint': { zh: '月收入设定 − 已花 − 未付账单；与下方实际结余口径不同', en: 'Income setting − spent − unpaid bills; different from recorded net below' },
+  'stats.remainingTotalPerDay': { zh: '剩余可花/天（未扣储蓄目标）', en: 'Left to spend/day (pre-savings)' },
   'stats.flow.title.monthly': { zh: '本月实际收支', en: 'Cash Flow This Month' },
   'stats.flow.title.rolling': { zh: '近30天实际收支', en: 'Cash Flow (Last 30 Days)' },
   'stats.flow.title.custom': { zh: '所选区间实际收支', en: 'Cash Flow in Range' },
   'stats.flow.income': { zh: '收入记录', en: 'Recorded Income' },
-  'stats.flow.net': { zh: '结余', en: 'Net' },
-  'stats.flow.note': { zh: '按流水记录统计，与「月收入」设定值无关', en: 'Summed from the ledger, independent of the Monthly Income setting' },
+  'stats.flow.net': { zh: '实际结余', en: 'Net (recorded)' },
+  'stats.flow.note': { zh: '按流水收入 − 流水支出统计，与「月收入」设定值无关', en: 'Recorded income minus recorded spending; independent of the Monthly Income setting' },
   'stats.legendSpending': { zh: '支出', en: 'Spending' },
   'stats.legendIncome': { zh: '收入', en: 'Income' },
   'stats.dayUnit': { zh: '天', en: 'day' },
-  'stats.dailyAvailablePerDay': { zh: '日常可用/天（已扣账单+储蓄）', en: 'Daily available/day (ex-bills & savings)' },
+  'stats.dailyAvailablePerDay': { zh: '日常可花/天（已扣账单+储蓄）', en: 'Daily spendable/day (ex-bills & savings)' },
+  'stats.remainingTotalFormula': { zh: '（月收入−已花−未付账单）÷剩余天数', en: '(income−spent−unpaid) ÷ days left' },
+  'stats.dailyAvailableFormula': { zh: '（日常可用−日常已花）÷剩余天数', en: '(spendable−daily spent) ÷ days left' },
   'stats.savingsHint': { zh: '💡 在「月账单中心」设定月收入后可查看储蓄预估', en: '💡 Set monthly income in Bills Center to see savings estimate' },
   'stats.expand': { zh: '展开', en: 'Expand' },
   'stats.zoomIn': { zh: '放大', en: 'Zoom in' },
@@ -3154,7 +3234,11 @@ addI18nEntries({
   'stats.lineChart.label': { zh: '折线图', en: 'Line chart' },
   'stats.pieChart.label': { zh: '饼图', en: 'Pie chart' },
   'stats.pieChart.expandTitle': { zh: '分类支出分析', en: 'Category spending analysis' },
-  'stats.pieChart.drillHint': { zh: '用层级按钮控制展开深度 · 点击分类名下钻', en: 'Use level buttons for depth · Click name to drill down' },
+  'stats.drill.into': { zh: '下钻看子分类', en: 'Drill into subcategories' },
+  'stats.catRecords.count': { zh: '共 {0} 笔', en: '{0} records' },
+  'stats.catRecords.more': { zh: '还有 {0} 笔未展开', en: '{0} more not shown' },
+  'stats.catRecords.viewInFlow': { zh: '在流水页查看', en: 'View in Records' },
+  'stats.pieChart.drillHint': { zh: '点击色块查看本月明细 · 点击分类名下钻', en: 'Click a block for this-month records · Click a name to drill down' },
   'stats.pieChart.toggleChildren': { zh: '展开/收起子分类', en: 'Expand/collapse subcategories' },
   'stats.hierarchy.level1': { zh: '1 层', en: 'Top' },
   'stats.hierarchy.level2': { zh: '2 层', en: '2 Lv' },
@@ -3196,6 +3280,8 @@ addI18nEntries({
   window.renderExpandPieTable = renderExpandPieTable;
   window.renderPieTables = renderPieTables;
   window.togglePieDetailTable = togglePieDetailTable;
+  window.showCategoryRecords = showCategoryRecords;
+  window.jumpToCategoryRecords = jumpToCategoryRecords;
   window.drillIntoCategory = drillIntoCategory;
   window.backFromDrill = backFromDrill;
   window.refreshExpandedCatChart = refreshExpandedCatChart;

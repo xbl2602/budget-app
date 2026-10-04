@@ -270,6 +270,10 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `getDailyTotals(month, options)` | 日支出数组 `[{day, total}]` |
 | `getDailyAverage(month)` | 日均（排除 `excludeFromAvg`） |
 | `getPredictedTotal(month)` | 预测月总 |
+| `getPredictedMonthEndTotal(month)` | 预测月末现金流（含大额加回） |
+| `getPredictedBreakdown(month)` | 预测拆分：账单趋势 + 大额已发生 + 日常趋势 = 预测 |
+| `getPredictedBreakdownVariable(month)` | 去账单口径的预测拆分（大额 + 日常） |
+| `getPeriodPredictedBreakdown()` / `getPeriodPredictedBreakdownVariable()` / `getPeriodVariablePredictedTrend()` | 近 30 天的同口径拆分 |
 | `getSavingsPrediction(month)` | 预算 - 预测 |
 | `getRemainingDailyLimit(month)` | 剩余日限额 |
 | `getCategoryBreakdownDeep(month, catId)` | 递归分类分解 |
@@ -601,6 +605,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `getDailySavingsTarget(month)` | 日均可支配预算 |
 | `renderCalendarHeatmap(month)` | 渲染热力图 HTML |
 | `showDayRecords(dateStr)` | 点击日期显示当日记录 |
+| `showCategoryRecords(catId)` | 点击饼图/格子图/矩形图色块，弹窗显示该领域在当前窗口的全部消费记录（有子则顺带下钻，`-direct` 只看直接记账） |
+| `jumpToCategoryRecords(catId)` | 弹窗里的「在流水页查看」：按分类 + 窗口日期跳流水页 |
 
 **图表展开弹窗：**
 | 函数 | 说明 |

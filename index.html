@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://sfwnpwchujslqfnmdyxo.supabase.co; base-uri 'none'; form-action 'none';">
-  <title>记账软件 v3.5.0</title>
+  <title>记账软件 v3.6.0</title>
   <style>
 /* ===== CSS DESIGN SYSTEM ===== */
 :root {
@@ -3322,7 +3322,7 @@ window.applyI18nToDOM = applyI18nToDOM;
 
 })();
 
-}catch(e){console.error('[00-i18n.js] failed:', e)}
+}catch(e){console.error('[00-i18n.js] failed:' , e)}
 try{
 // === 01-constants.js ===
 /* ============================================================
@@ -3341,7 +3341,7 @@ try{
 // docs/superpowers/specs/2026-09-28-changelog-announcement-design.md.
 // Do not confuse this with the cloud ledger's monotonic integer `version` in
 // 28-cloud-sync.js — that is a different concept in a different IIFE.
-const APP_VERSION = '3.5.0';
+const APP_VERSION = '3.6.0';
 
 const COLORS = [
   '#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6',
@@ -3486,7 +3486,7 @@ function getPeriodDateRange() {
   window.getPeriodDateRange = getPeriodDateRange;
 })();
 
-}catch(e){console.error('[01-constants.js] failed:', e)}
+}catch(e){console.error('[01-constants.js] failed:' , e)}
 try{
 // === 02-datastore.js ===
 /* ============================================================
@@ -5178,7 +5178,7 @@ const DataStore = {
   window.DataStore.getAllTagColors = DataStore.getAllTagColors.bind(DataStore);
 })();
 
-}catch(e){console.error('[02-datastore.js] failed:', e)}
+}catch(e){console.error('[02-datastore.js] failed:' , e)}
 try{
 // === 03-excel-export.js ===
 /* ============================================================
@@ -5980,7 +5980,7 @@ function exportToExcel() {
   });
 })();
 
-}catch(e){console.error('[03-excel-export.js] failed:', e)}
+}catch(e){console.error('[03-excel-export.js] failed:' , e)}
 try{
 // === 04-stats-engine.js ===
 /* ============================================================
@@ -6105,6 +6105,97 @@ const StatsEngine = {
       .filter(r => r && r.excludeFromAvg)
       .reduce((s, r) => s + (r.amount || 0), 0);
     return round2(this.getPredictedTotal(month) + excludedActual);
+  },
+
+  // Breakdown of the cash-flow prediction into three disjoint parts that sum
+  // to getPredictedMonthEndTotal: bills (projected trend of bill-category
+  // records) + large (already-happened excludeFromAvg, not in daily avg) +
+  // normal (projected trend of everything else, net of split shares).
+  // Split repayments (others' shares) are stripped from the trend
+  // proportionally so the three parts stay non-negative and add up.
+  getPredictedBreakdown(month) {
+    const records = this.getRecordsInMonth(month);
+    const excludedActual = records.filter(r => r && r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0);
+    const billNonExcluded = records.filter(r => r && !r.excludeFromAvg && this.isBillCategory(r.categoryId)).reduce((s, r) => s + (r.amount || 0), 0);
+    const normalNonExcluded = records.filter(r => r && !r.excludeFromAvg && !this.isBillCategory(r.categoryId)).reduce((s, r) => s + (r.amount || 0), 0);
+    const totalNonExcluded = billNonExcluded + normalNonExcluded;
+    const parts = String(month || '').split('-');
+    const daysInMonth = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10), 0).getDate() || 30;
+    const now = new Date();
+    const currentMonth = getMonthKey(now.toISOString());
+    const daysPassed = month === currentMonth ? now.getDate() : daysInMonth;
+    const predicted = this.getPredictedMonthEndTotal(month);
+    const large = round2(excludedActual);
+    if (!totalNonExcluded || !(daysPassed > 0)) {
+      const normal = round2(Math.max(0, predicted - large));
+      return { bills: 0, large: large, normal: normal, predicted: round2(predicted) };
+    }
+    const splitOthers = Math.max(0, this.getSplitOthers(month) || 0);
+    const splitRatio = Math.min(1, Math.max(0, splitOthers / totalNonExcluded));
+    const keep = 1 - splitRatio;
+    const bills = round2((billNonExcluded / daysPassed) * daysInMonth * keep);
+    let normal = round2(predicted - bills - large);
+    if (normal < 0) normal = 0;
+    return { bills: bills, large: large, normal: normal, predicted: round2(predicted) };
+  },
+
+  // Variable (ex-bills) twin: large (non-bill excludeFromAvg, already happened)
+  // + normal (projected daily trend, net of splits) = cash-flow variable total.
+  getPredictedBreakdownVariable(month) {
+    const records = this.getRecordsInMonth(month).filter(r => r && !this.isBillCategory(r.categoryId));
+    const large = round2(records.filter(r => r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0));
+    const predictedTrend = round2(this.getDailyAverageVariable(month) * (new Date(parseInt(String(month).split('-')[0], 10), parseInt(String(month).split('-')[1], 10), 0).getDate() || 30));
+    const predicted = round2(predictedTrend + large);
+    let normal = round2(Math.max(0, predicted - large));
+    return { bills: 0, large: large, normal: normal, predicted: predicted };
+  },
+
+  // Rolling-30-day twins (same split, period window).
+  getPeriodPredictedBreakdown() {
+    const records = this.getPeriodRecords();
+    const excludedActual = records.filter(r => r && r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0);
+    const billIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
+    const billNonExcluded = records.filter(r => r && !r.excludeFromAvg && billIds.has(r.categoryId)).reduce((s, r) => s + (r.amount || 0), 0);
+    const normalNonExcluded = records.filter(r => r && !r.excludeFromAvg && !billIds.has(r.categoryId)).reduce((s, r) => s + (r.amount || 0), 0);
+    const totalNonExcluded = billNonExcluded + normalNonExcluded;
+    const range = getPeriodDateRange();
+    const daysInPeriod = range.daysInPeriod || 30;
+    const daysPassed = range.daysPassed || 0;
+    const predicted = this.getPeriodPredictedMonthEndTotal();
+    const large = round2(excludedActual);
+    if (!totalNonExcluded || !(daysPassed > 0)) {
+      return { bills: 0, large: large, normal: round2(Math.max(0, predicted - large)), predicted: round2(predicted) };
+    }
+    const splitOthers = Math.max(0, this.getPeriodSplitOthers() || 0);
+    const splitRatio = Math.min(1, Math.max(0, splitOthers / totalNonExcluded));
+    const keep = 1 - splitRatio;
+    const bills = round2((billNonExcluded / daysPassed) * daysInPeriod * keep);
+    let normal = round2(predicted - bills - large);
+    if (normal < 0) normal = 0;
+    return { bills: bills, large: large, normal: normal, predicted: round2(predicted) };
+  },
+
+  getPeriodPredictedBreakdownVariable() {
+    const billIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
+    const records = this.getPeriodRecords().filter(r => r && !billIds.has(r.categoryId));
+    const large = round2(records.filter(r => r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0));
+    const range = getPeriodDateRange();
+    const predictedTrend = round2(this.getPeriodVariablePredictedTrend());
+    const predicted = round2(predictedTrend + large);
+    return { bills: 0, large: large, normal: round2(Math.max(0, predicted - large)), predicted: predicted };
+  },
+
+  // Variable trend for rolling window (non-bill, non-excluded, net of splits).
+  getPeriodVariablePredictedTrend() {
+    const range = getPeriodDateRange();
+    const daysPassed = range.daysPassed || 0;
+    const daysInPeriod = range.daysInPeriod || 30;
+    if (!(daysPassed > 0)) return 0;
+    const billIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
+    const recs = this.getPeriodRecords().filter(r => r && !billIds.has(r.categoryId) && !r.excludeFromAvg);
+    const total = recs.reduce((s, r) => s + (r.amount || 0), 0);
+    const splitOthers = Math.max(0, this.getPeriodSplitOthers() || 0);
+    return round2(Math.max(0, total - Math.min(splitOthers, total)) / daysPassed * daysInPeriod);
   },
 
   getSavingsPrediction(month) {
@@ -6893,7 +6984,7 @@ const PlanMath = {
   window.PlanMath = PlanMath;
 })();
 
-}catch(e){console.error('[04-stats-engine.js] failed:', e)}
+}catch(e){console.error('[04-stats-engine.js] failed:' , e)}
 try{
 // === 05-simulation-engine.js ===
 /* ============================================================
@@ -7188,7 +7279,7 @@ const SimulationEngine = {
   window.SimulationEngine = SimulationEngine;
 })();
 
-}catch(e){console.error('[05-simulation-engine.js] failed:', e)}
+}catch(e){console.error('[05-simulation-engine.js] failed:' , e)}
 try{
 // === 06-router.js ===
 /* ============================================================
@@ -7292,7 +7383,7 @@ if (document.readyState === 'loading') {
   window.navigateTo = navigateTo;
 })();
 
-}catch(e){console.error('[06-router.js] failed:', e)}
+}catch(e){console.error('[06-router.js] failed:' , e)}
 try{
 // === 07-ui-core.js ===
 /* ============================================================
@@ -8244,7 +8335,7 @@ function bindActivityListeners() {
   window.confirmTagPick = confirmTagPick;
 })();
 
-}catch(e){console.error('[07-ui-core.js] failed:', e)}
+}catch(e){console.error('[07-ui-core.js] failed:' , e)}
 try{
 // === 09-category-picker.js ===
 /* ============================================================
@@ -8609,7 +8700,7 @@ setDisplay(displayAdd);
 })();
 
 
-}catch(e){console.error('[09-category-picker.js] failed:', e)}
+}catch(e){console.error('[09-category-picker.js] failed:' , e)}
 try{
 // === 10-render-overview.js ===
 /* ============================================================
@@ -8636,9 +8727,12 @@ function renderOverview() {
     : (isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(month));
   // Cash-flow reading ("预测月总支出" can never sit below what's already been
   // spent) — use the month-end total, not the daily-average trend (A-1/A-3).
-  const predicted = includeBills
+  const predictedBreakdown = includeBills
+    ? (isRolling ? StatsEngine.getPeriodPredictedBreakdown() : StatsEngine.getPredictedBreakdown(month))
+    : (isRolling ? StatsEngine.getPeriodPredictedBreakdownVariable() : StatsEngine.getPredictedBreakdownVariable(month));
+  const predicted = (predictedBreakdown && predictedBreakdown.predicted != null) ? predictedBreakdown.predicted : (includeBills
     ? (isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month))
-    : (isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : (StatsEngine.getDailyAverageVariable(month) * new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()));
+    : (StatsEngine.getDailyAverageVariable(month) * new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()));
   const remainingLimit = isRolling ? StatsEngine.getPeriodRemainingDailyLimit() : StatsEngine.getRemainingDailyLimit(month);
   const last7 = StatsEngine.getLast7Days();
   const overspent = StatsEngine.getOverspentCategories(month);
@@ -8745,11 +8839,11 @@ function renderOverview() {
           const billActual = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
           const varSpending = monthTotal - billActual;
           if (billActual > 0) {
-            return `<div class="text-xs text-muted mt-4">${__('overview.dailyBillsBreakdown', formatMoney(varSpending), formatMoney(billActual))}</div>`;
+            return `<div class="text-xs text-muted mt-4" title="${__('overview.dailyBillsHint')}">${__('overview.dailyBillsBreakdown', formatMoney(varSpending), formatMoney(billActual))}</div>`;
           }
           return '';
         })()}
-        ${splitUnpaidTotal > 0.01 ? `<div class="text-xs text-muted mt-4">${__('overview.realSpendingNote', formatMoney(monthTotal - splitUnpaidTotal), formatMoney(splitUnpaidTotal))}</div>` : ''}
+        ${splitUnpaidTotal > 0.01 ? `<div class="text-xs text-muted mt-4" title="${__('overview.realSpendingHint')}">${__('overview.realSpendingNote', formatMoney(monthTotal - splitUnpaidTotal), formatMoney(splitUnpaidTotal))}</div>` : ''}
       </div>
       <div class="card">
         <div class="card-title">${__('overview.monthlyIncome')}</div>
@@ -8762,6 +8856,14 @@ function renderOverview() {
       <div class="card">
         <div class="card-title">${isRolling ? __('overview.predicted.rolling') : __('overview.predicted.monthly')}</div>
         <div class="text-xl font-bold">${formatMoney(predicted)}</div>
+        ${(() => {
+          const bd = (typeof predictedBreakdown !== 'undefined' && predictedBreakdown) ? predictedBreakdown : null;
+          if (!bd) return '';
+          if (includeBills) {
+            return `<div class="text-xs text-muted mt-4" title="${__('overview.predictedHint')}">${__('overview.predictedBreakdown', formatMoney(bd.bills || 0), formatMoney(bd.large || 0), formatMoney(bd.normal || 0))}</div>`;
+          }
+          return `<div class="text-xs text-muted mt-4" title="${__('overview.predictedHint')}">${__('overview.predictedBreakdownNoBills', formatMoney(bd.large || 0), formatMoney(bd.normal || 0))}</div>`;
+        })()}
       </div>
     </div>
 
@@ -8916,15 +9018,17 @@ function renderOverview() {
           const remainingDailyPerDay = remainingDays > 0 ? Math.max(0, remainingDaily / remainingDays) : 0;
           return `
           <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
-            <div style="flex:1;min-width:140px;padding:6px 10px;border-radius:8px;background:var(--card-bg);border:1px solid var(--border)">
+            <div style="flex:1;min-width:140px;padding:6px 10px;border-radius:8px;background:var(--card-bg);border:1px solid var(--border)" title="${__('overview.remainingTotalHint')}">
               <div class="text-xs text-secondary">${__('overview.remainingTotalPerDay')}</div>
               <div class="font-bold" style="font-size:1rem;color:${remainingTotalPerDay > 0 ? 'var(--warning)' : 'var(--text-muted)'}">${formatMoney(remainingTotalPerDay)}${__('overview.perDay')}</div>
               <div class="text-xs text-muted" style="margin-top:2px">${__('overview.remainingBreakdown', formatMoney(remainingTotal), remainingDays)}</div>
+              <div class="text-xs text-muted" style="margin-top:2px;opacity:0.85">${__('overview.remainingTotalFormula')}</div>
             </div>
-            <div style="flex:1;min-width:140px;padding:6px 10px;border-radius:8px;background:var(--card-bg);border:1px solid var(--border)">
+            <div style="flex:1;min-width:140px;padding:6px 10px;border-radius:8px;background:var(--card-bg);border:1px solid var(--border)" title="${__('overview.dailySpendableHint')}">
               <div class="text-xs text-secondary">${__('overview.dailySpendablePerDay')}</div>
               <div class="font-bold" style="font-size:1rem;color:${remainingDailyPerDay > 0 ? 'var(--primary)' : 'var(--text-muted)'}">${formatMoney(remainingDailyPerDay)}${__('overview.perDay')}</div>
               <div class="text-xs text-muted" style="margin-top:2px">${__('overview.remainingBreakdown', formatMoney(remainingDaily), remainingDays)}</div>
+              <div class="text-xs text-muted" style="margin-top:2px;opacity:0.85">${__('overview.dailySpendableFormula')}</div>
             </div>
           </div>`;
         })()}
@@ -9058,19 +9162,24 @@ function refreshOverviewBudget() {
     'overview.firstRecord': { zh: '✏️ 记第一笔账', en: '✏️ Add First Record' },
     'overview.title.rolling': { zh: '近30天支出', en: 'Last 30 Days' },
     'overview.title.monthly': { zh: '本月总支出', en: 'Monthly Spending' },
-    'overview.dailyBillsBreakdown': { zh: '日常 {0} · 账单 {1}', en: 'Daily {0} · Bills {1}' },
-    'overview.realSpendingNote': { zh: '真实支出 {0} + 未收回账目 {1}', en: 'Real spending {0} + Uncollected {1}' },
+    'overview.dailyBillsHint': { zh: '本月总支出 = 日常净支出 + 账单流水；日常净支出已扣掉他人已还款', en: 'Total = daily net + bill records; daily net already deducts repayments received' },
+    'overview.realSpendingHint': { zh: '本月总支出含你替他人垫付、待收回的钱；你的实际承担 + 待收回 = 上方合计', en: 'Total includes money you fronted for others; your share + to-collect = total above' },
+    'overview.dailyBillsBreakdown': { zh: '其中日常净支出 {0} ＋ 账单流水 {1}', en: 'o/w daily net {0} + bills {1}' },
+    'overview.realSpendingNote': { zh: '你的实际承担 {0} ＋ 待收回 {1} ＝ 上方合计（已收回已扣除）', en: 'Your share {0} + to-collect {1} = total above (repaid deducted)' },
     'overview.monthlyIncome': { zh: '月收入', en: 'Monthly Income' },
     'overview.flow.title.monthly': { zh: '💵 本月实际收支', en: '💵 Cash Flow This Month' },
     'overview.flow.title.rolling': { zh: '💵 近30天实际收支', en: '💵 Cash Flow (Last 30 Days)' },
     'overview.flow.income': { zh: '收入记录', en: 'Recorded Income' },
     'overview.flow.expense': { zh: '支出记录', en: 'Recorded Spending' },
-    'overview.flow.net': { zh: '结余', en: 'Net' },
-    'overview.flow.note': { zh: '按流水记录统计，与上方「月收入」设定值无关', en: 'Summed from the ledger, independent of the Monthly Income setting above' },
+    'overview.flow.net': { zh: '实际结余', en: 'Net (recorded)' },
+    'overview.flow.note': { zh: '按流水收入 − 流水支出统计，与上方「月收入」设定值无关', en: 'Recorded income minus recorded spending; independent of the Monthly Income setting above' },
     'overview.notSet': { zh: '未设置', en: 'Not Set' },
     'overview.netIncome': { zh: '净收入', en: 'Net Income' },
     'overview.dailyAvg': { zh: '日均支出', en: 'Daily Avg' },
     'overview.predicted.rolling': { zh: '预测30天总支出', en: 'Predicted 30-Day Total' },
+    'overview.predictedBreakdown': { zh: '账单≈{0} ＋ 大额{1} ＋ 日常{2}', en: 'Bills~{0} + large {1} + daily {2}' },
+    'overview.predictedBreakdownNoBills': { zh: '大额{0} ＋ 日常{1}（已剔账单）', en: 'Large {0} + daily {1} (ex-bills)' },
+    'overview.predictedHint': { zh: '预测 = 账单趋势 ＋ 大额已发生（不计入日均） ＋ 日常趋势；大额是已花的真实金额，不参与日均推算', en: 'Forecast = bill trend + large actual (excluded from daily avg) + daily trend; large is money already spent' },
     'overview.predicted.monthly': { zh: '预测月总支出', en: 'Predicted Monthly Total' },
     'overview.yesterdaySpending': { zh: '昨日消费 ({0})', en: 'Yesterday ({0})' },
     'overview.todaySpending': { zh: '今日消费 ({0})', en: 'Today ({0})' },
@@ -9094,10 +9203,14 @@ function refreshOverviewBudget() {
     'overview.targetAchievement': { zh: '目标达成', en: 'Target Progress' },
     'overview.predictionPositive': { zh: '📈 如果维持当前消费习惯，本月末预计可存 {0}', en: '📈 At this rate, est. to save {0} by month end' },
     'overview.predictionNegative': { zh: '⚠️ 预计超支 {0}，请注意控制支出', en: '⚠️ Est. overspend {0}, please control spending' },
-    'overview.remainingTotalPerDay': { zh: '剩余总额/天', en: 'Remaining Total / Day' },
-    'overview.dailySpendablePerDay': { zh: '日常可用/天（已扣账单+储蓄）', en: 'Daily Spendable / Day' },
+    'overview.remainingTotalPerDay': { zh: '剩余可花/天（未扣储蓄目标）', en: 'Left to spend / day (pre-savings)' },
+    'overview.dailySpendablePerDay': { zh: '日常可花/天（已扣账单+储蓄）', en: 'Daily spendable / day (ex-bills & savings)' },
     'overview.perDay': { zh: '/天', en: '/day' },
     'overview.remainingBreakdown': { zh: '{0} ÷ {1}天', en: '{0} ÷ {1}d' },
+    'overview.remainingTotalHint': { zh: '月收入 − 已花 − 未付账单，再除以剩余天数；未扣除储蓄目标', en: '(Income − spent − unpaid bills) ÷ days left; savings target not deducted' },
+    'overview.remainingTotalFormula': { zh: '（月收入−已花−未付账单）÷剩余天数', en: '(income−spent−unpaid) ÷ days left' },
+    'overview.dailySpendableHint': { zh: '日常可用额度 − 日常已花，再除以剩余天数；已扣账单、储蓄目标与大额预留', en: '(Spendable − daily spent) ÷ days left; bills, savings & plan reserves deducted' },
+    'overview.dailySpendableFormula': { zh: '（日常可用−日常已花）÷剩余天数', en: '(spendable−daily spent) ÷ days left' },
     'overview.setupHint': { zh: '💡 在「月账单中心」设定月收入，在「设置」设定储蓄目标后可查看完整预测', en: '💡 Set income in Bills Center & savings target in Settings' },
     'overview.last7Days': { zh: '近7天趋势', en: 'Last 7 Days' },
     'overview.top5': { zh: '支出排行 TOP 5', en: 'Top 5 Categories' },
@@ -9111,7 +9224,7 @@ function refreshOverviewBudget() {
   });
 })();
 
-}catch(e){console.error('[10-render-overview.js] failed:', e)}
+}catch(e){console.error('[10-render-overview.js] failed:' , e)}
 try{
 // === 11-theme-colors.js ===
 /* ===== THEME-AWARE COLORS ===== */
@@ -9134,7 +9247,7 @@ function getThemeColors() {
   window.getThemeColors = getThemeColors;
 })();
 
-}catch(e){console.error('[11-theme-colors.js] failed:', e)}
+}catch(e){console.error('[11-theme-colors.js] failed:' , e)}
 try{
 // === 12-budget-progress.js ===
 /* ===== BUDGET PROGRESS CARD ===== */
@@ -9537,7 +9650,7 @@ function renderBudgetProgressCardInner(month) {
   window.renderBudgetProgressCardInner = renderBudgetProgressCardInner;
 })();
 
-}catch(e){console.error('[12-budget-progress.js] failed:', e)}
+}catch(e){console.error('[12-budget-progress.js] failed:' , e)}
 try{
 // === 13-canvas-drawing.js ===
 /* ============================================================
@@ -9669,7 +9782,7 @@ function drawSparkline(canvasId, data) {
   window.drawSparkline = drawSparkline;
 })();
 
-}catch(e){console.error('[13-canvas-drawing.js] failed:', e)}
+}catch(e){console.error('[13-canvas-drawing.js] failed:' , e)}
 try{
 // === 14-render-add.js ===
 /* ============================================================
@@ -10008,7 +10121,7 @@ function removeAddTag(tag) {
 })();
 
 
-}catch(e){console.error('[14-render-add.js] failed:', e)}
+}catch(e){console.error('[14-render-add.js] failed:' , e)}
 try{
 // === 15-render-records.js ===
 /* ============================================================
@@ -11208,7 +11321,7 @@ function setRecordsTagFilter(tag) {
 })();
 
 
-}catch(e){console.error('[15-render-records.js] failed:', e)}
+}catch(e){console.error('[15-render-records.js] failed:' , e)}
 try{
 // === 16-render-categories.js ===
 /* ============================================================
@@ -12066,7 +12179,7 @@ function saveCategoryEdit(catId) {
   });
 })();
 
-}catch(e){console.error('[16-render-categories.js] failed:', e)}
+}catch(e){console.error('[16-render-categories.js] failed:' , e)}
 try{
 // === 17-stats-charts.js ===
 /* ============================================================
@@ -12658,6 +12771,91 @@ function refreshExpandedCatChart() {
   }
 }
 
+/* Click a chart block -> show every expense record for that category in the
+   current stats window (month / rolling30 / custom). Descendants included,
+   so a root domain shows its whole subtree; a '-direct' pseudo-box shows
+   only records booked directly on the parent. Drill stays available via the
+   button in the popup and via the detail-table names. */
+function showCategoryRecords(catId) {
+  if (!catId) return;
+  const isDirect = String(catId).slice(-7) === '-direct';
+  const realId = isDirect ? String(catId).slice(0, -7) : catId;
+  const cat = DataStore.getCategory(realId);
+  if (!cat) return;
+  const isCustom = useCustomRange();
+  const sD = isCustom ? statsStartDate : null;
+  const eD = isCustom ? statsEndDate : null;
+  let windowLabel = '';
+  if (isCustom) windowLabel = statsStartDate + ' ~ ' + statsEndDate;
+  else if (getStatsRange() === 'rolling30' && statsMonth === getMonthKey(new Date().toISOString())) {
+    try { windowLabel = getPeriodDateRange().label; } catch (e) { windowLabel = statsMonth; }
+  } else windowLabel = statsMonth || '';
+  let ids;
+  try {
+    ids = isDirect ? [realId] : DataStore.getDescendantIds(realId);
+  } catch (e) { ids = [realId]; }
+  const idSet = new Set(ids);
+  let recs = [];
+  try {
+    recs = getHierarchyRecords(statsMonth, sD, eD).filter(r => idSet.has(r.categoryId));
+  } catch (e) { recs = []; }
+  recs = recs.slice().sort((a, b) => String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')));
+  const total = recs.reduce((s, r) => s + (r.amount || 0), 0);
+  const children = DataStore.getChildren(realId) || [];
+  const canDrill = !isDirect && children.length > 0;
+  let html = `<div class="modal-title">${escHtml(cat.icon || '')} ${escHtml(cat.name)}${isDirect ? ' ' + __('stats.direct') : ''}</div>`;
+  html += `<div class="text-xs text-muted" style="margin-bottom:8px">${escHtml(windowLabel)} · ${__('stats.catRecords.count', recs.length)} · ${__('stats.total')} ${formatMoney(total)}</div>`;
+  if (!recs.length) {
+    html += `<div class="text-sm text-muted" style="padding:16px;text-align:center">${__('stats.noRecords')}</div>`;
+  } else {
+    html += `<div style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:8px">`;
+    recs.slice(0, 200).forEach(r => {
+      const rc = DataStore.getCategory(r.categoryId) || { name: __('stats.unknown'), icon: '' };
+      const dstr = String(r.date || r.createdAt || '').slice(0, 10);
+      html += `<div class="record-card compact" style="cursor:pointer;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card-bg);display:flex;align-items:center;gap:8px;font-size:0.82rem" onclick="closeModal();openEditRecord('${r.id}')">`
+        + `<span style="font-size:0.8rem">${escHtml(rc.icon || '')}</span>`
+        + `<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(rc.name || '')}</span>`
+        + (r.note ? `<span class="text-xs text-muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px">📝 ${escHtml(r.note)}</span>` : '')
+        + `<span class="text-xs text-muted" style="white-space:nowrap">${escHtml(dstr)}</span>`
+        + `<span style="font-weight:600;white-space:nowrap">${formatMoney(r.amount)}</span>`
+        + `</div>`;
+    });
+    if (recs.length > 200) html += `<div class="text-xs text-muted" style="text-align:center">…${__('stats.catRecords.more', recs.length - 200)}</div>`;
+    html += `</div>`;
+  }
+  html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;
+  if (canDrill) html += `<button class="btn btn-sm btn-outline" onclick="closeModal();drillIntoCategory('${realId}')">🔍 ${__('stats.drill.into')}</button>`;
+  html += `<button class="btn btn-sm btn-outline" onclick="closeModal();jumpToCategoryRecords('${realId}')">📋 ${__('stats.catRecords.viewInFlow')}</button>`;
+  html += `<button class="btn btn-sm btn-ghost" onclick="closeModal()">${__('stats.cancel')}</button>`;
+  html += `</div>`;
+  showModal(html);
+}
+
+function jumpToCategoryRecords(catId) {
+  try {
+    if (typeof clearRecordsFilter === 'function') clearRecordsFilter();
+    if (typeof recordsFilter !== 'undefined' && recordsFilter) {
+      recordsFilter.categoryId = catId;
+      if (useCustomRange()) {
+        recordsFilter.dateStart = statsStartDate;
+        recordsFilter.dateEnd = statsEndDate;
+      } else if (!(getStatsRange() === 'rolling30' && statsMonth === getMonthKey(new Date().toISOString()))) {
+        if (statsMonth) {
+          const parts = String(statsMonth).split('-');
+          const y = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+          if (y && m) {
+            const last = new Date(y, m, 0).getDate();
+            recordsFilter.dateStart = statsMonth + '-01';
+            recordsFilter.dateEnd = statsMonth + '-' + String(last).padStart(2, '0');
+          }
+        }
+      }
+      if (typeof recordsPage !== 'undefined') recordsPage = 1;
+    }
+  } catch (e) {}
+  navigateTo('records');
+}
+
 /* Single entry point for "drill into this category", shared by the detail table,
    the pie slices and the waffle blocks. */
 function drillIntoCategory(catId) {
@@ -12914,7 +13112,7 @@ function drawCompareBarChart(canvasId, month) {
 function renderBillToggle(chartId, checked = true) {
   const stored = localStorage.getItem('chartBillToggle_' + chartId);
   const isChecked = stored !== null ? stored === '1' : checked;
-  return `<label class="bill-toggle">
+  return `<label class="bill-toggle" title="${__('stats.billToggle.hint')}">
     <input type="checkbox" id="toggle-${chartId}" ${isChecked ? 'checked' : ''}
       onchange="toggleBillFilter('${chartId}')">
     📋 ${__('stats.billToggle.includeBills')}
@@ -13049,9 +13247,16 @@ function renderStats() {
 
     <!-- Stats cards row 1: Core summary -->
     <div class="grid-4 mb-16">
-      <div class="card"><div class="card-title">${isCustom ? __('stats.rangeTotal') : (isRolling ? __('stats.rollingTotal') : __('stats.monthTotal'))}</div><div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">${__('stats.daily')} ${formatMoney(monthTotal - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)))} · ${__('stats.bills')} ${formatMoney(isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth))}</div>` : ''}</div>
+      <div class="card"><div class="card-title">${isCustom ? __('stats.rangeTotal') : (isRolling ? __('stats.rollingTotal') : __('stats.monthTotal'))}</div><div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">${__('stats.monthTotalBreakdownPrefix')}${__('stats.daily')} ${formatMoney(monthTotal - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)))} · ${__('stats.bills')} ${formatMoney(isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth))}</div>` : ''}</div>
       <div class="card"><div class="card-title">${isCustom ? __('stats.recordCount') : __('stats.dailyAvg')}</div><div class="text-xl font-bold">${isCustom ? rangeTotal.count : formatMoney(dailyAvg)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">${__('stats.dailyAvgDaily')} ${formatMoney(isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(statsMonth))}</div>` : ''}</div>
-      <div class="card"><div class="card-title">${isRolling ? __('stats.predictedRolling') : __('stats.predicted')}</div><div class="text-xl font-bold">${formatMoney(predicted)}</div></div>
+      <div class="card"><div class="card-title">${isRolling ? __('stats.predictedRolling') : __('stats.predicted')}</div><div class="text-xl font-bold">${formatMoney(predicted)}</div>${(() => {
+        if (isCustom) return '';
+        try {
+          const bd = isRolling ? StatsEngine.getPeriodPredictedBreakdown() : StatsEngine.getPredictedBreakdown(statsMonth);
+          if (!bd) return '';
+          return `<div class="text-xs text-muted mt-4" title="${__('stats.predictedHint')}">${__('stats.predictedBreakdown', formatMoney(bd.bills || 0), formatMoney(bd.large || 0), formatMoney(bd.normal || 0))}</div>`;
+        } catch (e) { return ''; }
+      })()}</div>
       <div class="card"><div class="card-title">${__('stats.savingsPrediction')}</div><div class="text-xl font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div></div>
     </div>
 
@@ -13140,9 +13345,10 @@ function renderStats() {
             <div class="text-xs text-secondary">${__('stats.estimatedMonthEnd')}</div>
             <div class="text-lg font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div>
           </div>
-          <div>
+          <div title="${__('stats.balanceHint')}">
             <div class="text-xs text-secondary">${__('stats.balance')}</div>
             <div class="text-lg font-bold" style="color:${(budget - effectiveTotalStats) >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(budget - effectiveTotalStats)}</div>
+            <div class="text-xs text-muted" style="margin-top:2px">${__('stats.balanceHint')}</div>
           </div>
         </div>
         ${budget > 0 ? `
@@ -13164,11 +13370,13 @@ function renderStats() {
               <div class="text-xs text-secondary">${__('stats.remainingTotalPerDay')}</div>
               <div class="font-bold" style="font-size:1rem;color:${remainingTotalPerDay > 0 ? 'var(--warning)' : 'var(--text-muted)'}">${formatMoney(remainingTotalPerDay)}/${__('stats.dayUnit')}</div>
               <div class="text-xs text-muted" style="margin-top:2px">${formatMoney(remainingTotal)} ÷ ${remainingDays}${__('stats.days')}</div>
+              <div class="text-xs text-muted" style="margin-top:2px;opacity:0.85">${__('stats.remainingTotalFormula')}</div>
             </div>
             <div style="flex:1;min-width:140px;padding:6px 10px;border-radius:8px;background:var(--card-bg);border:1px solid var(--border)">
               <div class="text-xs text-secondary">${__('stats.dailyAvailablePerDay')}</div>
               <div class="font-bold" style="font-size:1rem;color:${remainingDailyPerDay > 0 ? 'var(--primary)' : 'var(--text-muted)'}">${formatMoney(remainingDailyPerDay)}/${__('stats.dayUnit')}</div>
               <div class="text-xs text-muted" style="margin-top:2px">${formatMoney(remainingDaily)} ÷ ${remainingDays}${__('stats.days')}</div>
+              <div class="text-xs text-muted" style="margin-top:2px;opacity:0.85">${__('stats.dailyAvailableFormula')}</div>
             </div>
           </div>`;
           })()}
@@ -13746,17 +13954,8 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
       const my = (e.clientY - br.top);
       const hit = hitTestSlice(mx, my);
       const targetIdx = hit ? hit.index : -1;
-      // Only highlight slices that have children (subcategories)
-      let effectiveIdx = -1;
-      if (targetIdx >= 0) {
-        const d = slices[targetIdx];
-        if (d) {
-          const children = DataStore.getChildren(d.id);
-          if (children && children.length > 0) {
-            effectiveIdx = targetIdx;
-          }
-        }
-      }
+      // Every slice is clickable (records popup) — highlight on hover regardless
+      let effectiveIdx = targetIdx >= 0 ? targetIdx : -1;
       if (canvas._hoverIndex !== effectiveIdx) {
         canvas._hoverIndex = effectiveIdx;
         canvas.style.cursor = effectiveIdx >= 0 ? 'pointer' : 'default';
@@ -13783,26 +13982,10 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
       if (!hit) return;
       const d = slices[hit.index];
       if (!d) return;
-      const children = DataStore.getChildren(d.id);
-      if (children && children.length > 0) {
-        const curDrill = getDrillCategory();
-        if (curDrill !== d.id) {
-          statsDrillStack.push(d.id);
-        }
-        if (canvasId === 'expandPieChart') {
-          // In expanded mode: update expanded pie + table, don't close
-          drawPieChart('expandPieChart', statsMonth, null, null, null, 360, false);
-          if (typeof renderExpandPieTable === 'function') renderExpandPieTable();
-        } else {
-          updateDrillCharts();
-          if (onDrill) onDrill();
-        }
-      } else if (onDrill) {
-        // Leaf or single category in expand mode — just close overlay
-        if (canvasId !== 'expandPieChart') {
-          onDrill();
-        }
-      }
+      // Click = records popup for this domain (this month/window) + drill
+      // when it has children (keeps the chart navigable; leaves no-op).
+      showCategoryRecords(d.id);
+      drillIntoCategory(d.id);
     };
 
     canvas.addEventListener('mousemove', onMouseMove);
@@ -14457,8 +14640,9 @@ function drawCategoryWaffle(canvasId, startDate, endDate, height) {
     density: catWaffleDensity,
     legendId: isExpand ? null : null,   // the detail table already lists every row
     emptyText: __('stats.noCategoryData'),
-    // Clicking a block drills in, exactly like clicking its pie slice
-    onItem: function (item) { drillIntoCategory(item.id); }
+    // Click = records popup for that domain (+ drill when it has children,
+    // so the chart still navigates like the pie slice does)
+    onItem: function (item) { showCategoryRecords(item.id); drillIntoCategory(item.id); }
   });
 }
 
@@ -14714,8 +14898,7 @@ function bindTreemapHover(canvas) {
     if (tt + th > window.innerHeight - 8) tt = e.clientY - th - 12;
     tooltip.style.left = tl + 'px';
     tooltip.style.top = tt + 'px';
-    const kids = hit.leafOnly ? [] : (DataStore.getChildren(hit.id) || []);
-    canvas.style.cursor = kids.length ? 'pointer' : 'default';
+    canvas.style.cursor = 'pointer';
   };
   canvas.onmouseleave = function () {
     tooltip.style.display = 'none';
@@ -14723,7 +14906,9 @@ function bindTreemapHover(canvas) {
   };
   canvas.onclick = function () {
     const hit = canvas._treemapHit;
-    if (hit && !hit.leafOnly) drillIntoCategory(hit.id);
+    if (!hit) return;
+    showCategoryRecords(hit.id);
+    if (!hit.leafOnly) drillIntoCategory(hit.id);
   };
 }
 
@@ -15164,16 +15349,17 @@ addI18nEntries({
   'stats.catView.pie': { zh: '饼图', en: 'Pie' },
   'stats.catView.waffle': { zh: '格子图', en: 'Waffle' },
   'stats.catView.treemap': { zh: '矩形图', en: 'Treemap' },
-  'stats.catView.hint': { zh: '同一份分类数据的三种看法：饼图看占比，格子图看「一格 = 多少钱」，矩形图按面积比大小、用嵌套看层级', en: 'Three readings of the same category data: a pie for proportion, a waffle for "one block = this much money", a treemap for size by area with nesting for hierarchy' },
+  'stats.catView.hint': { zh: '同一份分类数据的三种看法：饼图看占比，格子图看「一格 = 多少钱」，矩形图按面积比大小、用嵌套看层级；点击任意色块弹出该领域本月全部消费记录', en: 'Three readings of the same category data: a pie for proportion, a waffle for "one block = this much money", a treemap for size by area with nesting for hierarchy' },
   'stats.category': { zh: '分类', en: 'Category' },
   'stats.amount': { zh: '金额', en: 'Amount' },
   'stats.percentage': { zh: '占比', en: 'Percentage' },
   'stats.thisMonth': { zh: '本月', en: 'This month' },
   'stats.lastMonth': { zh: '上月', en: 'Last month' },
-  'stats.billToggle.includeBills': { zh: '含账单', en: 'Include bills' },
+  'stats.billToggle.includeBills': { zh: '含固定账单', en: 'Incl. fixed bills' },
+  'stats.billToggle.hint': { zh: '勾选=统计含房租水电等固定账单；取消=只看日常消费', en: 'Checked = include fixed bills like rent & utilities; unchecked = daily spending only' },
   'stats.overspent': { zh: '超支', en: 'Overspent' },
   'stats.monthlyIncome': { zh: '月收入', en: 'Monthly income' },
-  'stats.bills': { zh: '账单', en: 'Bills' },
+  'stats.bills': { zh: '账单流水', en: 'Bill records' },
   'stats.savings': { zh: '储蓄', en: 'Savings' },
   'stats.dailyAvailable': { zh: '日常可用', en: 'Daily available' },
   'stats.month': { zh: '月份', en: 'Month' },
@@ -15182,12 +15368,16 @@ addI18nEntries({
   'stats.to': { zh: '至', en: 'to' },
   'stats.rangeTotal': { zh: '范围总支出', en: 'Range total' },
   'stats.rollingTotal': { zh: '近30天支出', en: 'Last 30 days' },
+  'stats.monthTotalBreakdownPrefix': { zh: '其中', en: 'o/w' },
+  'stats.monthTotalBreakdownHint': { zh: '本月总支出 = 日常净支出 + 账单流水；日常净支出已扣掉他人已还款', en: 'Total = daily net + bill records; daily net deducts repayments received' },
   'stats.monthTotal': { zh: '本月总支出', en: 'This month total' },
-  'stats.daily': { zh: '日常', en: 'Daily' },
+  'stats.daily': { zh: '日常净支出', en: 'Daily net' },
   'stats.recordCount': { zh: '记录数', en: 'Records' },
   'stats.dailyAvg': { zh: '日均支出', en: 'Daily avg' },
-  'stats.dailyAvgDaily': { zh: '日常日均', en: 'Daily avg (variable)' },
+  'stats.dailyAvgDaily': { zh: '日常净日均（不含账单）', en: 'Daily net avg (ex-bills)' },
   'stats.predictedRolling': { zh: '预测30天总支出', en: 'Predicted 30-day total' },
+  'stats.predictedBreakdown': { zh: '账单≈{0} ＋ 大额{1} ＋ 日常{2}', en: 'Bills~{0} + large {1} + daily {2}' },
+  'stats.predictedHint': { zh: '预测 = 账单趋势 ＋ 大额已发生（不计入日均） ＋ 日常趋势', en: 'Forecast = bill trend + large actual (excluded from daily avg) + daily trend' },
   'stats.predicted': { zh: '预测月总支出', en: 'Predicted monthly total' },
   'stats.savingsPrediction': { zh: '储蓄预测', en: 'Savings prediction' },
   'stats.transactionCount': { zh: '交易笔数', en: 'Transactions' },
@@ -15204,18 +15394,21 @@ addI18nEntries({
   'stats.netIncome': { zh: '净收入', en: 'Net income' },
   'stats.currentSavings': { zh: '当前已存', en: 'Saved so far' },
   'stats.estimatedMonthEnd': { zh: '预计月末储蓄', en: 'Est. month-end savings' },
-  'stats.balance': { zh: '收支结余', en: 'Balance' },
-  'stats.remainingTotalPerDay': { zh: '剩余总额/天', en: 'Remaining total/day' },
+  'stats.balance': { zh: '预算结余', en: 'Budget balance' },
+  'stats.balanceHint': { zh: '月收入设定 − 已花 − 未付账单；与下方实际结余口径不同', en: 'Income setting − spent − unpaid bills; different from recorded net below' },
+  'stats.remainingTotalPerDay': { zh: '剩余可花/天（未扣储蓄目标）', en: 'Left to spend/day (pre-savings)' },
   'stats.flow.title.monthly': { zh: '本月实际收支', en: 'Cash Flow This Month' },
   'stats.flow.title.rolling': { zh: '近30天实际收支', en: 'Cash Flow (Last 30 Days)' },
   'stats.flow.title.custom': { zh: '所选区间实际收支', en: 'Cash Flow in Range' },
   'stats.flow.income': { zh: '收入记录', en: 'Recorded Income' },
-  'stats.flow.net': { zh: '结余', en: 'Net' },
-  'stats.flow.note': { zh: '按流水记录统计，与「月收入」设定值无关', en: 'Summed from the ledger, independent of the Monthly Income setting' },
+  'stats.flow.net': { zh: '实际结余', en: 'Net (recorded)' },
+  'stats.flow.note': { zh: '按流水收入 − 流水支出统计，与「月收入」设定值无关', en: 'Recorded income minus recorded spending; independent of the Monthly Income setting' },
   'stats.legendSpending': { zh: '支出', en: 'Spending' },
   'stats.legendIncome': { zh: '收入', en: 'Income' },
   'stats.dayUnit': { zh: '天', en: 'day' },
-  'stats.dailyAvailablePerDay': { zh: '日常可用/天（已扣账单+储蓄）', en: 'Daily available/day (ex-bills & savings)' },
+  'stats.dailyAvailablePerDay': { zh: '日常可花/天（已扣账单+储蓄）', en: 'Daily spendable/day (ex-bills & savings)' },
+  'stats.remainingTotalFormula': { zh: '（月收入−已花−未付账单）÷剩余天数', en: '(income−spent−unpaid) ÷ days left' },
+  'stats.dailyAvailableFormula': { zh: '（日常可用−日常已花）÷剩余天数', en: '(spendable−daily spent) ÷ days left' },
   'stats.savingsHint': { zh: '💡 在「月账单中心」设定月收入后可查看储蓄预估', en: '💡 Set monthly income in Bills Center to see savings estimate' },
   'stats.expand': { zh: '展开', en: 'Expand' },
   'stats.zoomIn': { zh: '放大', en: 'Zoom in' },
@@ -15225,7 +15418,11 @@ addI18nEntries({
   'stats.lineChart.label': { zh: '折线图', en: 'Line chart' },
   'stats.pieChart.label': { zh: '饼图', en: 'Pie chart' },
   'stats.pieChart.expandTitle': { zh: '分类支出分析', en: 'Category spending analysis' },
-  'stats.pieChart.drillHint': { zh: '用层级按钮控制展开深度 · 点击分类名下钻', en: 'Use level buttons for depth · Click name to drill down' },
+  'stats.drill.into': { zh: '下钻看子分类', en: 'Drill into subcategories' },
+  'stats.catRecords.count': { zh: '共 {0} 笔', en: '{0} records' },
+  'stats.catRecords.more': { zh: '还有 {0} 笔未展开', en: '{0} more not shown' },
+  'stats.catRecords.viewInFlow': { zh: '在流水页查看', en: 'View in Records' },
+  'stats.pieChart.drillHint': { zh: '点击色块查看本月明细 · 点击分类名下钻', en: 'Click a block for this-month records · Click a name to drill down' },
   'stats.pieChart.toggleChildren': { zh: '展开/收起子分类', en: 'Expand/collapse subcategories' },
   'stats.hierarchy.level1': { zh: '1 层', en: 'Top' },
   'stats.hierarchy.level2': { zh: '2 层', en: '2 Lv' },
@@ -15267,6 +15464,8 @@ addI18nEntries({
   window.renderExpandPieTable = renderExpandPieTable;
   window.renderPieTables = renderPieTables;
   window.togglePieDetailTable = togglePieDetailTable;
+  window.showCategoryRecords = showCategoryRecords;
+  window.jumpToCategoryRecords = jumpToCategoryRecords;
   window.drillIntoCategory = drillIntoCategory;
   window.backFromDrill = backFromDrill;
   window.refreshExpandedCatChart = refreshExpandedCatChart;
@@ -15316,7 +15515,7 @@ addI18nEntries({
   window.changeWaffleMonth = changeWaffleMonth;
 })();
 
-}catch(e){console.error('[17-stats-charts.js] failed:', e)}
+}catch(e){console.error('[17-stats-charts.js] failed:' , e)}
 try{
 // === 18-render-settings.js ===
 /* ============================================================
@@ -16230,7 +16429,7 @@ function deleteTag(tag) {
   window.deleteTag = deleteTag;
 })();
 
-}catch(e){console.error('[18-render-settings.js] failed:', e)}
+}catch(e){console.error('[18-render-settings.js] failed:' , e)}
 try{
 // === 19-render-report.js ===
 /* ============================================================
@@ -16534,8 +16733,8 @@ function printReport() {
     'report.notSet': { zh: '未设置', en: 'Not Set' },
     'report.netIncome': { zh: '净收入', en: 'Net Income' },
     'report.totalExpenditure': { zh: '总支出', en: 'Total Spending' },
-    'report.daily': { zh: '日常', en: 'Daily' },
-    'report.bills': { zh: '账单', en: 'Bills' },
+    'report.daily': { zh: '日常净支出', en: 'Daily net' },
+    'report.bills': { zh: '账单流水', en: 'Bill records' },
     'report.savings': { zh: '储蓄', en: 'Savings' },
     'report.savingsRate': { zh: '储蓄率', en: 'Savings Rate' },
     'report.incomeExpenseProgress': { zh: '收支进度', en: 'Income vs Expenses' },
@@ -16570,12 +16769,12 @@ function printReport() {
     'report.incomeBreakdown': { zh: '💰 收入明细', en: '💰 Recorded Income' },
     'report.recordedIncome': { zh: '收入记录', en: 'Recorded Income' },
     'report.recordedSpending': { zh: '支出记录', en: 'Recorded Spending' },
-    'report.recordedNet': { zh: '结余', en: 'Net' },
-    'report.recordedNote': { zh: '按流水记录统计，与上方「月收入」设定值无关', en: 'Summed from the ledger, independent of the Monthly Income setting above' }
+    'report.recordedNet': { zh: '实际结余', en: 'Net (recorded)' },
+    'report.recordedNote': { zh: '按流水收入 − 流水支出统计，与上方「月收入」设定值无关', en: 'Recorded income minus recorded spending; independent of the Monthly Income setting above' }
   });
 })();
 
-}catch(e){console.error('[19-render-report.js] failed:', e)}
+}catch(e){console.error('[19-render-report.js] failed:' , e)}
 try{
 // === 20-what-if.js ===
 /* ============================================================
@@ -16621,9 +16820,10 @@ function renderWhatIf() {
     DataStore.setWhatIfParams(savedParams);
   }
 
-  // Clean stale category references (Fix 3)
+  // Clean stale category references (Fix 3) + drop any income-tree adjustments
+  // left over from before the params panel became expense-only.
   if (savedParams && savedParams.categoryAdjustments) {
-    const validCatIds = new Set(DataStore.getCategories().map(c => c.id));
+    const validCatIds = new Set(DataStore.getCategories().filter(c => c && c.kind !== 'income').map(c => c.id));
     let changed = false;
     Object.keys(savedParams.categoryAdjustments).forEach(catId => {
       if (!validCatIds.has(catId)) {
@@ -16673,7 +16873,9 @@ function renderWhatIf() {
 
 function renderWhatIfParams(month, savedParams, periodOpts) {
   const isRolling = periodOpts && periodOpts.isRolling;
-  const allCats = DataStore.getCategories();
+  // What-If reasons only about cutting SPENDING: income categories have no
+  // spendable behaviour to project, so they are excluded here (not just zero).
+  const allCats = DataStore.getCategories().filter(c => c && c.kind !== 'income');
   const today = new Date().getDate();
   const daysInMonth = isRolling
     ? periodOpts.daysInPeriod
@@ -16713,10 +16915,11 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
 
   let html = '';
 
-  // === 分类支出调整 ===
+  // === 分类支出调整（仅支出；收入锁定、账单另计） ===
   html += `<div class="card mb-16">
-    <div class="card-title">🏷️ ${__('whatif.categoryAdjustments')}</div>
-    <p class="text-xs text-muted" style="margin-bottom:8px">${__('whatif.categoryDesc')}</p>`;
+    <div class="card-title">🏷️ ${__('whatif.categoryAdjustments')} <span class="badge" style="font-size:0.65rem;background:var(--danger);color:#fff">💸 ${__('whatif.badge.expense')}</span></div>
+    <p class="text-xs text-muted" style="margin-bottom:8px">${__('whatif.categoryDesc')}</p>
+    <p class="text-xs text-muted" style="margin-bottom:8px">💰 ${__('whatif.incomeLockedNote')} 📋 ${__('whatif.billsExcludedNote')}</p>`;
 
   // Build category tree
   const treeMap = {};
@@ -16819,9 +17022,9 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
     </div>
   </div>`;
 
-  // === 添加假设分类 ===
+  // === 添加假设分类（假设支出） ===
   html += `<div class="card mb-16">
-    <div class="card-title">➕ ${__('whatif.addHypothetical')}</div>
+    <div class="card-title">➕ ${__('whatif.addHypothetical')} <span class="badge" style="font-size:0.65rem;background:var(--danger);color:#fff">💸 ${__('whatif.badge.expense')}</span></div>
     <p class="text-xs text-muted" style="margin-bottom:8px">${__('whatif.hypotheticalDesc')}</p>
     <div id="wi-hypo-list">
       ${hypos.map((h, i) => `
@@ -16889,13 +17092,15 @@ function renderWhatIfResults(result) {
 
     <div class="section-title">🔮 ${__('whatif.results')}</div>`;
 
-  // === 对比摘要 (with clearer labels) ===
+  // === 对比摘要：收入（流入 +） vs 支出（流出 −），储蓄为轧差 ===
   html += `<div class="card mb-16 whatif-summary-card">
     <div class="card-title">📊 ${__('whatif.totalPrediction')}</div>
+    <div class="text-xs text-muted" style="margin-bottom:8px">💰 ${__('whatif.incomeInflow', '+' + formatMoney(income))} · 💸 ${__('whatif.spendingOutflow')} · ${__('whatif.savingsFormula')}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center">
       <div>
         <div class="text-xs text-muted">${__('whatif.trendTotal')}</div>
-        <div class="text-lg font-bold" style="color:var(--text-muted)">${formatMoney(trendTotal)}</div>
+        <div class="text-xs"><span class="badge" style="font-size:0.6rem;background:var(--danger);color:#fff">💸 ${__('whatif.badge.expense')}</span></div>
+        <div class="text-lg font-bold" style="color:var(--text-muted)">−${formatMoney(trendTotal)}</div>
         <div class="text-xs ${trendSavings >= 0 ? 'text-success' : 'text-danger'}">${__('whatif.savable', (trendSavings >= 0 ? '+' : '') + formatMoney(trendSavings))}</div>
       </div>
       <div style="display:flex;flex-direction:column;justify-content:center">
@@ -16907,7 +17112,8 @@ function renderWhatIfResults(result) {
       </div>
       <div>
         <div class="text-xs text-muted">${__('whatif.adjustedTotal')}</div>
-        <div class="text-lg font-bold" style="color:var(--primary)">${formatMoney(adjustedTotal)}</div>
+        <div class="text-xs"><span class="badge" style="font-size:0.6rem;background:var(--danger);color:#fff">💸 ${__('whatif.badge.expense')}</span></div>
+        <div class="text-lg font-bold" style="color:var(--primary)">−${formatMoney(adjustedTotal)}</div>
         <div class="text-xs ${adjustedSavings >= 0 ? 'text-success' : 'text-danger'}">${__('whatif.savable', (adjustedSavings >= 0 ? '+' : '') + formatMoney(adjustedSavings))}</div>
       </div>
     </div>
@@ -16997,7 +17203,8 @@ function renderWhatIfResults(result) {
 
   // === 分类对比表 ===
   html += `<div class="card mb-16">
-    <div class="card-title">📋 ${__('whatif.categoryDetails')}</div>
+    <div class="card-title">📋 ${__('whatif.categoryDetails')} <span class="badge" style="font-size:0.65rem;background:var(--danger);color:#fff">💸 ${__('whatif.badge.expense')}</span></div>
+    <div class="text-xs text-muted" style="margin-bottom:8px">${__('whatif.categoryDetailsNote')}</div>
     <div class="whatif-compare-table">
       <div class="whatif-compare-header">
         <span>${__('whatif.category')}</span>
@@ -17007,8 +17214,9 @@ function renderWhatIfResults(result) {
         <span>${__('whatif.vsTrend')}</span>
       </div>`;
 
-  // Build full category projection tree (all nesting levels)
-  const allCats = DataStore.getCategories();
+  // Expense-only tree: income rows have no projected spending and would
+  // read as adjustable zeros, so they are excluded, not listed.
+  const allCats = DataStore.getCategories().filter(c => c && c.kind !== 'income');
   const projMap = categoryProjections || {};
   // Create tree nodes
   const treeNodes = {};
@@ -17088,10 +17296,10 @@ function renderWhatIfResults(result) {
   }
   html += renderTreeNodes(rootNodes, 0);
 
-  // Hypothetical categories row
+  // Hypothetical categories row (assumed SPENDING, not income)
   hypotheticalProjections.forEach(hp => {
     html += `<div class="whatif-compare-row" style="color:var(--primary);font-style:italic">
-      <span>${escHtml(hp.icon)} ${escHtml(hp.name)} <span class="text-xs text-muted">(${__('whatif.hypothetical')})</span></span>
+      <span>${escHtml(hp.icon)} ${escHtml(hp.name)} <span class="text-xs text-muted">(${__('whatif.hypothetical')} · 💸 ${__('whatif.badge.expense')})</span></span>
       <span>—</span>
       <span>${formatMoney(hp.projectedRemaining)}</span>
       <span>${formatMoney(hp.projectedRemaining)}</span>
@@ -17393,6 +17601,14 @@ function attachWhatIfListeners(month) {
     'whatif.mode.zero': { zh: '取消消费', en: 'Zero Spending' },
     'whatif.mode.overall': { zh: '（整体）', en: ' (Overall)' },
     'whatif.valuePlaceholder': { zh: '值', en: 'Value' },
+    'whatif.badge.expense': { zh: '支出', en: 'Expense' },
+    'whatif.badge.income': { zh: '收入', en: 'Income' },
+    'whatif.incomeLockedNote': { zh: '收入按设定/流水锁定，不在此调整。', en: 'Income is locked to its setting/ledger value and cannot be adjusted here.' },
+    'whatif.billsExcludedNote': { zh: '固定账单不参与趋势预测，已在总额中单独计算。', en: 'Fixed bills are excluded from trend projection and counted separately in the total.' },
+    'whatif.incomeInflow': { zh: '收入（流入）{0}', en: 'Income (inflow) {0}' },
+    'whatif.spendingOutflow': { zh: '支出（流出）', en: 'Spending (outflow)' },
+    'whatif.savingsFormula': { zh: '储蓄 = 收入 − 总支出 − 未付账单', en: 'Savings = income − spending − unpaid bills' },
+    'whatif.categoryDetailsNote': { zh: '仅支出分类；收入为流入不在此列，固定账单另计。', en: 'Expense categories only; income (inflow) and fixed bills are counted elsewhere.' },
     'whatif.categoryAdjustments': { zh: '分类支出调整', en: 'Category Adjustments' },
     'whatif.categoryDesc': { zh: '调整每个分类在剩余天数的支出方式。点击名称展开子分类。<br>「固定剩余总额」= 剩余天数总共花指定金额；「比趋势± %/天」= 在日均基础上增减。', en: 'Adjust how each category spends in remaining days. Click a name to expand subcategories.<br>"Fixed Remaining Total" = spend a fixed amount in remaining days; "± % vs Trend" = adjust from daily average.' },
     'whatif.globalAdjustment': { zh: '全局调整', en: 'Global Adjustment' },
@@ -17402,7 +17618,7 @@ function attachWhatIfListeners(month) {
     'whatif.globalModeAmount': { zh: '± RM/天', en: '± RM/Day' },
     'whatif.globalHint': { zh: '负值=减少，正值=增加（如 −10% 或 −5）', en: 'Negative = decrease, Positive = increase (e.g. −10% or −5)' },
     'whatif.addHypothetical': { zh: '添加假设分类', en: 'Add Hypothetical Category' },
-    'whatif.hypotheticalDesc': { zh: '添加一个当前不存在的新分类来评估其影响。', en: 'Add a new category to evaluate its impact.' },
+    'whatif.hypotheticalDesc': { zh: '添加一笔当前不存在的假设支出，评估其对月末储蓄的影响。', en: 'Add a hypothetical SPENDING item to gauge its impact on month-end savings.' },
     'whatif.hypoIcon': { zh: '图标', en: 'Icon' },
     'whatif.hypoName': { zh: '分类名', en: 'Name' },
     'whatif.hypoAmount': { zh: '金额', en: 'Amount' },
@@ -17444,7 +17660,7 @@ function attachWhatIfListeners(month) {
 
 })();
 
-}catch(e){console.error('[20-what-if.js] failed:', e)}
+}catch(e){console.error('[20-what-if.js] failed:' , e)}
 try{
 // === 21-month-rollover.js ===
 /* ============================================================
@@ -17521,7 +17737,7 @@ function showBillRolloverReminder(lastMonth, currentMonth) {
   window.showBillRolloverReminder = showBillRolloverReminder;
 })();
 
-}catch(e){console.error('[21-month-rollover.js] failed:', e)}
+}catch(e){console.error('[21-month-rollover.js] failed:' , e)}
 try{
 // === 22-init.js ===
 /* ============================================================
@@ -17625,7 +17841,7 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
   window.initApp = initApp;
 })();
 
-}catch(e){console.error('[22-init.js] failed:', e)}
+}catch(e){console.error('[22-init.js] failed:' , e)}
 try{
 // === 23-lan-sync.js ===
 /* ============================================================
@@ -18426,7 +18642,7 @@ try{
 
 })();
 
-}catch(e){console.error('[23-lan-sync.js] failed:', e)}
+}catch(e){console.error('[23-lan-sync.js] failed:' , e)}
 try{
 // === 24-diagnostics.js ===
 /* ============================================================
@@ -18759,7 +18975,7 @@ window.showRecordRaw = function showRecordRaw(id) {
   });
 })();
 
-}catch(e){console.error('[24-diagnostics.js] failed:', e)}
+}catch(e){console.error('[24-diagnostics.js] failed:' , e)}
 try{
 // === 25-page-guides.js ===
 /* ============================================================
@@ -19672,7 +19888,7 @@ addI18nEntries({
   'guide.add.simple.heading4': { zh: '🧾 分摊收款单（代付后追账）', en: '🧾 Split bills (paid for others, collect later)' },
   'guide.add.simple.tip4_1': { zh: '勾选「这是分摊收款单」，选择参与人并分配份额后保存，即自动生成一条带「分摊」标记的流水（沿用真实分类）并计入追账中心。', en: 'Check "This is a split bill", pick participants, assign shares and save — a record with a split marker (keeping its real category) is created and tracked in Collection Center.' },
   'guide.add.simple.tip4_2': { zh: '对方还款后，在首页横幅或「追账中心」勾选已还，该金额自动冲减当月支出。', en: 'When repaid, tick "paid" in the home banner or Collection Center — the amount reduces this month\'s spending.' },
-  'guide.add.simple.tip4_3': { zh: '总支出 = 真实支出 + 未收回账目；日均、预测与假设分析只按自己的真实份额计算（不算他人未还的账目）。', en: 'Monthly total = real spending + uncollected amounts; daily avg, predictions and what-if only use your own share (excluding uncollected money).' },
+  'guide.add.simple.tip4_3': { zh: '总支出 = 实际承担 + 待收回；日均、预测与假设分析只按自己的真实份额计算（不算他人未还的账目）。', en: 'Monthly total = real spending + uncollected amounts; daily avg, predictions and what-if only use your own share (excluding uncollected money).' },
   'guide.add.title': { zh: '✏️ 记账', en: '✏️ Add Record' },
   'guide.categories.detailed.grid2_0_desc': { zh: '以树形结构展示所有分类，支持展开/折叠子分类', en: 'All categories shown in a tree structure, supports expand/collapse for subcategories' },
   'guide.categories.detailed.grid2_0_label': { zh: '分类树', en: 'Category Tree' },
@@ -19742,14 +19958,14 @@ addI18nEntries({
   'guide.overview.detailed.grid2_13_label': { zh: '分摊收款中心', en: 'Collection Center' },
   'guide.overview.detailed.tip6_5': { zh: '「待收回款项」横幅只在存在未结清分摊账单时显示；对方还钱后金额自动减少', en: 'The “Pending Collections” banner only appears while unsettled split bills exist; amounts drop as repayments are marked' },
   'guide.overview.simple.tip3_4': { zh: '有人欠你钱时首页会出现「待收回款项」横幅，点击进入分摊收款中心逐笔标记已还', en: 'When someone owes you money, a “Pending Collections” banner appears on the home page — tap it to enter Collection Center and mark repayments' },
-  'guide.stats.detailed.tip6_6': { zh: '已还金额已从支出合计中扣除；总支出 = 真实支出 + 未收回账目，日均与预测只按自己的真实份额计算', en: 'Repaid amounts are already deducted from the total; monthly total = real spending + uncollected, while daily averages and predictions use only your own share' },
+  'guide.stats.detailed.tip6_6': { zh: '已还金额已从支出合计中扣除；总支出 = 实际承担 + 待收回，日均与预测只按自己的真实份额计算', en: 'Repaid amounts are already deducted from the total; monthly total = real spending + uncollected, while daily averages and predictions use only your own share' },
   'guide.stats.simple.tip3_5': { zh: '分摊账单的已还金额在图表中显示为绿色，已自动从支出统计中扣除', en: 'Repaid split amounts appear green in the charts and are already deducted from spending statistics' },
   'guide.add.detailed.tip5_8': { zh: '分摊模式下，修改金额、勾选参与人或切换方式时，下方预览会实时显示每个人的份额', en: 'In split mode, the preview below updates live as you change the total, toggle participants, or switch modes' },
   'guide.add.detailed.tip5_9': { zh: '参与人不足？用「＋ 新增人员」添加联系人，用「管理名单」重命名或删除人员（历史账单保留名字快照）', en: 'Need more people? Use “+ Add Person” to create contacts; “Manage List” renames or removes them (old bills keep name snapshots)' },
   'guide.categories.detailed.tip6_5': { zh: '顶部的「展开全部 / 折叠全部」按钮可以一键展开或收起整棵分类树', en: '“Expand All / Collapse All” buttons at the top expand or collapse the entire category tree at once' },
   'guide.categories.detailed.tip6_6': { zh: '嵌套超过 3 层时会出现面包屑导航，点击任意祖先分类可直接跳回那一级', en: 'Breadcrumb navigation appears beyond 3 levels; tap any ancestor to jump straight back to that level' },
   'guide.overview.detailed.tip6_6': { zh: '还没有任何记录时，总览会显示欢迎卡片和「✏️ 记第一笔账」按钮', en: 'With no records yet, the overview shows a welcome card with a “✏️ Add First Record” button' },
-  'guide.overview.detailed.tip6_7': { zh: '储蓄预测卡里的「剩余总额/天」和「日常可用/天」是按剩余天数拆分后的每日额度', en: 'In the savings forecast card, “Remaining Total/Day” and “Daily Available/Day” are the daily allowance split across remaining days' },
+  'guide.overview.detailed.tip6_7': { zh: '储蓄预测卡里的「剩余可花/天」和「日常可用/天」是按剩余天数拆分后的每日额度', en: 'In the savings forecast card, “Remaining Total/Day” and “Daily Available/Day” are the daily allowance split across remaining days' },
   'guide.report.detailed.tip5_4': { zh: '分类明细表会把「分摊已还」金额以单独拆分行列出，方便核对追账情况', en: 'The category table lists repaid split amounts as separate rows for easy reconciliation' },
   'guide.settings.detailed.tip5_7': { zh: '设置页的「📋 月账单中心」卡片同样可以打开月账单中心，与总览页入口等价', en: 'The “📋 Bill Center” card on Settings opens the same Bill Center as the overview entry' },
   'guide.settings.detailed.tip5_8': { zh: '数据诊断区支持「📥 导出报告」，一键下载含一致性检查与操作日志的 txt 诊断报告', en: 'The diagnostics section can “📥 Export Report” — a txt file with consistency checks and operation logs' },
@@ -19764,7 +19980,7 @@ addI18nEntries({
   'guide.overview.detailed.grid2_1_label': { zh: '月收入', en: 'Monthly Income' },
   'guide.overview.detailed.grid2_10_desc': { zh: '"记一笔"、"查看统计"、"月账单"三个常用入口按钮', en: 'Three shortcut buttons: “Add Record,” “View Stats,” and “Bill Center”' },
   'guide.overview.detailed.grid2_10_label': { zh: '快捷操作', en: 'Quick Actions' },
-  'guide.overview.detailed.grid2_11_desc': { zh: '「本月总支出」下方小字显示口径：真实支出 + 未收回账目；有分摊待收款时自动出现', en: 'Below “Monthly Spending”, a small note shows the breakdown: real spending + uncollected; appears when split collections are pending' },
+  'guide.overview.detailed.grid2_11_desc': { zh: '「本月总支出」下方小字显示口径：实际承担 + 待收回；有分摊待收款时自动出现', en: 'Below “Monthly Spending”, a small note shows the breakdown: real spending + uncollected; appears when split collections are pending' },
   'guide.overview.detailed.grid2_11_label': { zh: '分摊回款卡片', en: 'Repaid Collections Card' },
   'guide.overview.detailed.grid2_12_desc': { zh: '全局统计基于「本月」或「近30天」，在设置页切换，所有数据自动适配', en: 'Globally switch statistics between “This Month” and “Last 30 Days” in Settings; all data adapts automatically' },
   'guide.overview.detailed.grid2_12_label': { zh: '统计范围切换', en: 'Statistics Range Switcher' },
@@ -19793,7 +20009,7 @@ addI18nEntries({
   'guide.overview.detailed.item4_1': { zh: '点击页面上的「📋 月账单中心」卡片（或者在设置页也可以打开），设置你的月收入金额', en: 'Tap the “📋 Bill Center” card on the page (or open it from Settings) to set your monthly income' },
   'guide.overview.detailed.item4_2': { zh: '去「设置」页面配置储蓄目标（固定金额或百分比）', en: 'Go to “Settings” to configure your savings goal (fixed amount or percentage)' },
   'guide.overview.detailed.item4_3': { zh: '去「分类」页面给常用分类设置预算，总览的预算进度条就会自动显示', en: 'Go to “Categories” to set budgets for your common categories, and the overview will show progress bars automatically' },
-  'guide.overview.detailed.row5_0_desc': { zh: '当月所有消费的和。如果勾选了"含账单"，会把账单支出也算进去', en: 'Sum of all monthly spending. If “Include Bills” is checked, bills are included' },
+  'guide.overview.detailed.row5_0_desc': { zh: '当月所有消费的和。如果勾选了"含固定账单"，会把账单支出也算进去', en: 'Sum of all monthly spending. If “Include Bills” is checked, bills are included' },
   'guide.overview.detailed.row5_0_label': { zh: '本月总支出', en: 'Monthly Total Expenses' },
   'guide.overview.detailed.row5_1_desc': { zh: '总支出 ÷ 已过天数。标注了"不计日均"的大额消费不会拉高这个数', en: 'Total expenses ÷ days elapsed. Large expenses flagged as “exclude from daily avg” won’t affect this number' },
   'guide.overview.detailed.row5_1_label': { zh: '日均支出', en: 'Daily Average' },
@@ -19805,9 +20021,9 @@ addI18nEntries({
   'guide.overview.detailed.row5_4_label': { zh: '净收入', en: 'Net Income' },
   'guide.overview.detailed.row5_5_desc': { zh: '月收入 − 预测月总支出 − 未付账单。正数表示预计能存下钱（"预测月总支出"已把已发生的"不计日均"大额支出算进去）', en: 'Monthly income − Projected Monthly Total − unpaid bills. A positive number means you’re on track to save (the “Projected Monthly Total” already includes any “exclude from daily avg” large purchases that already happened)' },
   'guide.overview.detailed.row5_5_label': { zh: '储蓄预测', en: 'Savings Forecast' },
-  'guide.overview.detailed.text1': { zh: '总览是你的记账软件「首页」和「仪表盘」。打开软件第一眼看到的就是它。它的作用是让你在 <strong>10 秒内</strong>了解本月财务状况：花了多少、还剩多少、预算够不够、有没有超支危险。你不需要做任何操作，所有数字和图表自动从你的记账数据生成。\n\n<strong>💡 先了解两个概念：</strong><br>\n• <strong>账单</strong>：房租、水电、网费等每月固定支出。在总览页点击「📋 月账单中心」卡片可以设置月收入和账单金额。<br>\n• <strong>日常消费</strong>：餐饮、交通、购物等非固定支出。页面中的"含账单"复选框控制是否把账单算进统计数据里。', en: 'The overview is your budgeting app’s “homepage” and “dashboard.” It’s the first thing you see when you open the app. Its purpose is to let you understand your monthly finances <strong>within 10 seconds</strong>: how much you’ve spent, how much is left, whether your budget is on track, and whether there’s any risk of overspending. You don’t need to do anything — all numbers and charts are automatically generated from your data.\n\n<strong>💡 Two Key Concepts:</strong><br>\n• <strong>Bills</strong>: Fixed monthly expenses like rent, utilities, and internet. Tap the “📋 Bill Center” card on the overview page to set your monthly income and bill amounts.<br>\n• <strong>Daily Spending</strong>: Variable expenses such as dining, transport, and shopping. The “Include Bills” checkbox on the page controls whether bills are factored into the statistics.' },
+  'guide.overview.detailed.text1': { zh: '总览是你的记账软件「首页」和「仪表盘」。打开软件第一眼看到的就是它。它的作用是让你在 <strong>10 秒内</strong>了解本月财务状况：花了多少、还剩多少、预算够不够、有没有超支危险。你不需要做任何操作，所有数字和图表自动从你的记账数据生成。\n\n<strong>💡 先了解两个概念：</strong><br>\n• <strong>账单</strong>：房租、水电、网费等每月固定支出。在总览页点击「📋 月账单中心」卡片可以设置月收入和账单金额。<br>\n• <strong>日常消费</strong>：餐饮、交通、购物等非固定支出。页面中的"含固定账单"复选框控制是否把账单算进统计数据里。', en: 'The overview is your budgeting app’s “homepage” and “dashboard.” It’s the first thing you see when you open the app. Its purpose is to let you understand your monthly finances <strong>within 10 seconds</strong>: how much you’ve spent, how much is left, whether your budget is on track, and whether there’s any risk of overspending. You don’t need to do anything — all numbers and charts are automatically generated from your data.\n\n<strong>💡 Two Key Concepts:</strong><br>\n• <strong>Bills</strong>: Fixed monthly expenses like rent, utilities, and internet. Tap the “📋 Bill Center” card on the overview page to set your monthly income and bill amounts.<br>\n• <strong>Daily Spending</strong>: Variable expenses such as dining, transport, and shopping. The “Include Bills” checkbox on the page controls whether bills are factored into the statistics.' },
   'guide.overview.detailed.text3': { zh: '• 月收入/预算：需在「月账单中心」设置<br>• 储蓄目标：需在「设置」页配置<br>• 分类预算：需在「分类」页面给每个分类设置金额<br>• 记账记录：至少有一笔消费记录，总览才会显示完整数据', en: '• Monthly income/budget: set it in “Bill Center”<br>• Savings goal: configure it on the “Settings” page<br>• Category budgets: set amounts for each category on the “Categories” page<br>• At least one expense record — the overview needs data to display' },
-  'guide.overview.detailed.tip6_1': { zh: '点击「📋 含账单」复选框可以切换是否把账单支出纳入统计（预算环会重新计算）', en: 'Click the “📋 Include Bills” checkbox to toggle whether bill expenses are included in statistics (the budget ring recalculates)' },
+  'guide.overview.detailed.tip6_1': { zh: '点击「📋 含固定账单」复选框可以切换是否把账单支出纳入统计（预算环会重新计算）', en: 'Click the “📋 Include Bills” checkbox to toggle whether bill expenses are included in statistics (the budget ring recalculates)' },
   'guide.overview.detailed.tip6_2': { zh: '超支警告显示的是超过整月预算 80% 的分类，不是超过自己分类预算的分类', en: 'Overspend warnings show categories that exceed 80% of their full-month budget, not categories exceeding their own budgets' },
   'guide.overview.detailed.tip6_3': { zh: '预算进度条右下角的「👁️ 选择」可以只显示你关心的几个分类', en: 'The “👁️ Select” button at the bottom-right of the budget progress bar lets you show only the categories you care about' },
   'guide.overview.detailed.tip6_4': { zh: '总览的数据范围跟随「设置」页的统计范围切换（本月/近30天）', en: 'The overview data range follows the statistics range setting in Settings (This Month / Last 30 Days)' },
@@ -19818,7 +20034,7 @@ addI18nEntries({
   'guide.overview.simple.item2_2': { zh: '去「设置」页配置储蓄目标', en: 'Go to “Settings” to configure your savings goal' },
   'guide.overview.simple.item2_3': { zh: '去「分类」页给常用分类设置预算', en: 'Go to “Categories” to set budgets for your frequently used categories' },
   'guide.overview.simple.text1': { zh: '打开软件第一眼看到的就是总览。所有数字自动生成，<strong>10 秒内</strong>看清本月：花了多少、还剩多少、预算够不够。', en: 'The overview is the first thing you see when you open the app. All numbers are automatically generated — <strong>within 10 seconds</strong> you\'ll know: how much you\'ve spent, how much is left, and whether your budget is on track.' },
-  'guide.overview.simple.tip3_1': { zh: '「含账单」开关控制是否把房租水电等固定支出算进统计', en: 'The “Include Bills” toggle controls whether fixed expenses (rent, utilities) are included in statistics' },
+  'guide.overview.simple.tip3_1': { zh: '「含固定账单」开关控制是否把房租水电等固定支出算进统计', en: 'The “Include Bills” toggle controls whether fixed expenses (rent, utilities) are included in statistics' },
   'guide.overview.simple.tip3_2': { zh: '超支警告显示的是超过整月预算 80% 的分类', en: 'Overspend warnings show categories that have exceeded 80% of their monthly budget' },
   'guide.overview.simple.tip3_3': { zh: '统计范围可在「设置」页切换「本月」/「近30天」，月初数据少时推荐用近30天', en: 'You can switch between “This Month” and “Last 30 Days” in Settings — early in the month, “Last 30 Days” gives more stable data' },
 
@@ -19934,7 +20150,7 @@ addI18nEntries({
   'guide.report.detailed.item3_5': { zh: '点击「🖨️ 打印报告」打印或导出为 PDF', en: 'Click “🖨️ Print Report” to print or export as PDF' },
   'guide.report.detailed.row4_0_desc': { zh: '你在月账单中心设置的当月收入金额', en: 'Your income amount for the month, as set in Bill Center' },
   'guide.report.detailed.row4_0_label': { zh: '月收入', en: 'Monthly Income' },
-  'guide.report.detailed.row4_1_desc': { zh: '当月日常消费合计（不含账单支出）', en: 'Monthly daily spending total (excluding bill payments)' },
+  'guide.report.detailed.row4_1_desc': { zh: '当月日常消费合计（不含固定账单支出）', en: 'Monthly daily spending total (excluding bill payments)' },
   'guide.report.detailed.row4_1_label': { zh: '总支出', en: 'Total Spending' },
   'guide.report.detailed.row4_2_desc': { zh: '月收入 − 总支出 − 未付账单，正数表示有结余', en: 'Monthly income − total spending − unpaid bills. A positive amount means you’re in the black' },
   'guide.report.detailed.row4_2_label': { zh: '储蓄', en: 'Savings' },
@@ -20057,7 +20273,7 @@ addI18nEntries({
   'guide.stats.detailed.item4_5': { zh: '【长期趋势】看近 6 个月的月度趋势，了解消费是在涨还是降', en: '【Long-term trends】Review the 6-month trend to understand whether spending is going up or down' },
   'guide.stats.detailed.row5_0_desc': { zh: '日历网格，每天一个格子。颜色越深表示当天消费越高。点击某天可查看当天的详细记录', en: 'Calendar grid, one cell per day. Darker color means higher spending. Click a day to view its detailed records' },
   'guide.stats.detailed.row5_0_label': { zh: '消费热力图', en: 'Spending Heatmap' },
-  'guide.stats.detailed.row5_1_desc': { zh: '各分类支出比例。点击饼图切片可下钻查看子分类。勾选"含账单"切换是否包含账单支出', en: 'Proportion of each category’s spending. Click a slice to drill into subcategories. Toggle “Include Bills” to include or exclude bill expenses' },
+  'guide.stats.detailed.row5_1_desc': { zh: '各分类支出比例。点击饼图切片可下钻查看子分类。勾选"含固定账单"切换是否包含固定账单支出', en: 'Proportion of each category’s spending. Click a slice to drill into subcategories. Toggle “Include Bills” to include or exclude bill expenses' },
   'guide.stats.detailed.row5_1_label': { zh: '分类饼图', en: 'Category Pie Chart' },
   'guide.stats.detailed.row5_2_desc': { zh: '每天支出折线图。虚线是"日均可支配"参考线（收入−账单−储蓄后÷天数）', en: 'Line chart of daily spending. The dashed line is the “daily disposable income” reference line (income − bills − savings ÷ days)' },
   'guide.stats.detailed.row5_2_label': { zh: '每日趋势', en: 'Daily Trend' },
@@ -20121,7 +20337,7 @@ addI18nEntries({
   'guide.whatif.detailed.row3_1_desc': { zh: '设定接下来每天花一个固定金额。<br><em>例子：想每天只花 RM 20 在餐饮上，选这个模式然后输入 20。</em>', en: 'Set a fixed daily amount going forward.<br><em>Example: You want to spend only RM 20 per day on dining — select this mode and enter 20.</em>' },
   'guide.whatif.detailed.row3_1_label': { zh: '设日均值', en: 'Set Daily Average' },
   'guide.whatif.detailed.row3_2_desc': { zh: '这个分类在剩下天数里总共只花这么多钱。<br><em>例子：购物这个月剩 RM 200 的预算，选这个模式输入 200。</em>', en: 'Spend only this much total in the remaining days.<br><em>Example: You have RM 200 left in your shopping budget for the month — select this mode and enter 200.</em>' },
-  'guide.whatif.detailed.row3_2_label': { zh: '固定剩余总额', en: 'Fixed Remaining Total' },
+  'guide.whatif.detailed.row3_2_label': { zh: '固定剩余可花', en: 'Fixed Remaining Total' },
   'guide.whatif.detailed.row3_3_desc': { zh: '在现有日均基础上增减一个百分比。<br><em>例子：想砍掉 20% 的交通费，选这个模式输入 −20。</em>', en: 'Increase or decrease your daily average by a percentage.<br><em>Example: Want to cut transport costs by 20% — select this mode and enter −20.</em>' },
   'guide.whatif.detailed.row3_3_label': { zh: '比趋势±%', en: 'vs Trend ±%' },
   'guide.whatif.detailed.row3_4_desc': { zh: '在现有日均基础上每天多花或少花一个固定金额。<br><em>例子：每天少喝一杯 RM 5 的奶茶，选这个模式输入 −5。</em>', en: 'Spend a fixed amount more or less each day compared to current trends.<br><em>Example: Skip one RM 5 milk tea per day — select this mode and enter −5.</em>' },
@@ -20146,7 +20362,7 @@ addI18nEntries({
 });
 })();
 
-}catch(e){console.error('[25-page-guides.js] failed:', e)}
+}catch(e){console.error('[25-page-guides.js] failed:' , e)}
 try{
 // === 26-split-bills.js ===
 /* ============================================================
@@ -22445,7 +22661,7 @@ addI18nEntries({
   window.confirmDeleteContact = confirmDeleteContact;
   window.doDeleteContact = doDeleteContact;
 })();
-}catch(e){console.error('[26-split-bills.js] failed:', e)}
+}catch(e){console.error('[26-split-bills.js] failed:' , e)}
 try{
 // === 27-purchase-plans.js ===
 /* ============================================================
@@ -23459,7 +23675,7 @@ if (document.readyState === 'loading') {
   window.renderPlanOverviewCard = renderPlanOverviewCard;
 })();
 
-}catch(e){console.error('[27-purchase-plans.js] failed:', e)}
+}catch(e){console.error('[27-purchase-plans.js] failed:' , e)}
 try{
 // === 28-cloud-sync.js ===
 /* ============================================================
@@ -25045,7 +25261,7 @@ window.CloudSync = {
 try { boot(); } catch (e) { console.error('[CloudSync] boot failed', e); }
 })();
 
-}catch(e){console.error('[28-cloud-sync.js] failed:', e)}
+}catch(e){console.error('[28-cloud-sync.js] failed:' , e)}
 try{
 // === 29-changelog.js ===
 /* ============================================================
@@ -25088,6 +25304,18 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
 /* Items store i18n KEYS, resolved at render time (same convention as
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
+  {
+    id: '2026-10-08',
+    version: '3.6.0',
+    date: '2026-10-08',
+    title: 'changelog.a5.title',
+    items: [
+      { icon: '📝', text: 'changelog.a5.item1' },
+      { icon: '📊', text: 'changelog.a5.item2' },
+      { icon: '👆', text: 'changelog.a5.item3' },
+      { icon: '🔮', text: 'changelog.a5.item4' }
+    ]
+  },
   {
     id: '2026-10-07',
     version: '3.5.0',
@@ -25364,6 +25592,24 @@ function close() {
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
 
+    'changelog.a5.title': { zh: 'v3.6.0 口径说清楚 + 预测有明细 + 点图看记录', en: 'What\'s in v3.6.0: clearer labels, forecast breakdown, tap-to-inspect charts' },
+    'changelog.a5.item1': {
+      zh: '<strong>以前云里雾里的几个词改名了</strong>：「含账单」→「含固定账单」；「收支结余」拆成「预算结余」（月收入设定 − 已花 − 未付账单）和「实际结余」（流水收入 − 流水支出）；「剩余总额/天」→「剩余可花/天（未扣储蓄目标）」，旁边那格是「日常可花/天（已扣账单+储蓄）」，公式都写进小字和悬停说明。本月总支出下方注明「其中日常净支出 ＋ 账单流水」「你的实际承担 ＋ 待收回 ＝ 上方合计」。',
+      en: '<strong>Confusing labels renamed</strong> - "Include bills" is now "Incl. fixed bills"; "Balance" is split into "Budget balance" (income setting − spent − unpaid bills) and "Net (recorded)" (ledger income − ledger spending); the two per-day boxes now read "Left to spend/day (pre-savings)" and "Daily spendable/day (ex-bills & savings)" with their formulas in the fine print and tooltips. The monthly total notes its daily/bill split and your-share vs to-collect breakdown.'
+    },
+    'changelog.a5.item2': {
+      zh: '<strong>预测月总支出下方有了明细</strong>：账单趋势 ＋ 大额已发生（不计入日均） ＋ 日常趋势，三项加起来正好等于预测数，不用再猜预测是怎么算出来的。',
+      en: '<strong>The forecast total shows its math</strong> - under the predicted monthly total: bill trend + large one-offs already spent (excluded from the daily average) + daily trend. The three parts always add up to the predicted number.'
+    },
+    'changelog.a5.item3': {
+      zh: '<strong>分类三张图支持点色块看记录</strong>：饼图 / 格子图 / 矩形图点任意色块，就弹该领域在本月的全部消费记录，还能一键跳到流水页看；原来的下钻不受影响。',
+      en: '<strong>Tap any chart block to inspect records</strong> - pie, waffle and treemap blocks now pop up every record of that category this month, with a jump to the ledger. Drilling into subcategories still works as before.'
+    },
+    'changelog.a5.item4': {
+      zh: '<strong>假设分析分清收入和支出</strong>：参数面板只列支出分类——收入按设定锁定、固定账单另计，不再混在一起；结果页用徽标区分流入 / 流出，并写明「储蓄 = 收入 − 总支出 − 未付账单」。',
+      en: '<strong>What-if separates income from spending</strong> - the parameters list expense categories only: income is locked to its setting and fixed bills are counted separately. Results badge inflows vs outflows and state the formula "savings = income − spending − unpaid bills".'
+    },
+
     'changelog.a4.title': { zh: 'v3.5.0 分类可排序 + 选分类不再刷屏', en: 'What\'s in v3.5.0: sorting and a picker you can search' },
     'changelog.a4.item1': {
       zh: '<strong>分类顺序可以自己排了</strong>:分类页每一行左边多了 ⬆️ / ⬇️,子分类和根分类都能排,首尾会自动置灰。顺序存在分类本身上,云端同步会一起带走——另一台设备拉下来就是你排好的顺序。',
@@ -25426,7 +25672,7 @@ function close() {
   });
 })();
 
-}catch(e){console.error('[29-changelog.js] failed:', e)}
+}catch(e){console.error('[29-changelog.js] failed:' , e)}
 
 </script>
 </body>

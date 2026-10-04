@@ -41,9 +41,10 @@ function renderWhatIf() {
     DataStore.setWhatIfParams(savedParams);
   }
 
-  // Clean stale category references (Fix 3)
+  // Clean stale category references (Fix 3) + drop any income-tree adjustments
+  // left over from before the params panel became expense-only.
   if (savedParams && savedParams.categoryAdjustments) {
-    const validCatIds = new Set(DataStore.getCategories().map(c => c.id));
+    const validCatIds = new Set(DataStore.getCategories().filter(c => c && c.kind !== 'income').map(c => c.id));
     let changed = false;
     Object.keys(savedParams.categoryAdjustments).forEach(catId => {
       if (!validCatIds.has(catId)) {
@@ -93,7 +94,9 @@ function renderWhatIf() {
 
 function renderWhatIfParams(month, savedParams, periodOpts) {
   const isRolling = periodOpts && periodOpts.isRolling;
-  const allCats = DataStore.getCategories();
+  // What-If reasons only about cutting SPENDING: income categories have no
+  // spendable behaviour to project, so they are excluded here (not just zero).
+  const allCats = DataStore.getCategories().filter(c => c && c.kind !== 'income');
   const today = new Date().getDate();
   const daysInMonth = isRolling
     ? periodOpts.daysInPeriod
@@ -133,10 +136,11 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
 
   let html = '';
 
-  // === 分类支出调整 ===
+  // === 分类支出调整（仅支出；收入锁定、账单另计） ===
   html += `<div class="card mb-16">
-    <div class="card-title">🏷️ ${__('whatif.categoryAdjustments')}</div>
-    <p class="text-xs text-muted" style="margin-bottom:8px">${__('whatif.categoryDesc')}</p>`;
+    <div class="card-title">🏷️ ${__('whatif.categoryAdjustments')} <span class="badge" style="font-size:0.65rem;background:var(--danger);color:#fff">💸 ${__('whatif.badge.expense')}</span></div>
+    <p class="text-xs text-muted" style="margin-bottom:8px">${__('whatif.categoryDesc')}</p>
+    <p class="text-xs text-muted" style="margin-bottom:8px">💰 ${__('whatif.incomeLockedNote')} 📋 ${__('whatif.billsExcludedNote')}</p>`;
 
   // Build category tree
   const treeMap = {};
@@ -239,9 +243,9 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
     </div>
   </div>`;
 
-  // === 添加假设分类 ===
+  // === 添加假设分类（假设支出） ===
   html += `<div class="card mb-16">
-    <div class="card-title">➕ ${__('whatif.addHypothetical')}</div>
+    <div class="card-title">➕ ${__('whatif.addHypothetical')} <span class="badge" style="font-size:0.65rem;background:var(--danger);color:#fff">💸 ${__('whatif.badge.expense')}</span></div>
     <p class="text-xs text-muted" style="margin-bottom:8px">${__('whatif.hypotheticalDesc')}</p>
     <div id="wi-hypo-list">
       ${hypos.map((h, i) => `
@@ -309,13 +313,15 @@ function renderWhatIfResults(result) {
 
     <div class="section-title">🔮 ${__('whatif.results')}</div>`;
 
-  // === 对比摘要 (with clearer labels) ===
+  // === 对比摘要：收入（流入 +） vs 支出（流出 −），储蓄为轧差 ===
   html += `<div class="card mb-16 whatif-summary-card">
     <div class="card-title">📊 ${__('whatif.totalPrediction')}</div>
+    <div class="text-xs text-muted" style="margin-bottom:8px">💰 ${__('whatif.incomeInflow', '+' + formatMoney(income))} · 💸 ${__('whatif.spendingOutflow')} · ${__('whatif.savingsFormula')}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center">
       <div>
         <div class="text-xs text-muted">${__('whatif.trendTotal')}</div>
-        <div class="text-lg font-bold" style="color:var(--text-muted)">${formatMoney(trendTotal)}</div>
+        <div class="text-xs"><span class="badge" style="font-size:0.6rem;background:var(--danger);color:#fff">💸 ${__('whatif.badge.expense')}</span></div>
+        <div class="text-lg font-bold" style="color:var(--text-muted)">−${formatMoney(trendTotal)}</div>
         <div class="text-xs ${trendSavings >= 0 ? 'text-success' : 'text-danger'}">${__('whatif.savable', (trendSavings >= 0 ? '+' : '') + formatMoney(trendSavings))}</div>
       </div>
       <div style="display:flex;flex-direction:column;justify-content:center">
@@ -327,7 +333,8 @@ function renderWhatIfResults(result) {
       </div>
       <div>
         <div class="text-xs text-muted">${__('whatif.adjustedTotal')}</div>
-        <div class="text-lg font-bold" style="color:var(--primary)">${formatMoney(adjustedTotal)}</div>
+        <div class="text-xs"><span class="badge" style="font-size:0.6rem;background:var(--danger);color:#fff">💸 ${__('whatif.badge.expense')}</span></div>
+        <div class="text-lg font-bold" style="color:var(--primary)">−${formatMoney(adjustedTotal)}</div>
         <div class="text-xs ${adjustedSavings >= 0 ? 'text-success' : 'text-danger'}">${__('whatif.savable', (adjustedSavings >= 0 ? '+' : '') + formatMoney(adjustedSavings))}</div>
       </div>
     </div>
@@ -417,7 +424,8 @@ function renderWhatIfResults(result) {
 
   // === 分类对比表 ===
   html += `<div class="card mb-16">
-    <div class="card-title">📋 ${__('whatif.categoryDetails')}</div>
+    <div class="card-title">📋 ${__('whatif.categoryDetails')} <span class="badge" style="font-size:0.65rem;background:var(--danger);color:#fff">💸 ${__('whatif.badge.expense')}</span></div>
+    <div class="text-xs text-muted" style="margin-bottom:8px">${__('whatif.categoryDetailsNote')}</div>
     <div class="whatif-compare-table">
       <div class="whatif-compare-header">
         <span>${__('whatif.category')}</span>
@@ -427,8 +435,9 @@ function renderWhatIfResults(result) {
         <span>${__('whatif.vsTrend')}</span>
       </div>`;
 
-  // Build full category projection tree (all nesting levels)
-  const allCats = DataStore.getCategories();
+  // Expense-only tree: income rows have no projected spending and would
+  // read as adjustable zeros, so they are excluded, not listed.
+  const allCats = DataStore.getCategories().filter(c => c && c.kind !== 'income');
   const projMap = categoryProjections || {};
   // Create tree nodes
   const treeNodes = {};
@@ -508,10 +517,10 @@ function renderWhatIfResults(result) {
   }
   html += renderTreeNodes(rootNodes, 0);
 
-  // Hypothetical categories row
+  // Hypothetical categories row (assumed SPENDING, not income)
   hypotheticalProjections.forEach(hp => {
     html += `<div class="whatif-compare-row" style="color:var(--primary);font-style:italic">
-      <span>${escHtml(hp.icon)} ${escHtml(hp.name)} <span class="text-xs text-muted">(${__('whatif.hypothetical')})</span></span>
+      <span>${escHtml(hp.icon)} ${escHtml(hp.name)} <span class="text-xs text-muted">(${__('whatif.hypothetical')} · 💸 ${__('whatif.badge.expense')})</span></span>
       <span>—</span>
       <span>${formatMoney(hp.projectedRemaining)}</span>
       <span>${formatMoney(hp.projectedRemaining)}</span>
@@ -813,6 +822,14 @@ function attachWhatIfListeners(month) {
     'whatif.mode.zero': { zh: '取消消费', en: 'Zero Spending' },
     'whatif.mode.overall': { zh: '（整体）', en: ' (Overall)' },
     'whatif.valuePlaceholder': { zh: '值', en: 'Value' },
+    'whatif.badge.expense': { zh: '支出', en: 'Expense' },
+    'whatif.badge.income': { zh: '收入', en: 'Income' },
+    'whatif.incomeLockedNote': { zh: '收入按设定/流水锁定，不在此调整。', en: 'Income is locked to its setting/ledger value and cannot be adjusted here.' },
+    'whatif.billsExcludedNote': { zh: '固定账单不参与趋势预测，已在总额中单独计算。', en: 'Fixed bills are excluded from trend projection and counted separately in the total.' },
+    'whatif.incomeInflow': { zh: '收入（流入）{0}', en: 'Income (inflow) {0}' },
+    'whatif.spendingOutflow': { zh: '支出（流出）', en: 'Spending (outflow)' },
+    'whatif.savingsFormula': { zh: '储蓄 = 收入 − 总支出 − 未付账单', en: 'Savings = income − spending − unpaid bills' },
+    'whatif.categoryDetailsNote': { zh: '仅支出分类；收入为流入不在此列，固定账单另计。', en: 'Expense categories only; income (inflow) and fixed bills are counted elsewhere.' },
     'whatif.categoryAdjustments': { zh: '分类支出调整', en: 'Category Adjustments' },
     'whatif.categoryDesc': { zh: '调整每个分类在剩余天数的支出方式。点击名称展开子分类。<br>「固定剩余总额」= 剩余天数总共花指定金额；「比趋势± %/天」= 在日均基础上增减。', en: 'Adjust how each category spends in remaining days. Click a name to expand subcategories.<br>"Fixed Remaining Total" = spend a fixed amount in remaining days; "± % vs Trend" = adjust from daily average.' },
     'whatif.globalAdjustment': { zh: '全局调整', en: 'Global Adjustment' },
@@ -822,7 +839,7 @@ function attachWhatIfListeners(month) {
     'whatif.globalModeAmount': { zh: '± RM/天', en: '± RM/Day' },
     'whatif.globalHint': { zh: '负值=减少，正值=增加（如 −10% 或 −5）', en: 'Negative = decrease, Positive = increase (e.g. −10% or −5)' },
     'whatif.addHypothetical': { zh: '添加假设分类', en: 'Add Hypothetical Category' },
-    'whatif.hypotheticalDesc': { zh: '添加一个当前不存在的新分类来评估其影响。', en: 'Add a new category to evaluate its impact.' },
+    'whatif.hypotheticalDesc': { zh: '添加一笔当前不存在的假设支出，评估其对月末储蓄的影响。', en: 'Add a hypothetical SPENDING item to gauge its impact on month-end savings.' },
     'whatif.hypoIcon': { zh: '图标', en: 'Icon' },
     'whatif.hypoName': { zh: '分类名', en: 'Name' },
     'whatif.hypoAmount': { zh: '金额', en: 'Amount' },

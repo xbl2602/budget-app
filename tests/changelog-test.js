@@ -20,8 +20,8 @@ const { JSDOM } = require('jsdom');
 const BASE = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
 const LS_KEY = 'budgetAppLastSeenChangelog';
-const A1 = '2026-10-07';   // newest shipped entry
-const A2 = '2026-10-06';   // older shipped entry
+const A1 = '2026-10-08';   // newest shipped entry
+const A2 = '2026-10-07';   // older shipped entry
 const X1 = '2099-01-01';   // test-only entry, injected via Changelog.register
 
 let pass = 0, fail = 0;
@@ -109,7 +109,7 @@ const noStray = w => MC(w).textContent.indexOf('??') === -1;
     const dom = boot({ [LS_KEY]: A1 });
     const w = dom.window, C = w.Changelog;
 
-    ok(typeof w.APP_VERSION === 'string' && w.APP_VERSION === '3.5.0', 'L10 APP_VERSION present and is 3.5.0');
+    ok(typeof w.APP_VERSION === 'string' && w.APP_VERSION === '3.6.0', 'L10 APP_VERSION present and is 3.6.0');
     ok(typeof C === 'object' && C !== null, 'L10 Changelog API present (29 loaded after 01)');
     ok(typeof w.ModalQueue === 'object', 'L10 ModalQueue present');
 

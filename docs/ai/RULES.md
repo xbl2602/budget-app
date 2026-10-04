@@ -165,6 +165,10 @@
 - **B（次版本号）**：中规中矩的功能更新、重构、非破坏性变更，AI 可自行递增
 - **C（修订号）**：令人羞耻的小修复 — bug fix、typo、样式微调，AI 可自行递增
 
+**用户可见变更的发版 ritual（强制）：**
+- 凡是用户能看到的变更（功能 / 文案 / 行为 / 图表），推送前必须走完四步：① `src/js/29-changelog.js` 的 CHANGELOG 头部插一条（新 `id`、日期严格递增、中英 i18n 齐全）② 按本条规则升 B/C（A 位永远不动）③ 同步 `README.md`（标题版本号 + 新增功能小节）与 `src/index.html` 的 `<title>` ④ `bash build.sh` + `node tests/changelog-test.js` 全过。
+- 为什么：公告的已读标记记的是条目 `id` 而不是版本号（见 `2026-09-28-changelog-announcement-design.md`），不插条目用户就永远看不到这次更新；`APP_VERSION` 只负责显示，升版本号本身不触发任何公告。
+
 ### #16 money-wise-mobile.html 同步
 **手机独立版与主应用保持数据格式兼容。**
 - 新增数据字段时，如果影响记录/分类数据格式，同步更新手机版

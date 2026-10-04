@@ -22,9 +22,12 @@ function renderOverview() {
     : (isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(month));
   // Cash-flow reading ("预测月总支出" can never sit below what's already been
   // spent) — use the month-end total, not the daily-average trend (A-1/A-3).
-  const predicted = includeBills
+  const predictedBreakdown = includeBills
+    ? (isRolling ? StatsEngine.getPeriodPredictedBreakdown() : StatsEngine.getPredictedBreakdown(month))
+    : (isRolling ? StatsEngine.getPeriodPredictedBreakdownVariable() : StatsEngine.getPredictedBreakdownVariable(month));
+  const predicted = (predictedBreakdown && predictedBreakdown.predicted != null) ? predictedBreakdown.predicted : (includeBills
     ? (isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month))
-    : (isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : (StatsEngine.getDailyAverageVariable(month) * new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()));
+    : (StatsEngine.getDailyAverageVariable(month) * new Date(now.getFullYear(), now.getMonth()+1, 0).getDate()));
   const remainingLimit = isRolling ? StatsEngine.getPeriodRemainingDailyLimit() : StatsEngine.getRemainingDailyLimit(month);
   const last7 = StatsEngine.getLast7Days();
   const overspent = StatsEngine.getOverspentCategories(month);
@@ -131,11 +134,11 @@ function renderOverview() {
           const billActual = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
           const varSpending = monthTotal - billActual;
           if (billActual > 0) {
-            return `<div class="text-xs text-muted mt-4">${__('overview.dailyBillsBreakdown', formatMoney(varSpending), formatMoney(billActual))}</div>`;
+            return `<div class="text-xs text-muted mt-4" title="${__('overview.dailyBillsHint')}">${__('overview.dailyBillsBreakdown', formatMoney(varSpending), formatMoney(billActual))}</div>`;
           }
           return '';
         })()}
-        ${splitUnpaidTotal > 0.01 ? `<div class="text-xs text-muted mt-4">${__('overview.realSpendingNote', formatMoney(monthTotal - splitUnpaidTotal), formatMoney(splitUnpaidTotal))}</div>` : ''}
+        ${splitUnpaidTotal > 0.01 ? `<div class="text-xs text-muted mt-4" title="${__('overview.realSpendingHint')}">${__('overview.realSpendingNote', formatMoney(monthTotal - splitUnpaidTotal), formatMoney(splitUnpaidTotal))}</div>` : ''}
       </div>
       <div class="card">
         <div class="card-title">${__('overview.monthlyIncome')}</div>
@@ -148,6 +151,14 @@ function renderOverview() {
       <div class="card">
         <div class="card-title">${isRolling ? __('overview.predicted.rolling') : __('overview.predicted.monthly')}</div>
         <div class="text-xl font-bold">${formatMoney(predicted)}</div>
+        ${(() => {
+          const bd = (typeof predictedBreakdown !== 'undefined' && predictedBreakdown) ? predictedBreakdown : null;
+          if (!bd) return '';
+          if (includeBills) {
+            return `<div class="text-xs text-muted mt-4" title="${__('overview.predictedHint')}">${__('overview.predictedBreakdown', formatMoney(bd.bills || 0), formatMoney(bd.large || 0), formatMoney(bd.normal || 0))}</div>`;
+          }
+          return `<div class="text-xs text-muted mt-4" title="${__('overview.predictedHint')}">${__('overview.predictedBreakdownNoBills', formatMoney(bd.large || 0), formatMoney(bd.normal || 0))}</div>`;
+        })()}
       </div>
     </div>
 
@@ -302,15 +313,17 @@ function renderOverview() {
           const remainingDailyPerDay = remainingDays > 0 ? Math.max(0, remainingDaily / remainingDays) : 0;
           return `
           <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
-            <div style="flex:1;min-width:140px;padding:6px 10px;border-radius:8px;background:var(--card-bg);border:1px solid var(--border)">
+            <div style="flex:1;min-width:140px;padding:6px 10px;border-radius:8px;background:var(--card-bg);border:1px solid var(--border)" title="${__('overview.remainingTotalHint')}">
               <div class="text-xs text-secondary">${__('overview.remainingTotalPerDay')}</div>
               <div class="font-bold" style="font-size:1rem;color:${remainingTotalPerDay > 0 ? 'var(--warning)' : 'var(--text-muted)'}">${formatMoney(remainingTotalPerDay)}${__('overview.perDay')}</div>
               <div class="text-xs text-muted" style="margin-top:2px">${__('overview.remainingBreakdown', formatMoney(remainingTotal), remainingDays)}</div>
+              <div class="text-xs text-muted" style="margin-top:2px;opacity:0.85">${__('overview.remainingTotalFormula')}</div>
             </div>
-            <div style="flex:1;min-width:140px;padding:6px 10px;border-radius:8px;background:var(--card-bg);border:1px solid var(--border)">
+            <div style="flex:1;min-width:140px;padding:6px 10px;border-radius:8px;background:var(--card-bg);border:1px solid var(--border)" title="${__('overview.dailySpendableHint')}">
               <div class="text-xs text-secondary">${__('overview.dailySpendablePerDay')}</div>
               <div class="font-bold" style="font-size:1rem;color:${remainingDailyPerDay > 0 ? 'var(--primary)' : 'var(--text-muted)'}">${formatMoney(remainingDailyPerDay)}${__('overview.perDay')}</div>
               <div class="text-xs text-muted" style="margin-top:2px">${__('overview.remainingBreakdown', formatMoney(remainingDaily), remainingDays)}</div>
+              <div class="text-xs text-muted" style="margin-top:2px;opacity:0.85">${__('overview.dailySpendableFormula')}</div>
             </div>
           </div>`;
         })()}
@@ -444,19 +457,24 @@ function refreshOverviewBudget() {
     'overview.firstRecord': { zh: '✏️ 记第一笔账', en: '✏️ Add First Record' },
     'overview.title.rolling': { zh: '近30天支出', en: 'Last 30 Days' },
     'overview.title.monthly': { zh: '本月总支出', en: 'Monthly Spending' },
-    'overview.dailyBillsBreakdown': { zh: '日常 {0} · 账单 {1}', en: 'Daily {0} · Bills {1}' },
-    'overview.realSpendingNote': { zh: '真实支出 {0} + 未收回账目 {1}', en: 'Real spending {0} + Uncollected {1}' },
+    'overview.dailyBillsHint': { zh: '本月总支出 = 日常净支出 + 账单流水；日常净支出已扣掉他人已还款', en: 'Total = daily net + bill records; daily net already deducts repayments received' },
+    'overview.realSpendingHint': { zh: '本月总支出含你替他人垫付、待收回的钱；你的实际承担 + 待收回 = 上方合计', en: 'Total includes money you fronted for others; your share + to-collect = total above' },
+    'overview.dailyBillsBreakdown': { zh: '其中日常净支出 {0} ＋ 账单流水 {1}', en: 'o/w daily net {0} + bills {1}' },
+    'overview.realSpendingNote': { zh: '你的实际承担 {0} ＋ 待收回 {1} ＝ 上方合计（已收回已扣除）', en: 'Your share {0} + to-collect {1} = total above (repaid deducted)' },
     'overview.monthlyIncome': { zh: '月收入', en: 'Monthly Income' },
     'overview.flow.title.monthly': { zh: '💵 本月实际收支', en: '💵 Cash Flow This Month' },
     'overview.flow.title.rolling': { zh: '💵 近30天实际收支', en: '💵 Cash Flow (Last 30 Days)' },
     'overview.flow.income': { zh: '收入记录', en: 'Recorded Income' },
     'overview.flow.expense': { zh: '支出记录', en: 'Recorded Spending' },
-    'overview.flow.net': { zh: '结余', en: 'Net' },
-    'overview.flow.note': { zh: '按流水记录统计，与上方「月收入」设定值无关', en: 'Summed from the ledger, independent of the Monthly Income setting above' },
+    'overview.flow.net': { zh: '实际结余', en: 'Net (recorded)' },
+    'overview.flow.note': { zh: '按流水收入 − 流水支出统计，与上方「月收入」设定值无关', en: 'Recorded income minus recorded spending; independent of the Monthly Income setting above' },
     'overview.notSet': { zh: '未设置', en: 'Not Set' },
     'overview.netIncome': { zh: '净收入', en: 'Net Income' },
     'overview.dailyAvg': { zh: '日均支出', en: 'Daily Avg' },
     'overview.predicted.rolling': { zh: '预测30天总支出', en: 'Predicted 30-Day Total' },
+    'overview.predictedBreakdown': { zh: '账单≈{0} ＋ 大额{1} ＋ 日常{2}', en: 'Bills~{0} + large {1} + daily {2}' },
+    'overview.predictedBreakdownNoBills': { zh: '大额{0} ＋ 日常{1}（已剔账单）', en: 'Large {0} + daily {1} (ex-bills)' },
+    'overview.predictedHint': { zh: '预测 = 账单趋势 ＋ 大额已发生（不计入日均） ＋ 日常趋势；大额是已花的真实金额，不参与日均推算', en: 'Forecast = bill trend + large actual (excluded from daily avg) + daily trend; large is money already spent' },
     'overview.predicted.monthly': { zh: '预测月总支出', en: 'Predicted Monthly Total' },
     'overview.yesterdaySpending': { zh: '昨日消费 ({0})', en: 'Yesterday ({0})' },
     'overview.todaySpending': { zh: '今日消费 ({0})', en: 'Today ({0})' },
@@ -480,10 +498,14 @@ function refreshOverviewBudget() {
     'overview.targetAchievement': { zh: '目标达成', en: 'Target Progress' },
     'overview.predictionPositive': { zh: '📈 如果维持当前消费习惯，本月末预计可存 {0}', en: '📈 At this rate, est. to save {0} by month end' },
     'overview.predictionNegative': { zh: '⚠️ 预计超支 {0}，请注意控制支出', en: '⚠️ Est. overspend {0}, please control spending' },
-    'overview.remainingTotalPerDay': { zh: '剩余总额/天', en: 'Remaining Total / Day' },
-    'overview.dailySpendablePerDay': { zh: '日常可用/天（已扣账单+储蓄）', en: 'Daily Spendable / Day' },
+    'overview.remainingTotalPerDay': { zh: '剩余可花/天（未扣储蓄目标）', en: 'Left to spend / day (pre-savings)' },
+    'overview.dailySpendablePerDay': { zh: '日常可花/天（已扣账单+储蓄）', en: 'Daily spendable / day (ex-bills & savings)' },
     'overview.perDay': { zh: '/天', en: '/day' },
     'overview.remainingBreakdown': { zh: '{0} ÷ {1}天', en: '{0} ÷ {1}d' },
+    'overview.remainingTotalHint': { zh: '月收入 − 已花 − 未付账单，再除以剩余天数；未扣除储蓄目标', en: '(Income − spent − unpaid bills) ÷ days left; savings target not deducted' },
+    'overview.remainingTotalFormula': { zh: '（月收入−已花−未付账单）÷剩余天数', en: '(income−spent−unpaid) ÷ days left' },
+    'overview.dailySpendableHint': { zh: '日常可用额度 − 日常已花，再除以剩余天数；已扣账单、储蓄目标与大额预留', en: '(Spendable − daily spent) ÷ days left; bills, savings & plan reserves deducted' },
+    'overview.dailySpendableFormula': { zh: '（日常可用−日常已花）÷剩余天数', en: '(spendable−daily spent) ÷ days left' },
     'overview.setupHint': { zh: '💡 在「月账单中心」设定月收入，在「设置」设定储蓄目标后可查看完整预测', en: '💡 Set income in Bills Center & savings target in Settings' },
     'overview.last7Days': { zh: '近7天趋势', en: 'Last 7 Days' },
     'overview.top5': { zh: '支出排行 TOP 5', en: 'Top 5 Categories' },

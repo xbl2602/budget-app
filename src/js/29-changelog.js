@@ -39,6 +39,18 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
+    id: '2026-10-08',
+    version: '3.6.0',
+    date: '2026-10-08',
+    title: 'changelog.a5.title',
+    items: [
+      { icon: '📝', text: 'changelog.a5.item1' },
+      { icon: '📊', text: 'changelog.a5.item2' },
+      { icon: '👆', text: 'changelog.a5.item3' },
+      { icon: '🔮', text: 'changelog.a5.item4' }
+    ]
+  },
+  {
     id: '2026-10-07',
     version: '3.5.0',
     date: '2026-10-07',
@@ -313,6 +325,24 @@ function close() {
     'changelog.settingsHint': { zh: '随时回看历次更新内容', en: 'Browse every past update' },
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
+
+    'changelog.a5.title': { zh: 'v3.6.0 口径说清楚 + 预测有明细 + 点图看记录', en: 'What\'s in v3.6.0: clearer labels, forecast breakdown, tap-to-inspect charts' },
+    'changelog.a5.item1': {
+      zh: '<strong>以前云里雾里的几个词改名了</strong>：「含账单」→「含固定账单」；「收支结余」拆成「预算结余」（月收入设定 − 已花 − 未付账单）和「实际结余」（流水收入 − 流水支出）；「剩余总额/天」→「剩余可花/天（未扣储蓄目标）」，旁边那格是「日常可花/天（已扣账单+储蓄）」，公式都写进小字和悬停说明。本月总支出下方注明「其中日常净支出 ＋ 账单流水」「你的实际承担 ＋ 待收回 ＝ 上方合计」。',
+      en: '<strong>Confusing labels renamed</strong> - "Include bills" is now "Incl. fixed bills"; "Balance" is split into "Budget balance" (income setting − spent − unpaid bills) and "Net (recorded)" (ledger income − ledger spending); the two per-day boxes now read "Left to spend/day (pre-savings)" and "Daily spendable/day (ex-bills & savings)" with their formulas in the fine print and tooltips. The monthly total notes its daily/bill split and your-share vs to-collect breakdown.'
+    },
+    'changelog.a5.item2': {
+      zh: '<strong>预测月总支出下方有了明细</strong>：账单趋势 ＋ 大额已发生（不计入日均） ＋ 日常趋势，三项加起来正好等于预测数，不用再猜预测是怎么算出来的。',
+      en: '<strong>The forecast total shows its math</strong> - under the predicted monthly total: bill trend + large one-offs already spent (excluded from the daily average) + daily trend. The three parts always add up to the predicted number.'
+    },
+    'changelog.a5.item3': {
+      zh: '<strong>分类三张图支持点色块看记录</strong>：饼图 / 格子图 / 矩形图点任意色块，就弹该领域在本月的全部消费记录，还能一键跳到流水页看；原来的下钻不受影响。',
+      en: '<strong>Tap any chart block to inspect records</strong> - pie, waffle and treemap blocks now pop up every record of that category this month, with a jump to the ledger. Drilling into subcategories still works as before.'
+    },
+    'changelog.a5.item4': {
+      zh: '<strong>假设分析分清收入和支出</strong>：参数面板只列支出分类——收入按设定锁定、固定账单另计，不再混在一起；结果页用徽标区分流入 / 流出，并写明「储蓄 = 收入 − 总支出 − 未付账单」。',
+      en: '<strong>What-if separates income from spending</strong> - the parameters list expense categories only: income is locked to its setting and fixed bills are counted separately. Results badge inflows vs outflows and state the formula "savings = income − spending − unpaid bills".'
+    },
 
     'changelog.a4.title': { zh: 'v3.5.0 分类可排序 + 选分类不再刷屏', en: 'What\'s in v3.5.0: sorting and a picker you can search' },
     'changelog.a4.item1': {

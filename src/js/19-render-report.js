@@ -299,8 +299,8 @@ function printReport() {
     'report.notSet': { zh: '未设置', en: 'Not Set' },
     'report.netIncome': { zh: '净收入', en: 'Net Income' },
     'report.totalExpenditure': { zh: '总支出', en: 'Total Spending' },
-    'report.daily': { zh: '日常', en: 'Daily' },
-    'report.bills': { zh: '账单', en: 'Bills' },
+    'report.daily': { zh: '日常净支出', en: 'Daily net' },
+    'report.bills': { zh: '账单流水', en: 'Bill records' },
     'report.savings': { zh: '储蓄', en: 'Savings' },
     'report.savingsRate': { zh: '储蓄率', en: 'Savings Rate' },
     'report.incomeExpenseProgress': { zh: '收支进度', en: 'Income vs Expenses' },
@@ -335,7 +335,7 @@ function printReport() {
     'report.incomeBreakdown': { zh: '💰 收入明细', en: '💰 Recorded Income' },
     'report.recordedIncome': { zh: '收入记录', en: 'Recorded Income' },
     'report.recordedSpending': { zh: '支出记录', en: 'Recorded Spending' },
-    'report.recordedNet': { zh: '结余', en: 'Net' },
-    'report.recordedNote': { zh: '按流水记录统计，与上方「月收入」设定值无关', en: 'Summed from the ledger, independent of the Monthly Income setting above' }
+    'report.recordedNet': { zh: '实际结余', en: 'Net (recorded)' },
+    'report.recordedNote': { zh: '按流水收入 − 流水支出统计，与上方「月收入」设定值无关', en: 'Recorded income minus recorded spending; independent of the Monthly Income setting above' }
   });
 })();

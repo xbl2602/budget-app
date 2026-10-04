@@ -122,6 +122,97 @@ const StatsEngine = {
     return round2(this.getPredictedTotal(month) + excludedActual);
   },
 
+  // Breakdown of the cash-flow prediction into three disjoint parts that sum
+  // to getPredictedMonthEndTotal: bills (projected trend of bill-category
+  // records) + large (already-happened excludeFromAvg, not in daily avg) +
+  // normal (projected trend of everything else, net of split shares).
+  // Split repayments (others' shares) are stripped from the trend
+  // proportionally so the three parts stay non-negative and add up.
+  getPredictedBreakdown(month) {
+    const records = this.getRecordsInMonth(month);
+    const excludedActual = records.filter(r => r && r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0);
+    const billNonExcluded = records.filter(r => r && !r.excludeFromAvg && this.isBillCategory(r.categoryId)).reduce((s, r) => s + (r.amount || 0), 0);
+    const normalNonExcluded = records.filter(r => r && !r.excludeFromAvg && !this.isBillCategory(r.categoryId)).reduce((s, r) => s + (r.amount || 0), 0);
+    const totalNonExcluded = billNonExcluded + normalNonExcluded;
+    const parts = String(month || '').split('-');
+    const daysInMonth = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10), 0).getDate() || 30;
+    const now = new Date();
+    const currentMonth = getMonthKey(now.toISOString());
+    const daysPassed = month === currentMonth ? now.getDate() : daysInMonth;
+    const predicted = this.getPredictedMonthEndTotal(month);
+    const large = round2(excludedActual);
+    if (!totalNonExcluded || !(daysPassed > 0)) {
+      const normal = round2(Math.max(0, predicted - large));
+      return { bills: 0, large: large, normal: normal, predicted: round2(predicted) };
+    }
+    const splitOthers = Math.max(0, this.getSplitOthers(month) || 0);
+    const splitRatio = Math.min(1, Math.max(0, splitOthers / totalNonExcluded));
+    const keep = 1 - splitRatio;
+    const bills = round2((billNonExcluded / daysPassed) * daysInMonth * keep);
+    let normal = round2(predicted - bills - large);
+    if (normal < 0) normal = 0;
+    return { bills: bills, large: large, normal: normal, predicted: round2(predicted) };
+  },
+
+  // Variable (ex-bills) twin: large (non-bill excludeFromAvg, already happened)
+  // + normal (projected daily trend, net of splits) = cash-flow variable total.
+  getPredictedBreakdownVariable(month) {
+    const records = this.getRecordsInMonth(month).filter(r => r && !this.isBillCategory(r.categoryId));
+    const large = round2(records.filter(r => r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0));
+    const predictedTrend = round2(this.getDailyAverageVariable(month) * (new Date(parseInt(String(month).split('-')[0], 10), parseInt(String(month).split('-')[1], 10), 0).getDate() || 30));
+    const predicted = round2(predictedTrend + large);
+    let normal = round2(Math.max(0, predicted - large));
+    return { bills: 0, large: large, normal: normal, predicted: predicted };
+  },
+
+  // Rolling-30-day twins (same split, period window).
+  getPeriodPredictedBreakdown() {
+    const records = this.getPeriodRecords();
+    const excludedActual = records.filter(r => r && r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0);
+    const billIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
+    const billNonExcluded = records.filter(r => r && !r.excludeFromAvg && billIds.has(r.categoryId)).reduce((s, r) => s + (r.amount || 0), 0);
+    const normalNonExcluded = records.filter(r => r && !r.excludeFromAvg && !billIds.has(r.categoryId)).reduce((s, r) => s + (r.amount || 0), 0);
+    const totalNonExcluded = billNonExcluded + normalNonExcluded;
+    const range = getPeriodDateRange();
+    const daysInPeriod = range.daysInPeriod || 30;
+    const daysPassed = range.daysPassed || 0;
+    const predicted = this.getPeriodPredictedMonthEndTotal();
+    const large = round2(excludedActual);
+    if (!totalNonExcluded || !(daysPassed > 0)) {
+      return { bills: 0, large: large, normal: round2(Math.max(0, predicted - large)), predicted: round2(predicted) };
+    }
+    const splitOthers = Math.max(0, this.getPeriodSplitOthers() || 0);
+    const splitRatio = Math.min(1, Math.max(0, splitOthers / totalNonExcluded));
+    const keep = 1 - splitRatio;
+    const bills = round2((billNonExcluded / daysPassed) * daysInPeriod * keep);
+    let normal = round2(predicted - bills - large);
+    if (normal < 0) normal = 0;
+    return { bills: bills, large: large, normal: normal, predicted: round2(predicted) };
+  },
+
+  getPeriodPredictedBreakdownVariable() {
+    const billIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
+    const records = this.getPeriodRecords().filter(r => r && !billIds.has(r.categoryId));
+    const large = round2(records.filter(r => r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0));
+    const range = getPeriodDateRange();
+    const predictedTrend = round2(this.getPeriodVariablePredictedTrend());
+    const predicted = round2(predictedTrend + large);
+    return { bills: 0, large: large, normal: round2(Math.max(0, predicted - large)), predicted: predicted };
+  },
+
+  // Variable trend for rolling window (non-bill, non-excluded, net of splits).
+  getPeriodVariablePredictedTrend() {
+    const range = getPeriodDateRange();
+    const daysPassed = range.daysPassed || 0;
+    const daysInPeriod = range.daysInPeriod || 30;
+    if (!(daysPassed > 0)) return 0;
+    const billIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
+    const recs = this.getPeriodRecords().filter(r => r && !billIds.has(r.categoryId) && !r.excludeFromAvg);
+    const total = recs.reduce((s, r) => s + (r.amount || 0), 0);
+    const splitOthers = Math.max(0, this.getPeriodSplitOthers() || 0);
+    return round2(Math.max(0, total - Math.min(splitOthers, total)) / daysPassed * daysInPeriod);
+  },
+
   getSavingsPrediction(month) {
     const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
     const predicted = this.getPredictedMonthEndTotal(month);
