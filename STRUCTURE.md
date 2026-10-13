@@ -297,6 +297,10 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `run(month, params)` | 执行模拟，返回 `{projectedTotal, projectedSavings, categoryProjections, ...}` |
 | `getCurrentTrend(month)` | 获取当前趋势（无假设） |
 
+**调整的归属**——分类调整属于**用户设置它的那个节点**，不属于它下面的每个叶子：每个叶子由「最近的、有设置的祖先（含自己）」管辖，子分类上的单独设置（含显式「保持趋势」）优先于父分类。`±RM/天`、`设日均值`、`固定剩余总额` 三个绝对值模式的值描述的是**整个被管辖的分类**：先算出整组的剩余支出，再按各叶子当前日均占比分摊（都没花过钱就平分），`0` 的下限作用于整组。`± %`、`取消消费` 按比例作用于每个叶子，天然等价。回归网：`tests/whatif-adjustment-test.js`。（反例：旧实现把父级的 `−RM2/天` 交给 4 个叶子各算一次，省下 4 × RM2/天；一个「固定剩余总额 RM100」变成 RM400。）
+
+> 未决的设计问题：**全局调整** `± RM/天` 目前仍是对每个「保持趋势」的叶子各加减一次（「对所有保持趋势的分类统一调整」，字面也读得通）。要不要改成「全部合计 ± RM/天」是产品取舍，已标注，未改。
+
 ---
 
 ### 6. `06-router.js` — 路由导航
@@ -779,10 +783,18 @@ IIFE 自执行，暴露 `window.SyncUI` 和 `window.LANSync`。
 | `SplitEngine` | 分摊引擎：账单增删改查、`getSplitBillForRecord`/`getSplitBillUnpaid` 关联查询、`getPendingSummary` 待收汇总、`applyRecordEditToBill`/`setBillCategory` 记录-账单同步、`deleteSplitBillWithRecords` 联动删除 |
 | `openSplitBillEditor(billId, fromRecords)` | 分摊设置编辑器。含**日期时间 / 备注 / 总额 / 分类 / 标签**等流水字段（流水页点分摊记录跳的就是这里），保存时同步关联流水；`mode`（平均 / 自定义）与 `selfUnknown` 均落盘，重开保持原样 |
 | `archiveSplitBill` / `unarchiveSplitBill` / `convertSplitBillToRecord` | 已结清账单的归档 / 恢复 / 转为普通记账记录 |
-| `openSplitCenter` / `closeSplitCenter` | 追账中心（按人员/按账单双视图、归档区、增量更新已还状态） |
+| `openSplitCenter` / `closeSplitCenter` | 追账中心（三个页签：按人员 / 按账单 / 已结清归档；增量更新已还状态） |
 | 配套样式 | `src/css/14-split.css`（分摊表单/追账中心/编辑器/部分还款） |
 
 **归档语义**——`archived` 的账单不再计入 `getSplitUnpaid()`（待收回总额），因为卡片一归档就移除了还款控件，挂在那里的欠款再也无法结清；但**已收回**的金额（`getSplitContrib`）与他人份额（`getSplitOthers`）保持不变——收到的钱是既成事实，月度净支出的口径不能追溯变化。想继续追账就点「恢复」。
+
+**追账中心只回答「谁还欠我钱」**——「按人员」「按账单」两个视图只列还没收齐的：
+- 「按人员」只列还欠钱的人，展开只列**他还欠**的账单；已归档账单的行一概不出现，全部还清的人不出现（`_splitOwedContacts`）；
+- 「按账单」只列**未归档、且还有人欠钱**的账单；
+- 已还清但未归档的账单 + 已归档的账单，都放在第三个页签「已结清归档」（`_splitClosedBills`，已还清的排前面——它们在等你决定归档 / 删除 / 转记录），**归档 / 删除 / 转记录 / 恢复的入口只在这里**，所以藏起来不会让这些操作失去入口；两个视图页尾有一行提示指向它；
+- `getPendingSummary()` 一律跳过已归档账单（与 `getSplitUnpaid` 同口径），所以总览横幅、追账中心汇总和两个列表不会各说各话（旧数据里「已归档却仍欠款」的账单曾把待收总额虚增）；
+- 勾选「已还」后的就地刷新会**保留刚勾的那一行**（卡片头显示「已全部还清」），误点可立即撤销；下一次渲染才消失。卡片按自己的 key（`contactId` 或 `anon:姓名`）查找——匿名参与者以前按 `contactId` 找永远找不到。
+- 回归网：`tests/split-center-visibility-test.js`。
 
 **`payer` 字段**——目前恒为 `'self'`，五处分摊统计都硬过滤 `b.payer !== 'self'`。任何非「记账页新建」来源的账单都没有这个字段，所以 `_normalize()` 会补齐它。将来若真要支持「别人垫付」，再启用过滤语义。
 
@@ -1009,6 +1021,9 @@ for t in tests/*.js; do node "$t"; done
 | `tests/plan-ui-test.js` | 大额计划：`PlanMath` 结算瀑布、预测、卡片渲染、图标选择器 |
 | `tests/plan-editor-bounds-test.js` | 大额计划编辑器：月份选择器与全部边界校验（13 月 / 期数 / 金额） |
 | `tests/partial-repayment-test.js` | 分摊部分还款：金额模型、三种分配方式、限制、收款对话框 |
+| `tests/split-center-visibility-test.js` | 追账中心只列「还欠钱」的：已归档 / 已还清的账单与人不出现在两个视图里、都在「已结清归档」且入口不丢、`getPendingSummary` 不计归档、勾选后就地刷新可撤销、匿名参与者（固定时钟） |
+| `tests/whatif-adjustment-test.js` | 假设分析：父分类上的 `±RM/天` / 设日均值 / 固定剩余总额按**整个分类**生效而不是每个叶子各一次；子分类优先、0 的下限作用于整体、按日均占比分摊、三层分类（固定时钟：剩 18 天） |
+| `tests/daily-average-test.js` | 「日均」只有一个定义：报告页与总览 / 统计同值、滚动 30 天尊重「不计日均」、月度 × 已过天数 = 滚动 × 30（固定时钟） |
 | `tests/structure-fixes-test.js` | 分类颜色继承与自定义图标、分摊编辑器字段、饼图标签几何 |
 | `tests/changelog-test.js` | 版本公告：已读标记切片、提示条、左右箭头（只有一条时也渲染但禁用）、**弹窗不抢占**（`107d6e8` 回归网）、**月初结转提醒不吞掉公告**、手动浏览不写标记、注册表不变量（id 唯一 / date 降序 / 无空 items / 无超前版本号） |
 | `tests/category-waffle-test.js` | 分类格子图：视图切换与持久化、与饼图共用数据/配色、下钻、密度独立、展开弹窗、标签格子图回归 |
@@ -1023,6 +1038,7 @@ for t in tests/*.js; do node "$t"; done
 - **联系人按姓名排序**（`getContacts()` 用 `localeCompare`），所以分摊的人员行**不能按下标定位**，要按 `data-*` 里的 contact key 找。
 - **格子图的图例要等动画跑完**（约 1 秒：30 批 × 20ms + 400ms 弹入）才会写进 DOM。别用固定 `setTimeout` 等——机器一忙就会假失败，用轮询（见 `category-waffle-test.js` 的 `waitFor()`）。
 - **下钻状态要用 `window.getDrillCategory()` 读**，别去改 `window.statsDrillStack`——它只是模块内数组的别名，重新赋值会切断别名，之后读到的是你自己那个空数组。
+- **依赖「今天」的测试要固定时钟**：在 `beforeParse` 里把 `w.Date` 换成一个无参构造返回固定时刻的子类（见 `whatif-adjustment-test.js`）。否则月底最后一天「剩余天数 = 0」，所有「省了多少钱」的断言都空转成 0；`cloud-merge-test.js` 的 `lastActiveMonth 取大` 就是随日期漂移的既有失败。
 - 断言要能真的失败。加完一条断言，先把源码改坏验证它会 FAIL，再改回来——否则容易写出恒真的断言。
 - **jsdom 没有 `crypto.subtle` / `CompressionStream`**：在 `beforeParse` 里注入 Node 的 `webcrypto`、`Blob`、`Response`、`CompressionStream`、`DecompressionStream`，跑的仍是 App 里真实的加密代码。
 - **网络用 `FakeCloud` 桩**：`fetch` 桩按 `<meta>` 里的 CSP `connect-src` 白名单放行，白名单外的域名直接失败——顺带测了 CSP 与 `CFG.URL` 没有漂移。`FakeCloud` 必须与 `supabase/migrations/` 里的 SQL 语义保持一致（版本号、`too_fast` 2 秒、4 MiB、历史 5 版）。

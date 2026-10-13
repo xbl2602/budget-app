@@ -41,6 +41,18 @@ function renderReport() {
   // Cash-flow projection, not the daily-average trend — matches the overview card (A-1).
   const predicted = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
   const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(month) - unpaidPlannedBillsRep);
+  // The one definition of 日均 the overview, stats and what-if pages all use:
+  // spend over the days that have PASSED, my own share only, 不计日均 records out.
+  // This page used to divide the month total by the number of days that happened
+  // to have a record — a different quantity under the same name — so a quiet
+  // week with one big day read as a huge daily average.
+  const dailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month);
+  // The total next to it still counts those one-offs, so say why total ÷ days
+  // does not equal the average — otherwise the sentence looks miscalculated.
+  const avgExcluded = (isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(month)).filter(r => r.excludeFromAvg);
+  const avgExcludedNote = avgExcluded.length
+    ? ' ' + __('report.avgExcludesLarge', avgExcluded.length, formatMoney(avgExcluded.reduce((s, r) => s + r.amount, 0)))
+    : '';
 
   // Recorded income for the same window — a separate ledger read from the 月收入
   // setting above, which is a declaration the user maintains by hand.
@@ -250,7 +262,7 @@ function renderReport() {
           ${budget > 0 ? `
             <p>${__('report.predictionIncome', year, mon, formatMoney(budget))}${totalBills > 0 ? ' ' + __('report.predictionBillsDetail', formatMoney(totalBills), formatMoney(netDisposable)) : ''}</p>
             ${targetAmount > 0 ? `<p>${__('report.predictionSavingsTarget', formatMoney(targetAmount), formatMoney(spendableBudget))}</p>` : ''}
-            <p>${__('report.predictionSpentSoFar', formatMoney(monthTotal), dailyTotals.length > 0 ? formatMoney(monthTotal / Math.max(1, dailyTotals.filter(d => d.total > 0).length)) : 0)}</p>
+            <p>${__('report.predictionSpentSoFar', formatMoney(monthTotal), formatMoney(dailyAvg))}${avgExcludedNote}</p>
             <p>${savingsPred >= 0
               ? __('report.predictionPositive', formatMoney(savingsPred))
               : __('report.predictionNegative', formatMoney(Math.abs(savingsPred)))}
@@ -328,6 +340,7 @@ function printReport() {
     'report.predictionBillsDetail': { zh: '账单合计 <strong>{0}</strong>，净收入 <strong>{1}</strong>。', en: 'Bills <strong>{0}</strong>, net income <strong>{1}</strong>.' },
     'report.predictionSavingsTarget': { zh: '🎯 储蓄目标 <strong>{0}</strong>，日常可用 <strong>{1}</strong>。', en: '🎯 Savings target <strong>{0}</strong>, spendable <strong>{1}</strong>.' },
     'report.predictionSpentSoFar': { zh: '📊 本月至今已消费 <strong>{0}</strong>，日均 {1}。', en: '📊 Spent so far <strong>{0}</strong>, daily avg {1}.' },
+    'report.avgExcludesLarge': { zh: '（日均不含 {0} 笔标记为「不计日均」的大额，共 {1}）', en: '(Daily avg leaves out {0} large item(s) flagged "exclude from daily avg", {1} in total.)' },
     'report.predictionPositive': { zh: '📈 如果维持当前消费习惯，预计月末可存 <strong style="color:var(--success)">{0}</strong>。', en: '📈 At this rate, est. to save <strong style="color:var(--success)">{0}</strong> by month end.' },
     'report.predictionNegative': { zh: '⚠️ 按当前趋势预计超支 <strong style="color:var(--danger)">{0}</strong>，建议控制支出。', en: '⚠️ On track to overspend <strong style="color:var(--danger)">{0}</strong>, consider cutting back.' },
     'report.predictionSetupHint': { zh: '💡 在「月账单中心」设定月收入，在「设置」设定储蓄目标后可查看完整预测。', en: '💡 Set income in Bills Center & savings target in Settings for full forecast.' },

@@ -94,14 +94,51 @@ const SimulationEngine = {
     const adjustments = (params.categoryAdjustments) || {};
     const globalAdj = params.globalAdjustment || { mode: null, value: null };
 
-    // First pass: get root-level settings for inheritance
-    const rootSettings = {};
-    Object.entries(adjustments).forEach(([catId, adj]) => {
-      const cat = catMap[catId];
-      if (cat && !cat.parentId) {
-        rootSettings[catId] = adj;
+    // An adjustment belongs to the node the user set it on, and the nearest
+    // ancestor-or-self that has an entry governs a leaf (an entry on a child —
+    // even "keep trend" — overrides its parent's). Handing the parent's entry to
+    // every leaf instead applied an absolute value once PER leaf: "餐饮 −RM2/day"
+    // over four subcategories saved 4 × RM2/day, and a fixed remaining total of
+    // RM100 became RM400. The percent / zero modes were never affected because
+    // they scale each leaf and so add up to the same thing either way.
+    const adjustmentSourceOf = (catId) => {
+      const seen = new Set();
+      let c = catMap[catId];
+      while (c && !seen.has(c.id)) {
+        if (adjustments[c.id]) return c.id;
+        seen.add(c.id);
+        c = c.parentId ? catMap[c.parentId] : null;
       }
+      return null;
+    };
+    const governed = {};   // adjustment node id -> the leaf ids it governs
+    leafCatIds.forEach(id => {
+      const src = adjustmentSourceOf(id);
+      if (src) (governed[src] = governed[src] || []).push(id);
     });
+
+    // For the absolute modes (daily / total / adjust) the value describes the
+    // governed group AS A WHOLE: work out the group's remaining spend once, then
+    // hand each leaf its share by current pace (evenly when nothing has been
+    // spent yet). The floor at zero applies to the group, not to each leaf.
+    const groupTotals = {};
+    const groupRemaining = (srcId) => {
+      if (groupTotals[srcId] !== undefined) return groupTotals[srcId];
+      const adj = adjustments[srcId];
+      const v = adj.value || 0;
+      const sumAvg = governed[srcId].reduce((s, id) => s + getCurrentDailyAvg(id), 0);
+      let total;
+      if (adj.mode === 'daily') total = v * remainingDays;
+      else if (adj.mode === 'total') total = v;
+      else total = (sumAvg + v) * remainingDays;   // 'adjust'
+      groupTotals[srcId] = Math.max(0, total);
+      return groupTotals[srcId];
+    };
+    const groupShare = (srcId, catId) => {
+      const ids = governed[srcId];
+      const sumAvg = ids.reduce((s, id) => s + getCurrentDailyAvg(id), 0);
+      return sumAvg > 0 ? getCurrentDailyAvg(catId) / sumAvg : 1 / ids.length;
+    };
 
     // Process leaf categories
     leafCatIds.forEach(catId => {
@@ -110,26 +147,20 @@ const SimulationEngine = {
       const rootId = cat.parentId || catId;
       const rootCat = rootId === catId ? cat : catMap[rootId];
 
-      // Determine effective adjustment: direct first, then inherit from root
-      let adj = adjustments[catId];
-      if (!adj) adj = adjustments[rootId] || null;
-      if (!adj) adj = { mode: 'trend', value: null };
+      const srcId = adjustmentSourceOf(catId);
+      const adj = srcId ? adjustments[srcId] : { mode: 'trend', value: null };
 
       const currentAvg = getCurrentDailyAvg(catId);
       let projectedRemaining;
 
       switch (adj.mode) {
         case 'daily':
-          projectedRemaining = adj.value * remainingDays;
-          break;
         case 'total':
-          projectedRemaining = adj.value || 0;
+        case 'adjust':
+          projectedRemaining = groupRemaining(srcId) * groupShare(srcId, catId);
           break;
         case 'percent':
           projectedRemaining = currentAvg * remainingDays * (1 + (adj.value || 0) / 100);
-          break;
-        case 'adjust':
-          projectedRemaining = (currentAvg + (adj.value || 0)) * remainingDays;
           break;
         case 'zero':
           projectedRemaining = 0;

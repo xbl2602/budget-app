@@ -596,10 +596,16 @@ const StatsEngine = {
   getPeriodTotal() {
     return this.getPeriodRecords().reduce((s, r) => s + r.amount, 0) - this.getPeriodSplitContrib();
   },
+  // Rolling-range twin of getDailyAverage — must honour 不计日均 (excludeFromAvg)
+  // exactly as that one does, and as getPeriodPredictedTotal below does. It did
+  // not: a RM900 one-off flagged 不计日均 inflated the 日均 card by RM900/30 while
+  // the projection built from the same data ignored it, so the two contradicted
+  // each other and switching the Stats Range changed what the flag meant.
   getPeriodDailyAverage() {
     const { daysPassed } = getPeriodDateRange();
-    // Total minus uncollected shares = my real spending only
-    const realSpent = this.getPeriodTotal() - this.getPeriodSplitUnpaid();
+    const records = this.getPeriodRecords().filter(r => !r.excludeFromAvg);
+    // Only my real share counts: others' shares (paid or not) are not my spending
+    const realSpent = records.reduce((s, r) => s + r.amount, 0) - this.getPeriodSplitOthers();
     return daysPassed > 0 ? realSpent / daysPassed : 0;
   },
   // TREND twin of getPredictedTotal for the rolling-30-day range. Must filter

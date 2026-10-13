@@ -6670,10 +6670,16 @@ const StatsEngine = {
   getPeriodTotal() {
     return this.getPeriodRecords().reduce((s, r) => s + r.amount, 0) - this.getPeriodSplitContrib();
   },
+  // Rolling-range twin of getDailyAverage — must honour 不计日均 (excludeFromAvg)
+  // exactly as that one does, and as getPeriodPredictedTotal below does. It did
+  // not: a RM900 one-off flagged 不计日均 inflated the 日均 card by RM900/30 while
+  // the projection built from the same data ignored it, so the two contradicted
+  // each other and switching the Stats Range changed what the flag meant.
   getPeriodDailyAverage() {
     const { daysPassed } = getPeriodDateRange();
-    // Total minus uncollected shares = my real spending only
-    const realSpent = this.getPeriodTotal() - this.getPeriodSplitUnpaid();
+    const records = this.getPeriodRecords().filter(r => !r.excludeFromAvg);
+    // Only my real share counts: others' shares (paid or not) are not my spending
+    const realSpent = records.reduce((s, r) => s + r.amount, 0) - this.getPeriodSplitOthers();
     return daysPassed > 0 ? realSpent / daysPassed : 0;
   },
   // TREND twin of getPredictedTotal for the rolling-30-day range. Must filter
@@ -7172,14 +7178,51 @@ const SimulationEngine = {
     const adjustments = (params.categoryAdjustments) || {};
     const globalAdj = params.globalAdjustment || { mode: null, value: null };
 
-    // First pass: get root-level settings for inheritance
-    const rootSettings = {};
-    Object.entries(adjustments).forEach(([catId, adj]) => {
-      const cat = catMap[catId];
-      if (cat && !cat.parentId) {
-        rootSettings[catId] = adj;
+    // An adjustment belongs to the node the user set it on, and the nearest
+    // ancestor-or-self that has an entry governs a leaf (an entry on a child —
+    // even "keep trend" — overrides its parent's). Handing the parent's entry to
+    // every leaf instead applied an absolute value once PER leaf: "餐饮 −RM2/day"
+    // over four subcategories saved 4 × RM2/day, and a fixed remaining total of
+    // RM100 became RM400. The percent / zero modes were never affected because
+    // they scale each leaf and so add up to the same thing either way.
+    const adjustmentSourceOf = (catId) => {
+      const seen = new Set();
+      let c = catMap[catId];
+      while (c && !seen.has(c.id)) {
+        if (adjustments[c.id]) return c.id;
+        seen.add(c.id);
+        c = c.parentId ? catMap[c.parentId] : null;
       }
+      return null;
+    };
+    const governed = {};   // adjustment node id -> the leaf ids it governs
+    leafCatIds.forEach(id => {
+      const src = adjustmentSourceOf(id);
+      if (src) (governed[src] = governed[src] || []).push(id);
     });
+
+    // For the absolute modes (daily / total / adjust) the value describes the
+    // governed group AS A WHOLE: work out the group's remaining spend once, then
+    // hand each leaf its share by current pace (evenly when nothing has been
+    // spent yet). The floor at zero applies to the group, not to each leaf.
+    const groupTotals = {};
+    const groupRemaining = (srcId) => {
+      if (groupTotals[srcId] !== undefined) return groupTotals[srcId];
+      const adj = adjustments[srcId];
+      const v = adj.value || 0;
+      const sumAvg = governed[srcId].reduce((s, id) => s + getCurrentDailyAvg(id), 0);
+      let total;
+      if (adj.mode === 'daily') total = v * remainingDays;
+      else if (adj.mode === 'total') total = v;
+      else total = (sumAvg + v) * remainingDays;   // 'adjust'
+      groupTotals[srcId] = Math.max(0, total);
+      return groupTotals[srcId];
+    };
+    const groupShare = (srcId, catId) => {
+      const ids = governed[srcId];
+      const sumAvg = ids.reduce((s, id) => s + getCurrentDailyAvg(id), 0);
+      return sumAvg > 0 ? getCurrentDailyAvg(catId) / sumAvg : 1 / ids.length;
+    };
 
     // Process leaf categories
     leafCatIds.forEach(catId => {
@@ -7188,26 +7231,20 @@ const SimulationEngine = {
       const rootId = cat.parentId || catId;
       const rootCat = rootId === catId ? cat : catMap[rootId];
 
-      // Determine effective adjustment: direct first, then inherit from root
-      let adj = adjustments[catId];
-      if (!adj) adj = adjustments[rootId] || null;
-      if (!adj) adj = { mode: 'trend', value: null };
+      const srcId = adjustmentSourceOf(catId);
+      const adj = srcId ? adjustments[srcId] : { mode: 'trend', value: null };
 
       const currentAvg = getCurrentDailyAvg(catId);
       let projectedRemaining;
 
       switch (adj.mode) {
         case 'daily':
-          projectedRemaining = adj.value * remainingDays;
-          break;
         case 'total':
-          projectedRemaining = adj.value || 0;
+        case 'adjust':
+          projectedRemaining = groupRemaining(srcId) * groupShare(srcId, catId);
           break;
         case 'percent':
           projectedRemaining = currentAvg * remainingDays * (1 + (adj.value || 0) / 100);
-          break;
-        case 'adjust':
-          projectedRemaining = (currentAvg + (adj.value || 0)) * remainingDays;
           break;
         case 'zero':
           projectedRemaining = 0;
@@ -16564,6 +16601,18 @@ function renderReport() {
   // Cash-flow projection, not the daily-average trend — matches the overview card (A-1).
   const predicted = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
   const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(month) - unpaidPlannedBillsRep);
+  // The one definition of 日均 the overview, stats and what-if pages all use:
+  // spend over the days that have PASSED, my own share only, 不计日均 records out.
+  // This page used to divide the month total by the number of days that happened
+  // to have a record — a different quantity under the same name — so a quiet
+  // week with one big day read as a huge daily average.
+  const dailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month);
+  // The total next to it still counts those one-offs, so say why total ÷ days
+  // does not equal the average — otherwise the sentence looks miscalculated.
+  const avgExcluded = (isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(month)).filter(r => r.excludeFromAvg);
+  const avgExcludedNote = avgExcluded.length
+    ? ' ' + __('report.avgExcludesLarge', avgExcluded.length, formatMoney(avgExcluded.reduce((s, r) => s + r.amount, 0)))
+    : '';
 
   // Recorded income for the same window — a separate ledger read from the 月收入
   // setting above, which is a declaration the user maintains by hand.
@@ -16773,7 +16822,7 @@ function renderReport() {
           ${budget > 0 ? `
             <p>${__('report.predictionIncome', year, mon, formatMoney(budget))}${totalBills > 0 ? ' ' + __('report.predictionBillsDetail', formatMoney(totalBills), formatMoney(netDisposable)) : ''}</p>
             ${targetAmount > 0 ? `<p>${__('report.predictionSavingsTarget', formatMoney(targetAmount), formatMoney(spendableBudget))}</p>` : ''}
-            <p>${__('report.predictionSpentSoFar', formatMoney(monthTotal), dailyTotals.length > 0 ? formatMoney(monthTotal / Math.max(1, dailyTotals.filter(d => d.total > 0).length)) : 0)}</p>
+            <p>${__('report.predictionSpentSoFar', formatMoney(monthTotal), formatMoney(dailyAvg))}${avgExcludedNote}</p>
             <p>${savingsPred >= 0
               ? __('report.predictionPositive', formatMoney(savingsPred))
               : __('report.predictionNegative', formatMoney(Math.abs(savingsPred)))}
@@ -16851,6 +16900,7 @@ function printReport() {
     'report.predictionBillsDetail': { zh: '账单合计 <strong>{0}</strong>，净收入 <strong>{1}</strong>。', en: 'Bills <strong>{0}</strong>, net income <strong>{1}</strong>.' },
     'report.predictionSavingsTarget': { zh: '🎯 储蓄目标 <strong>{0}</strong>，日常可用 <strong>{1}</strong>。', en: '🎯 Savings target <strong>{0}</strong>, spendable <strong>{1}</strong>.' },
     'report.predictionSpentSoFar': { zh: '📊 本月至今已消费 <strong>{0}</strong>，日均 {1}。', en: '📊 Spent so far <strong>{0}</strong>, daily avg {1}.' },
+    'report.avgExcludesLarge': { zh: '（日均不含 {0} 笔标记为「不计日均」的大额，共 {1}）', en: '(Daily avg leaves out {0} large item(s) flagged "exclude from daily avg", {1} in total.)' },
     'report.predictionPositive': { zh: '📈 如果维持当前消费习惯，预计月末可存 <strong style="color:var(--success)">{0}</strong>。', en: '📈 At this rate, est. to save <strong style="color:var(--success)">{0}</strong> by month end.' },
     'report.predictionNegative': { zh: '⚠️ 按当前趋势预计超支 <strong style="color:var(--danger)">{0}</strong>，建议控制支出。', en: '⚠️ On track to overspend <strong style="color:var(--danger)">{0}</strong>, consider cutting back.' },
     'report.predictionSetupHint': { zh: '💡 在「月账单中心」设定月收入，在「设置」设定储蓄目标后可查看完整预测。', en: '💡 Set income in Bills Center & savings target in Settings for full forecast.' },
@@ -20610,6 +20660,10 @@ function getPendingSummary(opts) {
   const perContact = {};
   const bills = (typeof DataStore !== 'undefined' && DataStore._data && Array.isArray(DataStore._data.splitBills)) ? DataStore._data.splitBills : [];
   bills.forEach(b => {
+    // Archived means closed: not chased, not counted, not listed — the same rule
+    // getSplitUnpaid applies to the overview's 待收回 total, so the banner, the
+    // centre's summary and its lists can never disagree about what is owed.
+    if (b.archived) return;
     (b.participants || []).forEach(p => {
       const amt = partShare(p);
       if (amt <= 0) return;
@@ -21371,9 +21425,13 @@ function toggleSplitContactExpand(contactKey) {
   if (!overlay || !overlay.classList.contains('open')) return;
   const body = overlay.querySelector('[id^="splitCenterBody_"]');
   if (!body) return;
-  const pcs = getPendingSummary({ includePaid: true }).perContact;
-  const pc = pcs.find(x => (x.contactId || 'anon:' + x.name) === contactKey);
-  const card = body.querySelector('.split-contact-card[data-contact="' + escHtml(contactKey) + '"]');
+  const sameKey = x => (x.contactId || 'anon:' + x.name) === contactKey;
+  // A card the user just settled is still on screen (see _refreshCenterPaidState),
+  // so folding it must find it even though _splitOwedContacts no longer lists it.
+  const pc = _splitOwedContacts().find(sameKey)
+    || getPendingSummary({ includePaid: true }).perContact.find(sameKey);
+  const card = Array.from(body.querySelectorAll('.split-contact-card'))
+    .find(c => c.getAttribute('data-contact') === contactKey);
   if (pc && card) {
     const tmp = document.createElement('div');
     tmp.innerHTML = _splitContactCardHtml(pc);
@@ -21463,10 +21521,42 @@ function _splitContactCardHtml(pc) {
     </div>`;
 }
 
+/* Who still owes me, and for which bills. Two things are left out on purpose:
+   - archived bills (getPendingSummary already drops them) — a closed bill has no
+     business inside someone's list, which only confused whoever opened a name;
+   - repaid rows, and so any person with nothing left to pay.
+   Everything left out is still reachable in the 已结清归档 tab. `keepBillId` keeps
+   the one row the user has just ticked, so a mis-tap can be unticked on the spot;
+   the next render drops it. */
+function _splitOwedContacts(keepBillId) {
+  return getPendingSummary({ includePaid: true }).perContact
+    .map(pc => Object.assign({}, pc, {
+      bills: pc.bills.filter(b => !b.paid || (keepBillId && b.billId === keepBillId))
+    }))
+    .filter(pc => pc.bills.length > 0);
+}
+
+/* Bills that are done with: fully repaid but not yet archived, or archived. Not
+   shown in the two tracking views (they answer "who still owes me"); they live
+   in the third tab, which is also where archive / delete / convert / restore
+   are. Repaid ones come first — they are the ones waiting on a decision. */
+function _splitClosedBills() {
+  const bills = getSplitBills();
+  const repaid = bills.filter(b => !b.archived && billContrib(b).unpaid <= 0);
+  return repaid.concat(bills.filter(b => b.archived));
+}
+
+/* Tells the user where the bills they no longer see went. */
+function _splitClosedHint() {
+  const n = _splitClosedBills().length;
+  if (!n) return '';
+  return `<div class="text-xs text-muted" style="text-align:center;padding:10px 4px;cursor:pointer" onclick="setSplitCenterView('archived')">✅ ${__('split.closedHint', n)}</div>`;
+}
+
 function _splitPeopleView() {
-  const pending = getPendingSummary({ includePaid: true });
-  if (pending.perContact.length === 0) return _splitEmpty();
-  return pending.perContact.map(pc => _splitContactCardHtml(pc)).join('');
+  const owed = _splitOwedContacts();
+  if (owed.length === 0) return _splitEmpty() + _splitClosedHint();
+  return owed.map(pc => _splitContactCardHtml(pc)).join('') + _splitClosedHint();
 }
 
 function _splitPersonRow(name, amtDisp, controlHtml) {
@@ -21549,25 +21639,24 @@ function _splitBillCard(b, opts) {
 }
 
 function _splitBillView() {
-  const bills = getSplitBills();
-  if (bills.length === 0) return _splitEmpty();
-  const active = bills.filter(b => !b.archived);
-  if (active.length === 0) return _splitEmpty();
-  return active.map(b => _splitBillCard(b)).join('');
+  // Open bills only: not archived, and somebody still owes on them
+  const open = getSplitBills().filter(b => !b.archived && billContrib(b).unpaid > 0);
+  if (open.length === 0) return _splitEmpty() + _splitClosedHint();
+  return open.map(b => _splitBillCard(b)).join('') + _splitClosedHint();
 }
 
 function _splitArchivedView() {
-  const archivedList = getSplitBills().filter(b => b.archived);
-  if (archivedList.length === 0) {
+  const closed = _splitClosedBills();
+  if (closed.length === 0) {
     return `<div class="empty-state"><div class="empty-icon">🗂</div><div class="empty-text">${__('split.archivedEmpty')}</div></div>`;
   }
-  return archivedList.map(b => _splitBillCard(b, { archived: true })).join('');
+  return closed.map(b => _splitBillCard(b, { archived: !!b.archived })).join('');
 }
 
 function openSplitCenter() {
   _splitEditorFromRecords = false;
   const pending = getPendingSummary();
-  const archivedCount = getSplitBills().filter(b => b.archived).length;
+  const archivedCount = _splitClosedBills().length;
   const bodyId = 'splitCenterBody_' + Date.now();
 
   const overlay = document.getElementById('modalOverlay');
@@ -21647,7 +21736,7 @@ function _refreshCenterPaidState(billId, contactKey, paid) {
       vals[1].textContent = p.count + ' ' + __('split.items');
     }
   }
-  if (_splitCenterView === 'bill') {
+  if (_splitCenterView !== 'people') {
     const cb = body.querySelector('.split-paid-toggle input[data-bill="' + billId + '"]');
     const card = cb ? cb.closest('.split-history-row') : null;
     if (card) {
@@ -21657,10 +21746,12 @@ function _refreshCenterPaidState(billId, contactKey, paid) {
       _bindPaidControls(tmp.firstElementChild);
     }
   } else {
-    const pcs = getPendingSummary({ includePaid: true }).perContact;
-    const pc = pcs.find(x => x.contactId === contactKey);
-    const row = body.querySelector('.split-pending-row[data-bill-id="' + billId + '"]');
-    const card = row ? row.closest('.split-contact-card') : null;
+    // Keep the row just ticked on screen (so it can be unticked); the card is
+    // looked up by its own key — the first row for this bill belongs to whoever
+    // happens to be expanded first, which is not necessarily this person.
+    const pc = _splitOwedContacts(billId).find(x => (x.contactId || 'anon:' + x.name) === contactKey);
+    const card = Array.from(body.querySelectorAll('.split-contact-card'))
+      .find(c => c.getAttribute('data-contact') === contactKey);
     if (pc && card) {
       const tmp = document.createElement('div');
       tmp.innerHTML = _splitContactCardHtml(pc);
@@ -22583,8 +22674,8 @@ addI18nEntries({
   'split.settleDeleteLink': { zh: '彻底删除（连同流水记录一起删除）', en: 'Delete permanently (with the linked record)' },
   'split.archived': { zh: '已结清 · 已归档', en: 'Settled · Archived' },
   'split.archivedSection': { zh: '🗂 已结清归档', en: '🗂 Settled archive' },
-  'split.archivedToast': { zh: '🗂 已归档（按账单页可找回并恢复）', en: '🗂 Archived (restorable in Bills view)' },
-  'split.unarchiveToast': { zh: '↩️ 已恢复，回到追账列表', en: '↩️ Restored to the tracking list' },
+  'split.archivedToast': { zh: '🗂 已归档（可在「已结清归档」页签里恢复）', en: '🗂 Archived (restorable in the Settled archive tab)' },
+  'split.unarchiveToast': { zh: '↩️ 已恢复为「已结清」。要继续追账，请把还款额改回未还', en: '↩️ Restored to Settled. To chase it again, set the repaid amount back to unpaid' },
   'split.unarchiveBtn': { zh: '恢复', en: 'Restore' },
   'split.convertToast': { zh: '📒 已转为普通记账记录', en: '📒 Converted to a normal expense record' },
   'split.neverCounted': { zh: '（自己无份额且无他人分摊，从未计入统计）', en: '(No share, never counted in stats)' },
@@ -22654,7 +22745,8 @@ addI18nEntries({
   'split.unknownAmountTitle': { zh: '勾选后该参与人的金额视为不明：不能输入指定金额，均分计算不受影响（仅展示 ❓）', en: 'Mark this person\'s amount as unknown: cannot type a specified amount, equal-split math is unaffected (shown as ❓)' },
   'split.formCategory': { zh: '分类', en: 'Category' },
   'split.formCategoryPlaceholder': { zh: '选择分类', en: 'Select category' },
-  'split.archivedEmpty': { zh: '暂无归档账单', en: 'No archived bills yet' },
+  'split.archivedEmpty': { zh: '暂无已结清或已归档的账单', en: 'No settled or archived bills yet' },
+  'split.closedHint': { zh: '另有 {0} 笔已还清 / 已归档的账单不在这里显示，点这里去「已结清归档」查看', en: '{0} repaid or archived bill(s) are not listed here — tap to open the Settled archive' },
   'split.convertNoSelfShare': { zh: '自己无份额，无法转为普通记账记录（可归档或删除）', en: 'You have no share — cannot convert to a normal record (archive or delete instead)' },
   'split.viewCompact': { zh: '紧凑', en: 'Compact' },
   'split.viewDetailed': { zh: '详细', en: 'Detailed' },

@@ -154,6 +154,10 @@ function getPendingSummary(opts) {
   const perContact = {};
   const bills = (typeof DataStore !== 'undefined' && DataStore._data && Array.isArray(DataStore._data.splitBills)) ? DataStore._data.splitBills : [];
   bills.forEach(b => {
+    // Archived means closed: not chased, not counted, not listed — the same rule
+    // getSplitUnpaid applies to the overview's 待收回 total, so the banner, the
+    // centre's summary and its lists can never disagree about what is owed.
+    if (b.archived) return;
     (b.participants || []).forEach(p => {
       const amt = partShare(p);
       if (amt <= 0) return;
@@ -915,9 +919,13 @@ function toggleSplitContactExpand(contactKey) {
   if (!overlay || !overlay.classList.contains('open')) return;
   const body = overlay.querySelector('[id^="splitCenterBody_"]');
   if (!body) return;
-  const pcs = getPendingSummary({ includePaid: true }).perContact;
-  const pc = pcs.find(x => (x.contactId || 'anon:' + x.name) === contactKey);
-  const card = body.querySelector('.split-contact-card[data-contact="' + escHtml(contactKey) + '"]');
+  const sameKey = x => (x.contactId || 'anon:' + x.name) === contactKey;
+  // A card the user just settled is still on screen (see _refreshCenterPaidState),
+  // so folding it must find it even though _splitOwedContacts no longer lists it.
+  const pc = _splitOwedContacts().find(sameKey)
+    || getPendingSummary({ includePaid: true }).perContact.find(sameKey);
+  const card = Array.from(body.querySelectorAll('.split-contact-card'))
+    .find(c => c.getAttribute('data-contact') === contactKey);
   if (pc && card) {
     const tmp = document.createElement('div');
     tmp.innerHTML = _splitContactCardHtml(pc);
@@ -1007,10 +1015,42 @@ function _splitContactCardHtml(pc) {
     </div>`;
 }
 
+/* Who still owes me, and for which bills. Two things are left out on purpose:
+   - archived bills (getPendingSummary already drops them) — a closed bill has no
+     business inside someone's list, which only confused whoever opened a name;
+   - repaid rows, and so any person with nothing left to pay.
+   Everything left out is still reachable in the 已结清归档 tab. `keepBillId` keeps
+   the one row the user has just ticked, so a mis-tap can be unticked on the spot;
+   the next render drops it. */
+function _splitOwedContacts(keepBillId) {
+  return getPendingSummary({ includePaid: true }).perContact
+    .map(pc => Object.assign({}, pc, {
+      bills: pc.bills.filter(b => !b.paid || (keepBillId && b.billId === keepBillId))
+    }))
+    .filter(pc => pc.bills.length > 0);
+}
+
+/* Bills that are done with: fully repaid but not yet archived, or archived. Not
+   shown in the two tracking views (they answer "who still owes me"); they live
+   in the third tab, which is also where archive / delete / convert / restore
+   are. Repaid ones come first — they are the ones waiting on a decision. */
+function _splitClosedBills() {
+  const bills = getSplitBills();
+  const repaid = bills.filter(b => !b.archived && billContrib(b).unpaid <= 0);
+  return repaid.concat(bills.filter(b => b.archived));
+}
+
+/* Tells the user where the bills they no longer see went. */
+function _splitClosedHint() {
+  const n = _splitClosedBills().length;
+  if (!n) return '';
+  return `<div class="text-xs text-muted" style="text-align:center;padding:10px 4px;cursor:pointer" onclick="setSplitCenterView('archived')">✅ ${__('split.closedHint', n)}</div>`;
+}
+
 function _splitPeopleView() {
-  const pending = getPendingSummary({ includePaid: true });
-  if (pending.perContact.length === 0) return _splitEmpty();
-  return pending.perContact.map(pc => _splitContactCardHtml(pc)).join('');
+  const owed = _splitOwedContacts();
+  if (owed.length === 0) return _splitEmpty() + _splitClosedHint();
+  return owed.map(pc => _splitContactCardHtml(pc)).join('') + _splitClosedHint();
 }
 
 function _splitPersonRow(name, amtDisp, controlHtml) {
@@ -1093,25 +1133,24 @@ function _splitBillCard(b, opts) {
 }
 
 function _splitBillView() {
-  const bills = getSplitBills();
-  if (bills.length === 0) return _splitEmpty();
-  const active = bills.filter(b => !b.archived);
-  if (active.length === 0) return _splitEmpty();
-  return active.map(b => _splitBillCard(b)).join('');
+  // Open bills only: not archived, and somebody still owes on them
+  const open = getSplitBills().filter(b => !b.archived && billContrib(b).unpaid > 0);
+  if (open.length === 0) return _splitEmpty() + _splitClosedHint();
+  return open.map(b => _splitBillCard(b)).join('') + _splitClosedHint();
 }
 
 function _splitArchivedView() {
-  const archivedList = getSplitBills().filter(b => b.archived);
-  if (archivedList.length === 0) {
+  const closed = _splitClosedBills();
+  if (closed.length === 0) {
     return `<div class="empty-state"><div class="empty-icon">🗂</div><div class="empty-text">${__('split.archivedEmpty')}</div></div>`;
   }
-  return archivedList.map(b => _splitBillCard(b, { archived: true })).join('');
+  return closed.map(b => _splitBillCard(b, { archived: !!b.archived })).join('');
 }
 
 function openSplitCenter() {
   _splitEditorFromRecords = false;
   const pending = getPendingSummary();
-  const archivedCount = getSplitBills().filter(b => b.archived).length;
+  const archivedCount = _splitClosedBills().length;
   const bodyId = 'splitCenterBody_' + Date.now();
 
   const overlay = document.getElementById('modalOverlay');
@@ -1191,7 +1230,7 @@ function _refreshCenterPaidState(billId, contactKey, paid) {
       vals[1].textContent = p.count + ' ' + __('split.items');
     }
   }
-  if (_splitCenterView === 'bill') {
+  if (_splitCenterView !== 'people') {
     const cb = body.querySelector('.split-paid-toggle input[data-bill="' + billId + '"]');
     const card = cb ? cb.closest('.split-history-row') : null;
     if (card) {
@@ -1201,10 +1240,12 @@ function _refreshCenterPaidState(billId, contactKey, paid) {
       _bindPaidControls(tmp.firstElementChild);
     }
   } else {
-    const pcs = getPendingSummary({ includePaid: true }).perContact;
-    const pc = pcs.find(x => x.contactId === contactKey);
-    const row = body.querySelector('.split-pending-row[data-bill-id="' + billId + '"]');
-    const card = row ? row.closest('.split-contact-card') : null;
+    // Keep the row just ticked on screen (so it can be unticked); the card is
+    // looked up by its own key — the first row for this bill belongs to whoever
+    // happens to be expanded first, which is not necessarily this person.
+    const pc = _splitOwedContacts(billId).find(x => (x.contactId || 'anon:' + x.name) === contactKey);
+    const card = Array.from(body.querySelectorAll('.split-contact-card'))
+      .find(c => c.getAttribute('data-contact') === contactKey);
     if (pc && card) {
       const tmp = document.createElement('div');
       tmp.innerHTML = _splitContactCardHtml(pc);
@@ -2127,8 +2168,8 @@ addI18nEntries({
   'split.settleDeleteLink': { zh: '彻底删除（连同流水记录一起删除）', en: 'Delete permanently (with the linked record)' },
   'split.archived': { zh: '已结清 · 已归档', en: 'Settled · Archived' },
   'split.archivedSection': { zh: '🗂 已结清归档', en: '🗂 Settled archive' },
-  'split.archivedToast': { zh: '🗂 已归档（按账单页可找回并恢复）', en: '🗂 Archived (restorable in Bills view)' },
-  'split.unarchiveToast': { zh: '↩️ 已恢复，回到追账列表', en: '↩️ Restored to the tracking list' },
+  'split.archivedToast': { zh: '🗂 已归档（可在「已结清归档」页签里恢复）', en: '🗂 Archived (restorable in the Settled archive tab)' },
+  'split.unarchiveToast': { zh: '↩️ 已恢复为「已结清」。要继续追账，请把还款额改回未还', en: '↩️ Restored to Settled. To chase it again, set the repaid amount back to unpaid' },
   'split.unarchiveBtn': { zh: '恢复', en: 'Restore' },
   'split.convertToast': { zh: '📒 已转为普通记账记录', en: '📒 Converted to a normal expense record' },
   'split.neverCounted': { zh: '（自己无份额且无他人分摊，从未计入统计）', en: '(No share, never counted in stats)' },
@@ -2198,7 +2239,8 @@ addI18nEntries({
   'split.unknownAmountTitle': { zh: '勾选后该参与人的金额视为不明：不能输入指定金额，均分计算不受影响（仅展示 ❓）', en: 'Mark this person\'s amount as unknown: cannot type a specified amount, equal-split math is unaffected (shown as ❓)' },
   'split.formCategory': { zh: '分类', en: 'Category' },
   'split.formCategoryPlaceholder': { zh: '选择分类', en: 'Select category' },
-  'split.archivedEmpty': { zh: '暂无归档账单', en: 'No archived bills yet' },
+  'split.archivedEmpty': { zh: '暂无已结清或已归档的账单', en: 'No settled or archived bills yet' },
+  'split.closedHint': { zh: '另有 {0} 笔已还清 / 已归档的账单不在这里显示，点这里去「已结清归档」查看', en: '{0} repaid or archived bill(s) are not listed here — tap to open the Settled archive' },
   'split.convertNoSelfShare': { zh: '自己无份额，无法转为普通记账记录（可归档或删除）', en: 'You have no share — cannot convert to a normal record (archive or delete instead)' },
   'split.viewCompact': { zh: '紧凑', en: 'Compact' },
   'split.viewDetailed': { zh: '详细', en: 'Detailed' },
