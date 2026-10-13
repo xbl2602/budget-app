@@ -563,7 +563,7 @@ function openPlanEditor(planId) {
       '</div>' +
       '<div class="input-group">' +
         '<label class="input-label">' + __('plan.fieldAmount') + '</label>' +
-        '<input type="text" inputmode="decimal" class="input-field" id="planAmount" value="' + (plan ? plan.totalAmount : '') + '">' +
+        '<input type="text" inputmode="numeric" data-money class="input-field" id="planAmount" value="' + (plan ? plan.totalAmount : '') + '">' +
       '</div>' +
       '<div class="input-group">' +
         '<label class="input-label">' + __('plan.fieldMode') + '</label>' +

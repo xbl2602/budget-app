@@ -187,7 +187,7 @@ function openBillsCenter() {
   body.insertAdjacentHTML('beforeend',
     `<div class="card bills-card">` +
       `<div class="card-title" style="font-size:0.75rem">💰 ${__('ui.bills.incomeTitle')}</div>` +
-      `<input type="number" class="input-field bills-income-input" id="billIncomeInput" value="${income || ''}" placeholder="${__('ui.bills.incomePlaceholder')}" min="0" step="0.01" onchange="saveBillIncome(this.value)">` +
+      `<input type="text" inputmode="numeric" data-money class="input-field bills-income-input" id="billIncomeInput" value="${income || ''}" placeholder="${__('ui.bills.incomePlaceholder')}" onchange="saveBillIncome(this.value)">` +
     `</div>`
   );
 
@@ -209,7 +209,7 @@ function openBillsCenter() {
           `<span style="flex:1;font-weight:500;cursor:pointer" onclick="editBillCategory('${cat.id}')">${escHtml(cat.name)}</span>` +
           `<div style="display:flex;align-items:center;gap:4px">` +
             `<span style="font-size:0.75rem;color:var(--text-muted)">RM</span>` +
-            `<input type="number" class="input-field bills-amount-input" value="${amt}" placeholder="0" min="0" step="0.01" onchange="saveBillAmount('${cat.id}', this.value)">` +
+            `<input type="text" inputmode="numeric" data-money class="input-field bills-amount-input" value="${amt}" placeholder="0" onchange="saveBillAmount('${cat.id}', this.value)">` +
           `</div>` +
           `<button class="btn btn-ghost btn-sm bills-delete-btn" onclick="deleteBillCategoryFromCenter('${cat.id}')" title="${__('ui.bills.deleteTitle')}">✕</button>` +
         `</div>`;

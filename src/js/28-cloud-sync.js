@@ -1301,7 +1301,7 @@ const ui = {
     const idb = 'cfEdit_' + p.coll + '_' + p.id;
     return '<div class="conflict-edit-form">' +
       (p.coll === 'records' ? '<input type="datetime-local" class="input-field" id="' + idb + '_date" value="' + escHtml(dateVal) + '">' : '') +
-      '<input type="number" step="0.01" class="input-field" id="' + idb + '_amount" placeholder="' + __('cloud.conflict.amount') + '" value="' + escHtml(String(amt)) + '">' +
+      '<input type="text" inputmode="numeric" data-money class="input-field" id="' + idb + '_amount" placeholder="' + __('cloud.conflict.amount') + '" value="' + escHtml(String(amt)) + '">' +
       '<input type="text" class="input-field" id="' + idb + '_note" placeholder="' + __('cloud.conflict.note') + '" value="' + escHtml(note) + '">' +
       '<div class="flex gap-8">' +
         '<button class="btn btn-primary btn-sm" onclick="CloudSync.ui.cfSaveEdit(\'' + escHtml(conflictKey(p)) + '\')">' + __('cloud.conflict.save') + '</button>' +

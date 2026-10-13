@@ -83,7 +83,7 @@ function renderSettings() {
       </div>
       <div id="savingsFixedInput" class="input-group" style="display:${savings.type === 'fixed' ? 'block' : 'none'}">
         <label class="input-label">${__('settings.savings.fixedLabel')}</label>
-        <input type="number" id="savingsFixedAmount" class="input-field" value="${savings.fixedAmount || ''}" placeholder="0">
+        <input type="text" inputmode="numeric" data-money id="savingsFixedAmount" class="input-field" value="${savings.fixedAmount || ''}" placeholder="0">
       </div>
       <div id="savingsPercentInput" class="input-group" style="display:${savings.type === 'percent' ? 'block' : 'none'}">
         <label class="input-label">${__('settings.savings.percentLabel')}</label>

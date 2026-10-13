@@ -529,6 +529,33 @@ body.modal-open {
 .badge-success { background: rgba(16,185,129,0.1); color: var(--success); }
 .badge-warning { background: rgba(245,158,11,0.1); color: var(--warning); }
 .badge-danger { background: rgba(239,68,68,0.1); color: var(--danger); }
+
+/* ===== Add-record date row: ‹ previous day · date · next day › ===== */
+.add-date-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.add-date-row .input-field {
+  flex: 1;
+  min-width: 0;
+}
+.add-date-step {
+  flex-shrink: 0;
+  min-width: 44px;
+  padding: 0;
+  font-size: 1.4rem;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+}
+.add-date-step:active {
+  transform: scale(0.94);
+}
+/* A date other than today stays visible once it survives saving */
+.input-field.add-date-offday {
+  border-color: var(--warning);
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.18);
+}
 /* ===== ANIMATIONS ===== */
 @keyframes slideInLeft {
   from { opacity: 0; transform: translateX(-20px); }
@@ -1516,6 +1543,14 @@ body.modal-open {
 
 [data-theme="dark"] .savings-bar-fill.fill-worse {
   box-shadow: 0 0 8px rgba(239,68,68,0.5);
+}
+
+/* The ± button beside a signed RM field (the phone's numeric keypad has no minus) */
+.whatif-sign-btn {
+  flex-shrink: 0;
+  min-width: 32px;
+  padding: 2px 8px;
+  font-weight: 700;
 }
 /* ===== BILLS CENTER COMPONENTS ===== */
 
@@ -7701,7 +7736,7 @@ function openBillsCenter() {
   body.insertAdjacentHTML('beforeend',
     `<div class="card bills-card">` +
       `<div class="card-title" style="font-size:0.75rem">💰 ${__('ui.bills.incomeTitle')}</div>` +
-      `<input type="number" class="input-field bills-income-input" id="billIncomeInput" value="${income || ''}" placeholder="${__('ui.bills.incomePlaceholder')}" min="0" step="0.01" onchange="saveBillIncome(this.value)">` +
+      `<input type="text" inputmode="numeric" data-money class="input-field bills-income-input" id="billIncomeInput" value="${income || ''}" placeholder="${__('ui.bills.incomePlaceholder')}" onchange="saveBillIncome(this.value)">` +
     `</div>`
   );
 
@@ -7723,7 +7758,7 @@ function openBillsCenter() {
           `<span style="flex:1;font-weight:500;cursor:pointer" onclick="editBillCategory('${cat.id}')">${escHtml(cat.name)}</span>` +
           `<div style="display:flex;align-items:center;gap:4px">` +
             `<span style="font-size:0.75rem;color:var(--text-muted)">RM</span>` +
-            `<input type="number" class="input-field bills-amount-input" value="${amt}" placeholder="0" min="0" step="0.01" onchange="saveBillAmount('${cat.id}', this.value)">` +
+            `<input type="text" inputmode="numeric" data-money class="input-field bills-amount-input" value="${amt}" placeholder="0" onchange="saveBillAmount('${cat.id}', this.value)">` +
           `</div>` +
           `<button class="btn btn-ghost btn-sm bills-delete-btn" onclick="deleteBillCategoryFromCenter('${cat.id}')" title="${__('ui.bills.deleteTitle')}">✕</button>` +
         `</div>`;
@@ -8462,6 +8497,188 @@ function bindActivityListeners() {
 })();
 
 }catch(e){console.error('[07-ui-core.js] failed:' , e)}
+try{
+// === 08-money-input.js ===
+/* ============================================================
+   MONEY INPUT — cents-first entry (Touch 'n Go style)
+   ============================================================
+   Digits fill in from the decimal point, so "23642" is RM 236.42 and no decimal
+   key is ever needed:  2 → 0.02 · 23 → 0.23 · 236 → 2.36 · 2364 → 23.64 · 23642 → 236.42.
+   Backspace drops the last digit (236.42 → 23.64). A phone's numeric keypad
+   (inputmode="numeric") has no "." key at all, which is the point.
+
+   HOW A FIELD OPTS IN
+   -------------------
+   Mark it:  <input type="text" inputmode="numeric" data-money …>
+   That is all. The handlers below are delegated on `document`, so inputs that are
+   rendered later — modals, pages that re-render — need no per-render wiring.
+   `data-money="signed"` additionally lets a leading minus through ('-' toggles the
+   sign; there is also a ± button, see toggleMoneySign — iOS' numeric keypad has no
+   minus key).
+
+   WHAT THE VALUE LOOKS LIKE
+   -------------------------
+   Always a plain decimal string with two places ("236.42", "-5.00", or "" when
+   nothing is entered). That is exactly what every caller already feeds to
+   parseFloat(), which is why converting a field from type="number" is only a
+   markup change.
+
+   WHY ONLY REAL TYPING IS REWRITTEN
+   ---------------------------------
+   Reformatting runs for genuine user input (an InputEvent carries `inputType`).
+   A script that sets `.value = '1200'` and fires a bare `new Event('input')` is
+   saying "the amount is 1200", not "the user typed the digits 1-2-0-0", so it is
+   left alone. Without this, every programmatic prefill would be re-read as cents.
+
+   A field that is sometimes money and sometimes not (a budget that is RM or %, a
+   what-if value that is RM or %) switches with setMoneyMode().
+   ============================================================ */
+(function() {
+'use strict';
+
+const MAX_DIGITS = 11;          // 999,999,999.99 — ample, and keeps every sum exact
+
+function isMoney(el) {
+  return !!(el && el.tagName === 'INPUT' && el.hasAttribute && el.hasAttribute('data-money'));
+}
+function isSigned(el) { return el.getAttribute('data-money') === 'signed'; }
+
+// Integer cents so no float ever decides a digit. 12.345 (legacy, 3 places) → 1235.
+function centsOf(str) {
+  const n = parseFloat(String(str).replace(/,/g, ''));
+  return isFinite(n) ? Math.round(Math.abs(n) * 100) : 0;
+}
+
+function format(cents, negative) {
+  const whole = Math.floor(cents / 100);
+  const frac = String(cents % 100).padStart(2, '0');
+  return (negative && cents > 0 ? '-' : '') + whole + '.' + frac;
+}
+
+function caretToEnd(el) {
+  try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) { /* not a text field */ }
+}
+
+// A value somebody else wrote ("12.5", "120") becomes 12.50 / 120.00 the moment the
+// field is focused. Typing is derived from what is on screen, so it must already be
+// in the canonical shape before the first keystroke.
+function normalize(el) {
+  const v = el.value;
+  if (v === '' || v === '-') return;
+  const n = parseFloat(v);
+  if (!isFinite(n)) return;
+  const out = format(centsOf(v), isSigned(el) && n < 0);
+  if (out !== v) el.value = out;
+}
+
+// What the field held BEFORE the edit about to happen. A typed digit is appended
+// to this and Backspace pops its last digit, wherever the caret was: the user may
+// well have tapped into the middle of "236.42", and "2364" + "9" must still be
+// 2364.29, not a 9 spliced between the digits that happen to be on screen.
+function snapshot(el) {
+  el._moneyPrev = { cents: centsOf(el.value) };
+}
+
+function onFocus(e) {
+  if (!isMoney(e.target)) return;
+  normalize(e.target);
+  snapshot(e.target);
+}
+
+function onBeforeInput(e) {
+  if (isMoney(e.target)) snapshot(e.target);
+}
+
+function onInput(e) {
+  const el = e.target;
+  if (!isMoney(el) || !e.inputType) return;
+  const raw = el.value;
+  const rawDigits = raw.replace(/\D/g, '');
+  const prev = el._moneyPrev;
+  const prevDigits = prev && prev.cents ? String(prev.cents) : '';
+  let digits;
+  if (prev && e.inputType === 'insertText' && e.data != null) {
+    const typed = String(e.data).replace(/\D/g, '');
+    // Nothing of the old text survived (empty field, or select-all + type): start
+    // over. Otherwise the digit goes on the end, whatever the caret said.
+    digits = rawDigits === typed ? typed : prevDigits + typed;
+  } else if (prev && (e.inputType === 'deleteContentBackward' || e.inputType === 'deleteContentForward')) {
+    digits = rawDigits === '' ? '' : prevDigits.slice(0, -1);      // emptied by a selection, else pop one digit
+  } else {
+    digits = rawDigits;                                            // drop, IME, autofill …: take what is there
+  }
+  digits = digits.slice(0, MAX_DIGITS);                            // overflow: the newest digit is dropped
+  const cents = digits ? parseInt(digits, 10) : 0;
+  const signed = isSigned(el);
+  const negative = signed && ((raw.match(/-/g) || []).length % 2 === 1);
+  let out;
+  if (cents === 0) out = negative ? '-' : '';                      // a pending sign, or empty
+  else out = format(cents, negative);
+  if (el.value !== out) el.value = out;
+  caretToEnd(el);
+  snapshot(el);
+}
+
+// A pasted number is a number, not a stream of keystrokes: "50" is RM 50.00 and
+// "1,234.5" is RM 1,234.50.
+function onPaste(e) {
+  const el = e.target;
+  if (!isMoney(el)) return;
+  const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+  const m = text.replace(/,/g, '').match(/-?\d+(\.\d+)?|-?\.\d+/);
+  e.preventDefault();
+  if (!m) return;
+  const n = parseFloat(m[0]);
+  const cents = Math.min(centsOf(m[0]), Math.pow(10, MAX_DIGITS) - 1);
+  el.value = cents === 0 ? '' : format(cents, isSigned(el) && n < 0);
+  caretToEnd(el);
+  snapshot(el);
+  el.dispatchEvent(new Event('input', { bubbles: true }));         // a bare Event: not re-read as typing
+}
+
+document.addEventListener('focus', onFocus, true);
+document.addEventListener('beforeinput', onBeforeInput, true);
+document.addEventListener('input', onInput, true);   // capture: runs before the field's own oninput
+document.addEventListener('paste', onPaste, true);
+
+/* Switch a field between money entry and plain number entry (RM ↔ %). */
+function setMoneyMode(el, on, signed) {
+  if (!el) return;
+  if (on) {
+    el.setAttribute('data-money', signed ? 'signed' : '');
+    el.type = 'text';
+    el.setAttribute('inputmode', 'numeric');
+    normalize(el);
+  } else {
+    el.removeAttribute('data-money');
+    el.type = 'number';
+    el.removeAttribute('inputmode');
+  }
+}
+
+/* The ± button next to a signed field. Fires `change` so the field saves as if typed. */
+function toggleMoneySign(btn) {
+  const el = btn && btn.parentElement && btn.parentElement.querySelector('input[data-money="signed"]');
+  if (!el) return;
+  const v = el.value;
+  if (v === '' || v === '-') el.value = v === '-' ? '' : '-';
+  else el.value = format(centsOf(v), parseFloat(v) > 0);
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  el.focus();
+}
+
+  // === EXPORTS ===
+  window.MoneyInput = { format: format, centsOf: centsOf, normalize: normalize, MAX_DIGITS: MAX_DIGITS };
+  window.setMoneyMode = setMoneyMode;
+  window.toggleMoneySign = toggleMoneySign;
+
+  // === I18N ENTRIES ===
+  addI18nEntries({
+    'money.toggleSign': { zh: '正 / 负', en: 'Plus / minus' }
+  });
+})();
+
+}catch(e){console.error('[08-money-input.js] failed:' , e)}
 try{
 // === 09-category-picker.js ===
 /* ============================================================
@@ -9936,8 +10153,9 @@ function renderAddPage() {
           <label class="input-label">${__('addRecord.amountLabel')}</label>
           <div style="position:relative">
             <span id="addAmountPrefix" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:var(--primary);font-size:1.1rem">RM</span>
-            <input type="text" id="addAmount" class="input-field" placeholder="0.00" style="padding-left:44px;font-size:1.2rem;font-weight:700" inputmode="decimal" autocomplete="off">
+            <input type="text" id="addAmount" class="input-field" placeholder="0.00" style="padding-left:44px;font-size:1.2rem;font-weight:700" inputmode="numeric" data-money autocomplete="off">
           </div>
+          <div class="text-xs text-muted" style="margin-top:4px">${__('addRecord.amountHint')}</div>
         </div>
 
         <div class="input-group">
@@ -9949,7 +10167,11 @@ function renderAddPage() {
 
         <div class="input-group">
           <label class="input-label">${__('addRecord.dateLabel')}</label>
-          <input type="datetime-local" id="addDateTime" class="input-field">
+          <div class="add-date-row">
+            <button type="button" class="btn btn-outline add-date-step" id="addDatePrev" onclick="shiftAddDate(-1)" title="${__('addRecord.prevDay')}" aria-label="${__('addRecord.prevDay')}">‹</button>
+            <input type="datetime-local" id="addDateTime" class="input-field">
+            <button type="button" class="btn btn-outline add-date-step" id="addDateNext" onclick="shiftAddDate(1)" title="${__('addRecord.nextDay')}" aria-label="${__('addRecord.nextDay')}">›</button>
+          </div>
         </div>
 
         <div class="input-group">
@@ -9992,22 +10214,57 @@ function renderAddPage() {
 
   setAddRecordType('expense');
 
-  // Set default date/time
-  const now = new Date();
-  const offset = now.getTimezoneOffset();
-  const local = new Date(now.getTime() - offset * 60000);
-  document.getElementById('addDateTime').value = local.toISOString().slice(0, 16);
+  // Date/time: whatever the user last chose (a back-dated batch of entries stays
+  // on its day), otherwise now. Only an explicit choice is remembered, so an
+  // untouched default still follows the clock the next time the page opens.
+  const dateEl = document.getElementById('addDateTime');
+  dateEl.value = window._addDateTimeChosen || localNowForInput();
+  const onDateChosen = function() {
+    window._addDateTimeChosen = dateEl.value || null;
+    updateAddDateCue();
+  };
+  dateEl.addEventListener('input', onDateChosen);
+  dateEl.addEventListener('change', onDateChosen);
+  updateAddDateCue();
 
-  // Amount input formatting
-  const amountInput = document.getElementById('addAmount');
-  amountInput.addEventListener('input', function() {
-    let val = this.value.replace(/[^0-9.]/g, '');
-    const parts = val.split('.');
-    if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
-    if (parts[1] && parts[1].length > 2) val = parts[0] + '.' + parts[1].slice(0, 2);
-    this.value = val;
+  // The amount is entered cents-first (see 08-money-input.js); this only keeps the
+  // split preview in step with it.
+  document.getElementById('addAmount').addEventListener('input', function() {
     if (typeof previewSplitShares === 'function') previewSplitShares();
   });
+}
+
+// "YYYY-MM-DDTHH:mm" in LOCAL time — the format a datetime-local input takes.
+function localNowForInput() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+// Move a datetime-local value by whole days, keeping the time of day. Calendar
+// arithmetic on the local fields, so month/year ends and leap days roll correctly.
+function shiftLocalDateTime(value, days) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value || '') || /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(localNowForInput());
+  const d = new Date(+m[1], +m[2] - 1, +m[3] + days, +m[4], +m[5]);
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+function shiftAddDate(days) {
+  const el = document.getElementById('addDateTime');
+  if (!el) return;
+  el.value = shiftLocalDateTime(el.value, days);
+  window._addDateTimeChosen = el.value;
+  updateAddDateCue();
+  if (typeof previewSplitShares === 'function') previewSplitShares();
+}
+
+// The date now survives saving, so make a date other than today visible at a
+// glance — otherwise a forgotten back-dated field quietly files the next record
+// on the wrong day.
+function updateAddDateCue() {
+  const el = document.getElementById('addDateTime');
+  if (!el) return;
+  el.classList.toggle('add-date-offday', !!el.value && el.value.slice(0, 10) !== localNowForInput().slice(0, 10));
 }
 // Flip between expense and income. The selected category is cleared because an
 // expense category is not a valid income category — leaving it selected would let
@@ -10146,10 +10403,7 @@ function submitRecord(e) {
     splitToggle.checked = false;
     toggleAddSplitForm(false);
     if (typeof SplitEngine !== 'undefined' && SplitEngine.resetAddSplitState) SplitEngine.resetAddSplitState();
-    const now2 = new Date();
-    const offset2 = now2.getTimezoneOffset();
-    const local2 = new Date(now2.getTime() - offset2 * 60000);
-    document.getElementById('addDateTime').value = local2.toISOString().slice(0, 16);
+    // The date/time is deliberately NOT reset: consecutive entries usually share a day.
     return;
   }
 
@@ -10177,10 +10431,7 @@ function submitRecord(e) {
   document.getElementById('addNote').value = '';
   window._addRecordTags = [];
   renderAddTagsDisplay();
-  const now = new Date();
-  const offset = now.getTimezoneOffset();
-  const local = new Date(now.getTime() - offset * 60000);
-  document.getElementById('addDateTime').value = local.toISOString().slice(0, 16);
+  // The date/time is deliberately NOT reset: consecutive entries usually share a day.
 }
 
 // Tag picker for add page
@@ -10224,6 +10475,9 @@ function removeAddTag(tag) {
     'addRecord.categoryLabel': { zh: '分类', en: 'Category' },
     'addRecord.selectCategory': { zh: '请选择分类', en: 'Please select a category' },
     'addRecord.dateLabel': { zh: '日期时间', en: 'Date & Time' },
+    'addRecord.prevDay': { zh: '前一天', en: 'Previous day' },
+    'addRecord.nextDay': { zh: '后一天', en: 'Next day' },
+    'addRecord.amountHint': { zh: '从分开始输入：输入 23642 即 236.42', en: 'Digits fill in from the cents: type 23642 for 236.42' },
     'addRecord.noteLabel': { zh: '备注', en: 'Note' },
     'addRecord.notePlaceholder': { zh: '例如：Nasi Lemak', en: 'e.g. Nasi Lemak' },
     'addRecord.tagsLabel': { zh: '🏷️ 标签', en: '🏷️ Tags' },
@@ -10241,6 +10495,7 @@ function removeAddTag(tag) {
   window.renderAddPage = renderAddPage;
   window.setAddRecordType = setAddRecordType;
   window.submitRecord = submitRecord;
+  window.shiftAddDate = shiftAddDate;
   window.openTagPickerForAdd = openTagPickerForAdd;
   window.renderAddTagsDisplay = renderAddTagsDisplay;
   window.removeAddTag = removeAddTag;
@@ -10315,11 +10570,11 @@ function renderRecords() {
       <div class="grid-2">
         <div class="input-group" style="margin-bottom:8px">
           <label class="text-sm text-secondary">${__('records.filter.amountMin')}</label>
-          <input type="number" id="filterAmountMin" class="input-field" placeholder="0" value="${recordsFilter.amountMin}" oninput="applyRecordsFilter()">
+          <input type="text" inputmode="numeric" data-money id="filterAmountMin" class="input-field" placeholder="0" value="${recordsFilter.amountMin}" oninput="applyRecordsFilter()">
         </div>
         <div class="input-group" style="margin-bottom:8px">
           <label class="text-sm text-secondary">${__('records.filter.amountMax')}</label>
-          <input type="number" id="filterAmountMax" class="input-field" placeholder="9999" value="${recordsFilter.amountMax}" oninput="applyRecordsFilter()">
+          <input type="text" inputmode="numeric" data-money id="filterAmountMax" class="input-field" placeholder="9999" value="${recordsFilter.amountMax}" oninput="applyRecordsFilter()">
         </div>
       </div>
       <div class="flex gap-8 mt-8" style="flex-wrap:wrap">
@@ -11027,7 +11282,7 @@ function openEditRecord(id) {
         <label class="input-label">${__('records.edit.amount')}</label>
         <div style="position:relative">
           <span id="editAmountPrefix" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:${isIncome ? 'var(--success)' : 'var(--primary)'}">RM</span>
-          <input type="text" id="editAmount" class="input-field" value="${record.amount}" style="padding-left:44px;font-size:1.2rem;font-weight:700" inputmode="decimal">
+          <input type="text" inputmode="numeric" data-money id="editAmount" class="input-field" value="${record.amount}" style="padding-left:44px;font-size:1.2rem;font-weight:700" autocomplete="off">
         </div>
       </div>
       <div class="input-group">
@@ -11535,8 +11790,11 @@ function buildCategoryTreeHTML(cats, depth, kind) {
     } else {
     // Budget input group
     html += `<div class="cat-budget">`;
-    html += `<input type="number" class="budget-input" value="${budgetVal}" placeholder="0" onchange="saveCategoryBudget('${cat.id}','${currentMonth}',this.value,'${budgetType}')" min="0" step="0.01">`;
-    html += `<button class="budget-toggle" onclick="var inp=this.parentElement.querySelector('.budget-input');var nxt=this.innerText==='RM'?'%':'RM';this.innerText=nxt;saveCategoryBudget('${cat.id}','${currentMonth}',inp.value,nxt==='%'?'percent':'fixed')">${budgetType === 'percent' ? '%' : 'RM'}</button>`;
+    // The same box holds RM or a percentage depending on the toggle: RM is entered
+    // cents-first like every other amount, a percentage stays a plain number.
+    const budgetInputAttrs = budgetType === 'percent' ? 'type="number" min="0" step="0.01"' : 'type="text" inputmode="numeric" data-money';
+    html += `<input ${budgetInputAttrs} class="budget-input" value="${budgetVal}" placeholder="0" onchange="saveCategoryBudget('${cat.id}','${currentMonth}',this.value,'${budgetType}')">`;
+    html += `<button class="budget-toggle" onclick="var inp=this.parentElement.querySelector('.budget-input');var nxt=this.innerText==='RM'?'%':'RM';this.innerText=nxt;setMoneyMode(inp,nxt==='RM');saveCategoryBudget('${cat.id}','${currentMonth}',inp.value,nxt==='%'?'percent':'fixed')">${budgetType === 'percent' ? '%' : 'RM'}</button>`;
     html += `<span class="budget-unit">${__('categories.perMonth')}</span>`;
     html += `</div>`;
     }
@@ -15729,7 +15987,7 @@ function renderSettings() {
       </div>
       <div id="savingsFixedInput" class="input-group" style="display:${savings.type === 'fixed' ? 'block' : 'none'}">
         <label class="input-label">${__('settings.savings.fixedLabel')}</label>
-        <input type="number" id="savingsFixedAmount" class="input-field" value="${savings.fixedAmount || ''}" placeholder="0">
+        <input type="text" inputmode="numeric" data-money id="savingsFixedAmount" class="input-field" value="${savings.fixedAmount || ''}" placeholder="0">
       </div>
       <div id="savingsPercentInput" class="input-group" style="display:${savings.type === 'percent' ? 'block' : 'none'}">
         <label class="input-label">${__('settings.savings.percentLabel')}</label>
@@ -17097,6 +17355,14 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
       ancestor = ancestor.parentId ? treeMap[ancestor.parentId] : null;
     }
 
+    // RM modes are entered cents-first; "± RM/day" is signed (so it gets a ± button,
+    // the phone's numeric keypad has no minus). A percentage stays a plain number.
+    const valueIsMoney = nodeAdj.mode === 'daily' || nodeAdj.mode === 'total' || nodeAdj.mode === 'adjust';
+    const valueAttrs = valueIsMoney
+      ? 'type="text" inputmode="numeric" data-money' + (nodeAdj.mode === 'adjust' ? '="signed"' : '')
+      : 'type="number" min="0" step="0.01"';
+    const valueHidden = isDisabled || nodeAdj.mode === 'trend' || nodeAdj.mode === 'zero';
+
     // Flat indentation: header indents left, control row indents 16px more
     const headerIndent = depth * 24;
     const bodyIndent = headerIndent + 24;
@@ -17125,7 +17391,8 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
           <option value="adjust" ${nodeAdj.mode === 'adjust' ? 'selected' : ''}>${__('whatif.mode.adjust')}</option>
           <option value="zero" ${nodeAdj.mode === 'zero' ? 'selected' : ''}>${__('whatif.mode.zero')}</option>
         </select>
-        <input type="number" class="input-field whatif-value-input" data-cat="${node.id}" value="${nodeAdj.value || ''}" min="0" step="0.01" placeholder="${__('whatif.valuePlaceholder')}" ${isDisabled || nodeAdj.mode === 'trend' || nodeAdj.mode === 'zero' ? 'style="display:none"' : ''}>
+        <input ${valueAttrs} class="input-field whatif-value-input" data-cat="${node.id}" value="${nodeAdj.value || ''}" placeholder="${__('whatif.valuePlaceholder')}" ${valueHidden ? 'style="display:none"' : ''}>
+        ${nodeAdj.mode === 'adjust' && !valueHidden ? `<button type="button" class="btn btn-ghost btn-sm whatif-sign-btn" onclick="toggleMoneySign(this)" title="${__('money.toggleSign')}" aria-label="${__('money.toggleSign')}">±</button>` : ''}
         <span class="text-xs text-muted" style="min-width:60px;text-align:right">${__('whatif.dailyAvg', formatMoney(nodeDailyAvg))}</span>
       </div>`;
     }
@@ -17156,7 +17423,8 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
         <option value="percent" ${globalAdj.mode === 'percent' ? 'selected' : ''}>${__('whatif.globalModePercent')}</option>
         <option value="amount" ${globalAdj.mode === 'amount' ? 'selected' : ''}>${__('whatif.globalModeAmount')}</option>
       </select>
-      <input type="number" class="input-field" id="wi-global-value" value="${globalAdj.value || ''}" min="0" step="0.01" placeholder="${__('whatif.valuePlaceholder')}" style="width:100px">
+      <input ${globalAdj.mode === 'amount' ? 'type="text" inputmode="numeric" data-money="signed"' : 'type="number" min="0" step="0.01"'} class="input-field" id="wi-global-value" value="${globalAdj.value || ''}" placeholder="${__('whatif.valuePlaceholder')}" style="width:100px">
+      ${globalAdj.mode === 'amount' ? `<button type="button" class="btn btn-ghost btn-sm whatif-sign-btn" onclick="toggleMoneySign(this)" title="${__('money.toggleSign')}" aria-label="${__('money.toggleSign')}">±</button>` : ''}
       <span class="text-xs text-muted">${__('whatif.globalHint')}</span>
     </div>
   </div>`;
@@ -17170,7 +17438,7 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
         <div class="whatif-hypo-row" data-index="${i}">
           <input type="text" class="input-field wi-hypo-icon" value="${h.icon || ''}" placeholder="${__('whatif.hypoIcon')}" style="width:50px">
           <input type="text" class="input-field wi-hypo-name" value="${h.name || ''}" placeholder="${__('whatif.hypoName')}" style="flex:1">
-          <input type="number" class="input-field wi-hypo-amount" value="${h.amount || ''}" min="0" step="0.01" placeholder="${__('whatif.hypoAmount')}" style="width:100px">
+          <input type="text" inputmode="numeric" data-money class="input-field wi-hypo-amount" value="${h.amount || ''}" placeholder="${__('whatif.hypoAmount')}" style="width:100px">
           <select class="input-field wi-hypo-type" style="width:auto">
             <option value="daily" ${h.type === 'daily' ? 'selected' : ''}>${__('whatif.perDay')}</option>
             <option value="total" ${h.type === 'total' ? 'selected' : ''}>${__('whatif.perMonth')}</option>
@@ -17604,7 +17872,7 @@ function addWhatIfHypo() {
   div.innerHTML = `
     <input type="text" class="input-field wi-hypo-icon" placeholder="${__('whatif.hypoIcon')}" style="width:50px">
     <input type="text" class="input-field wi-hypo-name" placeholder="${__('whatif.hypoName')}" style="flex:1">
-    <input type="number" class="input-field wi-hypo-amount" min="0" step="0.01" placeholder="${__('whatif.hypoAmount')}" style="width:100px">
+    <input type="text" inputmode="numeric" data-money class="input-field wi-hypo-amount" placeholder="${__('whatif.hypoAmount')}" style="width:100px">
     <select class="input-field wi-hypo-type" style="width:auto">
       <option value="daily">${__('whatif.perDay')}</option>
       <option value="total">${__('whatif.perMonth')}</option>
@@ -19970,13 +20238,13 @@ window.PAGE_GUIDES = PAGE_GUIDES;
 
 // === I18N REGISTRATION ===
 addI18nEntries({
-  'guide.add.detailed.grid2_0_desc': { zh: '输入消费金额（马币 RM），支持小数点后两位', en: 'Enter the spending amount (Malaysian Ringgit RM), supports two decimal places' },
+  'guide.add.detailed.grid2_0_desc': { zh: '输入消费金额（马币 RM），数字从「分」开始填：输入 23642 就是 RM 236.42', en: 'Enter the spending amount (Malaysian Ringgit RM). Digits fill in from the cents: type 23642 for RM 236.42' },
   'guide.add.detailed.grid2_0_label': { zh: '金额输入', en: 'Amount Input' },
   'guide.add.detailed.grid2_1_desc': { zh: '从分类树中选择对应的消费类别，支持搜索和账单分类', en: 'Pick a spending category from the category tree, supports search and bill categories' },
   'guide.add.detailed.grid2_1_label': { zh: '分类选择', en: 'Category Selection' },
   'guide.add.detailed.grid2_2_desc': { zh: '给记录打场景标签（如"社交"、"工作"），可多选，支持搜索和创建新标签', en: 'Add context tags to the record (e.g. “Social,” “Work”), multi-select, supports search and creating new tags' },
   'guide.add.detailed.grid2_2_label': { zh: '标签选择', en: 'Tag Selection' },
-  'guide.add.detailed.grid2_3_desc': { zh: '记录消费发生的时间，默认为现在，可手动改为过去的日期', en: 'Record when the expense happened, defaults to now, can be manually set to a past date' },
+  'guide.add.detailed.grid2_3_desc': { zh: '记录消费发生的时间，默认为现在；两侧的 ‹ › 按钮可以一键切到前一天 / 后一天。保存后日期不会重置，方便连续补记同一天的账', en: 'Record when the expense happened, defaults to now. The ‹ › buttons on either side jump to the previous / next day. The date is kept after saving, so a run of entries for one day is quick' },
   'guide.add.detailed.grid2_3_label': { zh: '日期时间', en: 'Date & Time' },
   'guide.add.detailed.grid2_4_desc': { zh: '写一笔描述（如吃了什么、买了什么），最长 200 字', en: 'Write a brief description (e.g. what you ate or bought), max 200 characters' },
   'guide.add.detailed.grid2_4_label': { zh: '备注', en: 'Notes' },
@@ -19987,20 +20255,20 @@ addI18nEntries({
   'guide.add.detailed.heading3': { zh: '🎯 如何使用', en: '🎯 How to Use' },
   'guide.add.detailed.heading4': { zh: '📋 参数说明', en: '📋 Parameter Reference' },
   'guide.add.detailed.heading5': { zh: '💡 小贴士', en: '💡 Tips' },
-  'guide.add.detailed.item3_1': { zh: '在「金额」框里输入花了多少钱（只需输入数字，如 25.50）', en: 'Enter how much you spent in the “Amount” field (numbers only, e.g. 25.50)' },
+  'guide.add.detailed.item3_1': { zh: '在「金额」框里输入花了多少钱：只按数字键，从「分」开始填（如 2550 就是 25.50，23642 就是 236.42），不需要输小数点；输错了按退格键', en: 'Enter how much you spent in the “Amount” field: just press digits, they fill in from the cents (2550 is 25.50, 23642 is 236.42) — no decimal point needed; Backspace removes the last digit' },
   'guide.add.detailed.item3_2': { zh: '点击「分类」选择对应的消费类别。如果还没有想要的分类，先去「分类」页面添加', en: 'Tap “Category” to select the appropriate category. If the category doesn’t exist yet, go add it on the “Categories” page first' },
   'guide.add.detailed.item3_3': { zh: '可选：点击「＋ 添加标签」给这笔记录打场景标签，如"出差"、"聚餐"等，可多选', en: 'Optional: Tap “+ Add Tag” to add context tags like “Business Trip” or “Dinner,” multi-select supported' },
-  'guide.add.detailed.item3_4': { zh: '「日期时间」通常不用改，默认为当前时间。如果补记以前的账可以改', en: 'The “Date & Time” usually doesn’t need changing — it defaults to the current time. Change it if you’re backdating an expense' },
+  'guide.add.detailed.item3_4': { zh: '「日期时间」通常不用改，默认为当前时间。补记以前的账时，点两侧的 ‹ › 切到前一天 / 后一天；保存后日期保持不变，日期不是今天时输入框会变成橙色提醒你', en: 'The “Date & Time” usually doesn’t need changing — it defaults to the current time. To backdate, tap ‹ › for the previous / next day; the date stays after saving, and the box turns orange when it is not today' },
   'guide.add.detailed.item3_5': { zh: '「备注」可填可不填，建议写清楚买了什么方便以后查看', en: 'The “Notes” field is optional, but it’s a good idea to describe what you bought for future reference' },
   'guide.add.detailed.item3_6': { zh: '如果是大额/一次性消费（如买手机、交房租），建议勾选「不计日均」', en: 'For large one-time purchases (e.g. phone, rent), check “Exclude from Daily Avg”' },
   'guide.add.detailed.item3_7': { zh: '点击「✅ 保存记录」，右上角出现绿色提示即保存成功', en: 'Tap “✅ Save Record” — a green indicator in the top-right corner confirms success' },
-  'guide.add.detailed.row4_0_desc': { zh: '消费金额，单位马币 RM。必须大于 0，只接受数字和小数点', en: 'Spending amount in Malaysian Ringgit (RM). Must be greater than 0, accepts only numbers and decimal point' },
+  'guide.add.detailed.row4_0_desc': { zh: '消费金额，单位马币 RM。必须大于 0。只接受数字，从「分」开始填（23642 = 236.42），全应用所有金额框都是这个方式', en: 'Spending amount in Malaysian Ringgit (RM). Must be greater than 0. Digits only, filled in from the cents (23642 = 236.42) — every amount field in the app works this way' },
   'guide.add.detailed.row4_0_label': { zh: '金额', en: 'Amount' },
   'guide.add.detailed.row4_1_desc': { zh: '消费所属类别，可从预设分类中选择。必须先选分类才能保存', en: 'The category this expense belongs to, selected from preset categories. A category must be selected before saving' },
   'guide.add.detailed.row4_1_label': { zh: '分类', en: 'Category' },
   'guide.add.detailed.row4_2_desc': { zh: '场景标签（如"社交"、"工作"），可多选，可在标签选择器中搜索或创建新标签', en: 'Context tags (e.g. “Social,” “Work”), multi-select, can search or create new tags in the tag picker' },
   'guide.add.detailed.row4_2_label': { zh: '标签', en: 'Tag' },
-  'guide.add.detailed.row4_3_desc': { zh: '消费发生的日期和时间。默认为当前时间，可自由修改', en: 'When the expense occurred. Defaults to the current time, freely adjustable' },
+  'guide.add.detailed.row4_3_desc': { zh: '消费发生的日期和时间。默认为当前时间，可自由修改；‹ › 按钮切前一天 / 后一天，保存后不重置', en: 'When the expense occurred. Defaults to the current time, freely adjustable; ‹ › step a day back / forward and the date is kept after saving' },
   'guide.add.detailed.row4_3_label': { zh: '日期时间', en: 'Date & Time' },
   'guide.add.detailed.row4_4_desc': { zh: '消费说明，最长 200 字。保存时会自动去掉首尾空格', en: 'Expense description, max 200 characters. Leading/trailing spaces are trimmed on save' },
   'guide.add.detailed.row4_4_label': { zh: '备注', en: 'Notes' },
@@ -20016,7 +20284,7 @@ addI18nEntries({
   'guide.add.simple.heading1': { zh: '📖 记录每一笔消费', en: '📖 Record Every Expense' },
   'guide.add.simple.heading2': { zh: '🎯 如何记账', en: '🎯 How to Add a Record' },
   'guide.add.simple.heading3': { zh: '💡 快速提示', en: '💡 Quick Tips' },
-  'guide.add.simple.item2_1': { zh: '输入金额（只需数字，如 25.50）', en: 'Enter the amount (numbers only, e.g. 25.50)' },
+  'guide.add.simple.item2_1': { zh: '输入金额（只按数字，从「分」开始填：2550 = 25.50）', en: 'Enter the amount (digits only, filled in from the cents: 2550 = 25.50)' },
   'guide.add.simple.item2_2': { zh: '点击「分类」选择消费类别', en: 'Tap “Category” to select a spending category' },
   'guide.add.simple.item2_3': { zh: '可选：点击「添加标签」给这笔记录打场景标签（如"社交"、"工作"）', en: 'Optional: Tap “Add Tag” to tag this record with a context (e.g. “Social,” “Work”)' },
   'guide.add.simple.item2_4': { zh: '大额一次性消费（如买手机）建议勾选「📌 不计日均」', en: 'For large one-time purchases (e.g. buying a phone), check “📌 Exclude from Daily Avg”' },
@@ -21195,7 +21463,7 @@ function renderAddSplitForm() {
         <span class="split-form-label">${__('split.selfAmountLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" id="splitSelfAmount" class="input-field" min="0" step="0.01" placeholder="0.00" value="${escHtml(st.selfAmount || '')}" oninput="setSplitSelfAmount(this.value)" style="width:110px">
+          <input type="text" inputmode="numeric" data-money id="splitSelfAmount" class="input-field" placeholder="0.00" value="${escHtml(st.selfAmount || '')}" oninput="setSplitSelfAmount(this.value)" style="width:110px">
         </span>
       </div>
       ` : ''}
@@ -21244,7 +21512,7 @@ function renderSplitPeopleList() {
         ${st.mode === 'specified' ? `
           <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
             <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-            <input type="number" class="input-field split-person-amount" min="0" step="0.01" placeholder="0.00" value="${escHtml(amt)}" ${unknown ? 'disabled' : ''}
+            <input type="text" inputmode="numeric" data-money class="input-field split-person-amount" placeholder="0.00" value="${escHtml(amt)}" ${unknown ? 'disabled' : ''}
               oninput="setSplitRowAmount('${c.id}', this.value)">
           </span>
         ` : ''}
@@ -21834,7 +22102,7 @@ function openSplitPartial(billId, contactKey) {
         <span class="split-form-label">${__('split.pay.paidLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" id="splitPartialAmount" class="input-field" min="0" max="${share}" step="0.01"
+          <input type="text" inputmode="numeric" data-money id="splitPartialAmount" class="input-field"
                  value="${paid > 0.005 ? round2(paid) : ''}" placeholder="0.00" style="width:120px"
                  oninput="_splitPartialPreview(${share})">
         </span>
@@ -21938,7 +22206,7 @@ function _renderSplitReceive() {
         <span class="split-form-label">${__('split.pay.amountLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" id="splitPayAmount" class="input-field" min="0" step="0.01" placeholder="0.00"
+          <input type="text" inputmode="numeric" data-money id="splitPayAmount" class="input-field" placeholder="0.00"
                  style="width:130px" oninput="updateSplitPayPreview()">
         </span>
         <button type="button" class="btn btn-sm btn-ghost" onclick="setSplitPayAmountToSelected()">${__('split.pay.fillSelected')}</button>
@@ -21985,7 +22253,7 @@ function _splitPayRowsHtml() {
         <span class="split-pay-alloc" data-alloc="${escHtml(r.billId)}"></span>
         <span class="split-pay-manual" style="display:${st.mode === 'manual' ? '' : 'none'};align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" class="input-field split-person-amount" min="0" max="${r.remaining}" step="0.01"
+          <input type="text" inputmode="numeric" data-money class="input-field split-person-amount"
                  placeholder="0.00" data-manual="${escHtml(r.billId)}" ${on ? '' : 'disabled'}
                  oninput="updateSplitPayPreview()">
         </span>
@@ -22198,7 +22466,7 @@ function openSplitBillEditor(billId, fromRecords) {
         <span class="split-form-label">${__('split.totalLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" id="editSplitAmount" class="input-field" min="0" step="0.01" value="${escHtml(String(bill.amount))}" oninput="updateEditSplitPreview()" style="width:110px">
+          <input type="text" inputmode="numeric" data-money id="editSplitAmount" class="input-field" value="${escHtml(String(bill.amount))}" oninput="updateEditSplitPreview()" style="width:110px">
         </span>
       </div>
       <div class="split-form-row">
@@ -22215,7 +22483,7 @@ function openSplitBillEditor(billId, fromRecords) {
         <span class="split-form-label">${__('split.selfAmountLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" id="editSplitSelfAmount" class="input-field" min="0" step="0.01" placeholder="0.00" value="${escHtml(st.selfInvolved && !st.selfUnknown ? String(bill.selfShare) : '')}" oninput="onEditSplitAmountTyped(this)" style="width:110px">
+          <input type="text" inputmode="numeric" data-money id="editSplitSelfAmount" class="input-field" placeholder="0.00" value="${escHtml(st.selfInvolved && !st.selfUnknown ? String(bill.selfShare) : '')}" oninput="onEditSplitAmountTyped(this)" style="width:110px">
         </span>
       </div>
       <div class="split-form-row split-form-row-top">
@@ -22237,7 +22505,7 @@ function openSplitBillEditor(billId, fromRecords) {
             </label>
             <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
               <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-              <input type="number" class="input-field split-person-amount" min="0" step="0.01" placeholder="0.00" value="${escHtml(r.amount)}" oninput="onEditSplitAmountTyped(this)">
+              <input type="text" inputmode="numeric" data-money class="input-field split-person-amount" placeholder="0.00" value="${escHtml(r.amount)}" oninput="onEditSplitAmountTyped(this)">
             </span>
           </div>
         `).join('')}
@@ -23410,7 +23678,7 @@ function openPlanEditor(planId) {
       '</div>' +
       '<div class="input-group">' +
         '<label class="input-label">' + __('plan.fieldAmount') + '</label>' +
-        '<input type="text" inputmode="decimal" class="input-field" id="planAmount" value="' + (plan ? plan.totalAmount : '') + '">' +
+        '<input type="text" inputmode="numeric" data-money class="input-field" id="planAmount" value="' + (plan ? plan.totalAmount : '') + '">' +
       '</div>' +
       '<div class="input-group">' +
         '<label class="input-label">' + __('plan.fieldMode') + '</label>' +
@@ -25162,7 +25430,7 @@ const ui = {
     const idb = 'cfEdit_' + p.coll + '_' + p.id;
     return '<div class="conflict-edit-form">' +
       (p.coll === 'records' ? '<input type="datetime-local" class="input-field" id="' + idb + '_date" value="' + escHtml(dateVal) + '">' : '') +
-      '<input type="number" step="0.01" class="input-field" id="' + idb + '_amount" placeholder="' + __('cloud.conflict.amount') + '" value="' + escHtml(String(amt)) + '">' +
+      '<input type="text" inputmode="numeric" data-money class="input-field" id="' + idb + '_amount" placeholder="' + __('cloud.conflict.amount') + '" value="' + escHtml(String(amt)) + '">' +
       '<input type="text" class="input-field" id="' + idb + '_note" placeholder="' + __('cloud.conflict.note') + '" value="' + escHtml(note) + '">' +
       '<div class="flex gap-8">' +
         '<button class="btn btn-primary btn-sm" onclick="CloudSync.ui.cfSaveEdit(\'' + escHtml(conflictKey(p)) + '\')">' + __('cloud.conflict.save') + '</button>' +

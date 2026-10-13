@@ -689,7 +689,7 @@ function renderAddSplitForm() {
         <span class="split-form-label">${__('split.selfAmountLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" id="splitSelfAmount" class="input-field" min="0" step="0.01" placeholder="0.00" value="${escHtml(st.selfAmount || '')}" oninput="setSplitSelfAmount(this.value)" style="width:110px">
+          <input type="text" inputmode="numeric" data-money id="splitSelfAmount" class="input-field" placeholder="0.00" value="${escHtml(st.selfAmount || '')}" oninput="setSplitSelfAmount(this.value)" style="width:110px">
         </span>
       </div>
       ` : ''}
@@ -738,7 +738,7 @@ function renderSplitPeopleList() {
         ${st.mode === 'specified' ? `
           <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
             <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-            <input type="number" class="input-field split-person-amount" min="0" step="0.01" placeholder="0.00" value="${escHtml(amt)}" ${unknown ? 'disabled' : ''}
+            <input type="text" inputmode="numeric" data-money class="input-field split-person-amount" placeholder="0.00" value="${escHtml(amt)}" ${unknown ? 'disabled' : ''}
               oninput="setSplitRowAmount('${c.id}', this.value)">
           </span>
         ` : ''}
@@ -1328,7 +1328,7 @@ function openSplitPartial(billId, contactKey) {
         <span class="split-form-label">${__('split.pay.paidLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" id="splitPartialAmount" class="input-field" min="0" max="${share}" step="0.01"
+          <input type="text" inputmode="numeric" data-money id="splitPartialAmount" class="input-field"
                  value="${paid > 0.005 ? round2(paid) : ''}" placeholder="0.00" style="width:120px"
                  oninput="_splitPartialPreview(${share})">
         </span>
@@ -1432,7 +1432,7 @@ function _renderSplitReceive() {
         <span class="split-form-label">${__('split.pay.amountLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" id="splitPayAmount" class="input-field" min="0" step="0.01" placeholder="0.00"
+          <input type="text" inputmode="numeric" data-money id="splitPayAmount" class="input-field" placeholder="0.00"
                  style="width:130px" oninput="updateSplitPayPreview()">
         </span>
         <button type="button" class="btn btn-sm btn-ghost" onclick="setSplitPayAmountToSelected()">${__('split.pay.fillSelected')}</button>
@@ -1479,7 +1479,7 @@ function _splitPayRowsHtml() {
         <span class="split-pay-alloc" data-alloc="${escHtml(r.billId)}"></span>
         <span class="split-pay-manual" style="display:${st.mode === 'manual' ? '' : 'none'};align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" class="input-field split-person-amount" min="0" max="${r.remaining}" step="0.01"
+          <input type="text" inputmode="numeric" data-money class="input-field split-person-amount"
                  placeholder="0.00" data-manual="${escHtml(r.billId)}" ${on ? '' : 'disabled'}
                  oninput="updateSplitPayPreview()">
         </span>
@@ -1692,7 +1692,7 @@ function openSplitBillEditor(billId, fromRecords) {
         <span class="split-form-label">${__('split.totalLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" id="editSplitAmount" class="input-field" min="0" step="0.01" value="${escHtml(String(bill.amount))}" oninput="updateEditSplitPreview()" style="width:110px">
+          <input type="text" inputmode="numeric" data-money id="editSplitAmount" class="input-field" value="${escHtml(String(bill.amount))}" oninput="updateEditSplitPreview()" style="width:110px">
         </span>
       </div>
       <div class="split-form-row">
@@ -1709,7 +1709,7 @@ function openSplitBillEditor(billId, fromRecords) {
         <span class="split-form-label">${__('split.selfAmountLabel')}</span>
         <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
           <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-          <input type="number" id="editSplitSelfAmount" class="input-field" min="0" step="0.01" placeholder="0.00" value="${escHtml(st.selfInvolved && !st.selfUnknown ? String(bill.selfShare) : '')}" oninput="onEditSplitAmountTyped(this)" style="width:110px">
+          <input type="text" inputmode="numeric" data-money id="editSplitSelfAmount" class="input-field" placeholder="0.00" value="${escHtml(st.selfInvolved && !st.selfUnknown ? String(bill.selfShare) : '')}" oninput="onEditSplitAmountTyped(this)" style="width:110px">
         </span>
       </div>
       <div class="split-form-row split-form-row-top">
@@ -1731,7 +1731,7 @@ function openSplitBillEditor(billId, fromRecords) {
             </label>
             <span style="display:flex;align-items:center;gap:2px;flex-shrink:0">
               <span style="font-size:0.7rem;color:var(--text-muted)">RM</span>
-              <input type="number" class="input-field split-person-amount" min="0" step="0.01" placeholder="0.00" value="${escHtml(r.amount)}" oninput="onEditSplitAmountTyped(this)">
+              <input type="text" inputmode="numeric" data-money class="input-field split-person-amount" placeholder="0.00" value="${escHtml(r.amount)}" oninput="onEditSplitAmountTyped(this)">
             </span>
           </div>
         `).join('')}

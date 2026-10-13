@@ -179,6 +179,14 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
       ancestor = ancestor.parentId ? treeMap[ancestor.parentId] : null;
     }
 
+    // RM modes are entered cents-first; "± RM/day" is signed (so it gets a ± button,
+    // the phone's numeric keypad has no minus). A percentage stays a plain number.
+    const valueIsMoney = nodeAdj.mode === 'daily' || nodeAdj.mode === 'total' || nodeAdj.mode === 'adjust';
+    const valueAttrs = valueIsMoney
+      ? 'type="text" inputmode="numeric" data-money' + (nodeAdj.mode === 'adjust' ? '="signed"' : '')
+      : 'type="number" min="0" step="0.01"';
+    const valueHidden = isDisabled || nodeAdj.mode === 'trend' || nodeAdj.mode === 'zero';
+
     // Flat indentation: header indents left, control row indents 16px more
     const headerIndent = depth * 24;
     const bodyIndent = headerIndent + 24;
@@ -207,7 +215,8 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
           <option value="adjust" ${nodeAdj.mode === 'adjust' ? 'selected' : ''}>${__('whatif.mode.adjust')}</option>
           <option value="zero" ${nodeAdj.mode === 'zero' ? 'selected' : ''}>${__('whatif.mode.zero')}</option>
         </select>
-        <input type="number" class="input-field whatif-value-input" data-cat="${node.id}" value="${nodeAdj.value || ''}" min="0" step="0.01" placeholder="${__('whatif.valuePlaceholder')}" ${isDisabled || nodeAdj.mode === 'trend' || nodeAdj.mode === 'zero' ? 'style="display:none"' : ''}>
+        <input ${valueAttrs} class="input-field whatif-value-input" data-cat="${node.id}" value="${nodeAdj.value || ''}" placeholder="${__('whatif.valuePlaceholder')}" ${valueHidden ? 'style="display:none"' : ''}>
+        ${nodeAdj.mode === 'adjust' && !valueHidden ? `<button type="button" class="btn btn-ghost btn-sm whatif-sign-btn" onclick="toggleMoneySign(this)" title="${__('money.toggleSign')}" aria-label="${__('money.toggleSign')}">±</button>` : ''}
         <span class="text-xs text-muted" style="min-width:60px;text-align:right">${__('whatif.dailyAvg', formatMoney(nodeDailyAvg))}</span>
       </div>`;
     }
@@ -238,7 +247,8 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
         <option value="percent" ${globalAdj.mode === 'percent' ? 'selected' : ''}>${__('whatif.globalModePercent')}</option>
         <option value="amount" ${globalAdj.mode === 'amount' ? 'selected' : ''}>${__('whatif.globalModeAmount')}</option>
       </select>
-      <input type="number" class="input-field" id="wi-global-value" value="${globalAdj.value || ''}" min="0" step="0.01" placeholder="${__('whatif.valuePlaceholder')}" style="width:100px">
+      <input ${globalAdj.mode === 'amount' ? 'type="text" inputmode="numeric" data-money="signed"' : 'type="number" min="0" step="0.01"'} class="input-field" id="wi-global-value" value="${globalAdj.value || ''}" placeholder="${__('whatif.valuePlaceholder')}" style="width:100px">
+      ${globalAdj.mode === 'amount' ? `<button type="button" class="btn btn-ghost btn-sm whatif-sign-btn" onclick="toggleMoneySign(this)" title="${__('money.toggleSign')}" aria-label="${__('money.toggleSign')}">±</button>` : ''}
       <span class="text-xs text-muted">${__('whatif.globalHint')}</span>
     </div>
   </div>`;
@@ -252,7 +262,7 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
         <div class="whatif-hypo-row" data-index="${i}">
           <input type="text" class="input-field wi-hypo-icon" value="${h.icon || ''}" placeholder="${__('whatif.hypoIcon')}" style="width:50px">
           <input type="text" class="input-field wi-hypo-name" value="${h.name || ''}" placeholder="${__('whatif.hypoName')}" style="flex:1">
-          <input type="number" class="input-field wi-hypo-amount" value="${h.amount || ''}" min="0" step="0.01" placeholder="${__('whatif.hypoAmount')}" style="width:100px">
+          <input type="text" inputmode="numeric" data-money class="input-field wi-hypo-amount" value="${h.amount || ''}" placeholder="${__('whatif.hypoAmount')}" style="width:100px">
           <select class="input-field wi-hypo-type" style="width:auto">
             <option value="daily" ${h.type === 'daily' ? 'selected' : ''}>${__('whatif.perDay')}</option>
             <option value="total" ${h.type === 'total' ? 'selected' : ''}>${__('whatif.perMonth')}</option>
@@ -686,7 +696,7 @@ function addWhatIfHypo() {
   div.innerHTML = `
     <input type="text" class="input-field wi-hypo-icon" placeholder="${__('whatif.hypoIcon')}" style="width:50px">
     <input type="text" class="input-field wi-hypo-name" placeholder="${__('whatif.hypoName')}" style="flex:1">
-    <input type="number" class="input-field wi-hypo-amount" min="0" step="0.01" placeholder="${__('whatif.hypoAmount')}" style="width:100px">
+    <input type="text" inputmode="numeric" data-money class="input-field wi-hypo-amount" placeholder="${__('whatif.hypoAmount')}" style="width:100px">
     <select class="input-field wi-hypo-type" style="width:auto">
       <option value="daily">${__('whatif.perDay')}</option>
       <option value="total">${__('whatif.perMonth')}</option>

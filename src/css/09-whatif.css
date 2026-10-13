@@ -266,3 +266,11 @@
 [data-theme="dark"] .savings-bar-fill.fill-worse {
   box-shadow: 0 0 8px rgba(239,68,68,0.5);
 }
+
+/* The ± button beside a signed RM field (the phone's numeric keypad has no minus) */
+.whatif-sign-btn {
+  flex-shrink: 0;
+  min-width: 32px;
+  padding: 2px 8px;
+  font-weight: 700;
+}

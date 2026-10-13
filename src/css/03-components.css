@@ -225,3 +225,30 @@ body.modal-open {
 .badge-success { background: rgba(16,185,129,0.1); color: var(--success); }
 .badge-warning { background: rgba(245,158,11,0.1); color: var(--warning); }
 .badge-danger { background: rgba(239,68,68,0.1); color: var(--danger); }
+
+/* ===== Add-record date row: ‹ previous day · date · next day › ===== */
+.add-date-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.add-date-row .input-field {
+  flex: 1;
+  min-width: 0;
+}
+.add-date-step {
+  flex-shrink: 0;
+  min-width: 44px;
+  padding: 0;
+  font-size: 1.4rem;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+}
+.add-date-step:active {
+  transform: scale(0.94);
+}
+/* A date other than today stays visible once it survives saving */
+.input-field.add-date-offday {
+  border-color: var(--warning);
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.18);
+}

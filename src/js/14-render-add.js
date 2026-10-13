@@ -23,8 +23,9 @@ function renderAddPage() {
           <label class="input-label">${__('addRecord.amountLabel')}</label>
           <div style="position:relative">
             <span id="addAmountPrefix" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:var(--primary);font-size:1.1rem">RM</span>
-            <input type="text" id="addAmount" class="input-field" placeholder="0.00" style="padding-left:44px;font-size:1.2rem;font-weight:700" inputmode="decimal" autocomplete="off">
+            <input type="text" id="addAmount" class="input-field" placeholder="0.00" style="padding-left:44px;font-size:1.2rem;font-weight:700" inputmode="numeric" data-money autocomplete="off">
           </div>
+          <div class="text-xs text-muted" style="margin-top:4px">${__('addRecord.amountHint')}</div>
         </div>
 
         <div class="input-group">
@@ -36,7 +37,11 @@ function renderAddPage() {
 
         <div class="input-group">
           <label class="input-label">${__('addRecord.dateLabel')}</label>
-          <input type="datetime-local" id="addDateTime" class="input-field">
+          <div class="add-date-row">
+            <button type="button" class="btn btn-outline add-date-step" id="addDatePrev" onclick="shiftAddDate(-1)" title="${__('addRecord.prevDay')}" aria-label="${__('addRecord.prevDay')}">‹</button>
+            <input type="datetime-local" id="addDateTime" class="input-field">
+            <button type="button" class="btn btn-outline add-date-step" id="addDateNext" onclick="shiftAddDate(1)" title="${__('addRecord.nextDay')}" aria-label="${__('addRecord.nextDay')}">›</button>
+          </div>
         </div>
 
         <div class="input-group">
@@ -79,22 +84,57 @@ function renderAddPage() {
 
   setAddRecordType('expense');
 
-  // Set default date/time
-  const now = new Date();
-  const offset = now.getTimezoneOffset();
-  const local = new Date(now.getTime() - offset * 60000);
-  document.getElementById('addDateTime').value = local.toISOString().slice(0, 16);
+  // Date/time: whatever the user last chose (a back-dated batch of entries stays
+  // on its day), otherwise now. Only an explicit choice is remembered, so an
+  // untouched default still follows the clock the next time the page opens.
+  const dateEl = document.getElementById('addDateTime');
+  dateEl.value = window._addDateTimeChosen || localNowForInput();
+  const onDateChosen = function() {
+    window._addDateTimeChosen = dateEl.value || null;
+    updateAddDateCue();
+  };
+  dateEl.addEventListener('input', onDateChosen);
+  dateEl.addEventListener('change', onDateChosen);
+  updateAddDateCue();
 
-  // Amount input formatting
-  const amountInput = document.getElementById('addAmount');
-  amountInput.addEventListener('input', function() {
-    let val = this.value.replace(/[^0-9.]/g, '');
-    const parts = val.split('.');
-    if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
-    if (parts[1] && parts[1].length > 2) val = parts[0] + '.' + parts[1].slice(0, 2);
-    this.value = val;
+  // The amount is entered cents-first (see 08-money-input.js); this only keeps the
+  // split preview in step with it.
+  document.getElementById('addAmount').addEventListener('input', function() {
     if (typeof previewSplitShares === 'function') previewSplitShares();
   });
+}
+
+// "YYYY-MM-DDTHH:mm" in LOCAL time — the format a datetime-local input takes.
+function localNowForInput() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+// Move a datetime-local value by whole days, keeping the time of day. Calendar
+// arithmetic on the local fields, so month/year ends and leap days roll correctly.
+function shiftLocalDateTime(value, days) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value || '') || /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(localNowForInput());
+  const d = new Date(+m[1], +m[2] - 1, +m[3] + days, +m[4], +m[5]);
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+function shiftAddDate(days) {
+  const el = document.getElementById('addDateTime');
+  if (!el) return;
+  el.value = shiftLocalDateTime(el.value, days);
+  window._addDateTimeChosen = el.value;
+  updateAddDateCue();
+  if (typeof previewSplitShares === 'function') previewSplitShares();
+}
+
+// The date now survives saving, so make a date other than today visible at a
+// glance — otherwise a forgotten back-dated field quietly files the next record
+// on the wrong day.
+function updateAddDateCue() {
+  const el = document.getElementById('addDateTime');
+  if (!el) return;
+  el.classList.toggle('add-date-offday', !!el.value && el.value.slice(0, 10) !== localNowForInput().slice(0, 10));
 }
 // Flip between expense and income. The selected category is cleared because an
 // expense category is not a valid income category — leaving it selected would let
@@ -233,10 +273,7 @@ function submitRecord(e) {
     splitToggle.checked = false;
     toggleAddSplitForm(false);
     if (typeof SplitEngine !== 'undefined' && SplitEngine.resetAddSplitState) SplitEngine.resetAddSplitState();
-    const now2 = new Date();
-    const offset2 = now2.getTimezoneOffset();
-    const local2 = new Date(now2.getTime() - offset2 * 60000);
-    document.getElementById('addDateTime').value = local2.toISOString().slice(0, 16);
+    // The date/time is deliberately NOT reset: consecutive entries usually share a day.
     return;
   }
 
@@ -264,10 +301,7 @@ function submitRecord(e) {
   document.getElementById('addNote').value = '';
   window._addRecordTags = [];
   renderAddTagsDisplay();
-  const now = new Date();
-  const offset = now.getTimezoneOffset();
-  const local = new Date(now.getTime() - offset * 60000);
-  document.getElementById('addDateTime').value = local.toISOString().slice(0, 16);
+  // The date/time is deliberately NOT reset: consecutive entries usually share a day.
 }
 
 // Tag picker for add page
@@ -311,6 +345,9 @@ function removeAddTag(tag) {
     'addRecord.categoryLabel': { zh: '分类', en: 'Category' },
     'addRecord.selectCategory': { zh: '请选择分类', en: 'Please select a category' },
     'addRecord.dateLabel': { zh: '日期时间', en: 'Date & Time' },
+    'addRecord.prevDay': { zh: '前一天', en: 'Previous day' },
+    'addRecord.nextDay': { zh: '后一天', en: 'Next day' },
+    'addRecord.amountHint': { zh: '从分开始输入：输入 23642 即 236.42', en: 'Digits fill in from the cents: type 23642 for 236.42' },
     'addRecord.noteLabel': { zh: '备注', en: 'Note' },
     'addRecord.notePlaceholder': { zh: '例如：Nasi Lemak', en: 'e.g. Nasi Lemak' },
     'addRecord.tagsLabel': { zh: '🏷️ 标签', en: '🏷️ Tags' },
@@ -328,6 +365,7 @@ function removeAddTag(tag) {
   window.renderAddPage = renderAddPage;
   window.setAddRecordType = setAddRecordType;
   window.submitRecord = submitRecord;
+  window.shiftAddDate = shiftAddDate;
   window.openTagPickerForAdd = openTagPickerForAdd;
   window.renderAddTagsDisplay = renderAddTagsDisplay;
   window.removeAddTag = removeAddTag;

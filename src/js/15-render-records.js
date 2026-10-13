@@ -63,11 +63,11 @@ function renderRecords() {
       <div class="grid-2">
         <div class="input-group" style="margin-bottom:8px">
           <label class="text-sm text-secondary">${__('records.filter.amountMin')}</label>
-          <input type="number" id="filterAmountMin" class="input-field" placeholder="0" value="${recordsFilter.amountMin}" oninput="applyRecordsFilter()">
+          <input type="text" inputmode="numeric" data-money id="filterAmountMin" class="input-field" placeholder="0" value="${recordsFilter.amountMin}" oninput="applyRecordsFilter()">
         </div>
         <div class="input-group" style="margin-bottom:8px">
           <label class="text-sm text-secondary">${__('records.filter.amountMax')}</label>
-          <input type="number" id="filterAmountMax" class="input-field" placeholder="9999" value="${recordsFilter.amountMax}" oninput="applyRecordsFilter()">
+          <input type="text" inputmode="numeric" data-money id="filterAmountMax" class="input-field" placeholder="9999" value="${recordsFilter.amountMax}" oninput="applyRecordsFilter()">
         </div>
       </div>
       <div class="flex gap-8 mt-8" style="flex-wrap:wrap">
@@ -775,7 +775,7 @@ function openEditRecord(id) {
         <label class="input-label">${__('records.edit.amount')}</label>
         <div style="position:relative">
           <span id="editAmountPrefix" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:${isIncome ? 'var(--success)' : 'var(--primary)'}">RM</span>
-          <input type="text" id="editAmount" class="input-field" value="${record.amount}" style="padding-left:44px;font-size:1.2rem;font-weight:700" inputmode="decimal">
+          <input type="text" inputmode="numeric" data-money id="editAmount" class="input-field" value="${record.amount}" style="padding-left:44px;font-size:1.2rem;font-weight:700" autocomplete="off">
         </div>
       </div>
       <div class="input-group">

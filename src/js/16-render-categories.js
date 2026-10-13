@@ -83,8 +83,11 @@ function buildCategoryTreeHTML(cats, depth, kind) {
     } else {
     // Budget input group
     html += `<div class="cat-budget">`;
-    html += `<input type="number" class="budget-input" value="${budgetVal}" placeholder="0" onchange="saveCategoryBudget('${cat.id}','${currentMonth}',this.value,'${budgetType}')" min="0" step="0.01">`;
-    html += `<button class="budget-toggle" onclick="var inp=this.parentElement.querySelector('.budget-input');var nxt=this.innerText==='RM'?'%':'RM';this.innerText=nxt;saveCategoryBudget('${cat.id}','${currentMonth}',inp.value,nxt==='%'?'percent':'fixed')">${budgetType === 'percent' ? '%' : 'RM'}</button>`;
+    // The same box holds RM or a percentage depending on the toggle: RM is entered
+    // cents-first like every other amount, a percentage stays a plain number.
+    const budgetInputAttrs = budgetType === 'percent' ? 'type="number" min="0" step="0.01"' : 'type="text" inputmode="numeric" data-money';
+    html += `<input ${budgetInputAttrs} class="budget-input" value="${budgetVal}" placeholder="0" onchange="saveCategoryBudget('${cat.id}','${currentMonth}',this.value,'${budgetType}')">`;
+    html += `<button class="budget-toggle" onclick="var inp=this.parentElement.querySelector('.budget-input');var nxt=this.innerText==='RM'?'%':'RM';this.innerText=nxt;setMoneyMode(inp,nxt==='RM');saveCategoryBudget('${cat.id}','${currentMonth}',inp.value,nxt==='%'?'percent':'fixed')">${budgetType === 'percent' ? '%' : 'RM'}</button>`;
     html += `<span class="budget-unit">${__('categories.perMonth')}</span>`;
     html += `</div>`;
     }

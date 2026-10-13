@@ -27,7 +27,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 ├── src/
 │   ├── index.html              # HTML 骨架
 │   ├── css/                    # 16 个 CSS 文件
-│   └── js/                     # 28 个 JS 文件
+│   └── js/                     # 30 个 JS 文件
 ├── supabase/migrations/        # 云端同步的服务器定义（私有 schema + RLS + 5 个 RPC）
 ├── tests/                      # jsdom 测试套件（见「测试」章节）
 ├── features/                   # 功能文档（v2.0.0 时期快照，仅供参考，勿当现状）
@@ -45,7 +45,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 |------|------|--------------|
 | `01-base.css` | CSS 变量、暗色模式、reset、滚动条、工具类 | `:root`, `[data-theme="dark"]`, `.flex`, `.grid-*`, `.text-*` |
 | `02-layout.css` | 布局 | `#app`, `.sidebar`, `.main-content`, `.top-header`, `.bottom-nav`, `.page-section` |
-| `03-components.css` | 通用组件 | `.card`, `.btn`, `.input-field`, `.modal-overlay`, `.toast`, `.badge`, `.empty-state` |
+| `03-components.css` | 通用组件（含记账页日期栏 `.add-date-row` / `.add-date-step` / `.add-date-offday`） | `.card`, `.btn`, `.input-field`, `.modal-overlay`, `.toast`, `.badge`, `.empty-state` |
 | `04-animations.css` | 所有动画 | `@keyframes shake`, `slideInLeft`, `pageEnter`, `modalScale`, `toastSlide` 等 |
 | `05-records.css` | 流水记录 | `.record-card`, `.compact-*`, `.view-toggle-btn` |
 | `06-categories.css` | 分类手风琴 + 分类页手机布局（≤600px 每行拆成两行：名称在上、预算/操作在下，限定 `#page-categories` 以免影响共用 `.cat-header` 的选分类弹窗） | `.cat-item`, `.cat-header`, `.cat-arrow`, `.cat-budget`, `.cat-breadcrumb` |
@@ -360,6 +360,30 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 
 ---
 
+### 8. `08-money-input.js` — 金额输入（Touch 'n Go 式，从分开始填）
+
+数字从小数点后开始填：键入 `23642` → `236.42`（`2`→0.02 · `23`→0.23 · `236`→2.36 · `2364`→23.64）；退格去掉末位；不需要小数点键，所以手机 `inputmode="numeric"` 的纯数字键盘就够用。**全应用所有「金额」输入框都用它**。
+
+**怎么接入**：给输入框写 `<input type="text" inputmode="numeric" data-money …>`，没了。监听器是挂在 `document` 上的委托（`input` / `focus` / `paste`，捕获阶段），所以弹窗、重渲染出来的页面都不用逐个绑定，也先于字段自己的 `oninput` 执行。**别再给金额写 `type="number"` 或 `inputmode="decimal"`**——`tests/money-input-test.js` 末尾有防漏断言会抓到。
+
+| 符号 | 说明 |
+|------|------|
+| `data-money` / `data-money="signed"` | 标记金额框；`signed` 另允许负号（键入 `-` 切换正负） |
+| `MoneyInput.{format, centsOf, normalize}` | 整数分运算，永不让浮点决定某一位数字 |
+| `setMoneyMode(el, on, signed)` | 给「有时是金额、有时是百分比」的框切换（分类预算的 RM/%、假设分析的值） |
+| `toggleMoneySign(btn)` | 带符号金额框旁的 ± 按钮（iOS 数字键盘没有负号）；会触发 `change` |
+
+**约定**
+- `value` 永远是两位小数的普通十进制串（`"236.42"`、`"-5.00"`，没填则为 `""`）。所有读取方照旧 `parseFloat(el.value)`，所以把一个 `type="number"` 改成金额框**只是改标记**。
+- **只改写真实键入**（`InputEvent` 带 `inputType`）。脚本 `el.value = '1200'` 后发裸 `new Event('input')` 表示「金额就是 1200」，不会被重新解读成按键——否则所有程序赋值都会被当成分。
+- 别处写进来的 `12.5` 在**聚焦时**规整成 `12.50`；键入基于屏幕上这个规整后的值（`12.50` 再敲 `3` → `125.03`）。
+- 粘贴的是数字不是按键：`1,234.5` → `1234.50`，`RM 50` → `50.00`。
+- 位数封顶 11 位（`999999999.99`），多出来的位被丢掉。
+- 百分比、月数、每页条数**不是**金额，保持 `type="number"`。分类预算和假设分析里同一个框随模式在 RM / % 之间切换，由 `setMoneyMode` / 模板按模式决定。
+- 另一个手机独立版 `money-wise-mobile.html` 是单独的一份代码，**没有**跟进。
+
+---
+
 ### 9. `09-category-picker.js` — 分类选择器（复用）
 
 | 符号 | 说明 |
@@ -422,6 +446,9 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 |------|------|
 | `function renderAddPage()` | 渲染记账表单 |
 | `function submitRecord(e)` | 提交记录（验证 + shake 动画） |
+| `function shiftAddDate(days)` | 日期栏两侧的「前一天 / 后一天」：保持时间不变，按本地日历日运算（跨月 / 跨年 / 闰日都对） |
+
+**日期在保存后不重置**（普通记账与分摊记账两条路径都一样）——连续补记同一天的账不用每笔重选。用户**主动选定**的日期记在 `window._addDateTimeChosen`，记账页每次重绘（切页、`refreshCurrentPage`）都沿用；没动过的默认值仍跟着时钟走，不会被冻住。刷新页面即清空。日期不是今天时输入框加 `.add-date-offday`（橙色边框），防止忘了改回来而把下一笔记到错误的日子。
 
 ---
 
@@ -1021,6 +1048,7 @@ for t in tests/*.js; do node "$t"; done
 | `tests/plan-ui-test.js` | 大额计划：`PlanMath` 结算瀑布、预测、卡片渲染、图标选择器 |
 | `tests/plan-editor-bounds-test.js` | 大额计划编辑器：月份选择器与全部边界校验（13 月 / 期数 / 金额） |
 | `tests/partial-repayment-test.js` | 分摊部分还款：金额模型、三种分配方式、限制、收款对话框 |
+| `tests/money-input-test.js` | 金额输入：从分开始填（逐位 / 退格 / 忽略小数点与字母 / 前导零 / 11 位封顶 / 全选覆盖）、粘贴按数字处理、程序赋值不被改写、聚焦规整；记账页前一天 / 后一天（跨月 / 跨年 / 闰日）与保存后保留日期（含分摊路径）；各处金额框（设置 / 流水筛选 / 编辑 / 预算 RM↔% / 假设分析含 ± 按钮 / 假设分类）；防漏：不得残留 `type="number"` / `inputmode="decimal"` 的金额框（固定时钟，8 个变异验证过） |
 | `tests/split-center-visibility-test.js` | 追账中心只列「还欠钱」的：已归档 / 已还清的账单与人不出现在两个视图里、都在「已结清归档」且入口不丢、`getPendingSummary` 不计归档、勾选后就地刷新可撤销、匿名参与者（固定时钟） |
 | `tests/whatif-adjustment-test.js` | 假设分析：父分类上的 `±RM/天` / 设日均值 / 固定剩余总额按**整个分类**生效而不是每个叶子各一次；子分类优先、0 的下限作用于整体、按日均占比分摊、三层分类（固定时钟：剩 18 天） |
 | `tests/daily-average-test.js` | 「日均」只有一个定义：报告页与总览 / 统计同值、滚动 30 天尊重「不计日均」、月度 × 已过天数 = 滚动 × 30（固定时钟） |
