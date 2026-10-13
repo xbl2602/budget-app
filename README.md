@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.6.0
+# 记账软件 · Budget App v3.6.1
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -123,6 +123,10 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
+
+### v3.6.1 手机端优化
+
+- **📱 手机上的分类页重新排版**（≤600px）：以前一行里要塞 箭头 + 色点 + 图标 + 名称 + 四个操作图标 + 预算框，名称是唯一可压缩的元素，在 375px 下被挤到 11px、子分类直接 0px（子分类每层还要吃掉 48px 缩进，预算框被挤出屏幕右侧）。现在每个分类两行：上行是图标 + 完整名称（最多两行），下行是预算框（左）+ ⬆️⬇️➕⚙️（右）；嵌套缩进收窄到 18px/层；操作图标点击区从约 21×15px 放大到 30×32px。样式全部限定在 `#page-categories` 的窄屏媒体查询内——桌面端、平板（>600px）和选分类弹窗（共用 `.cat-header` 类名）像素级不变。
 
 ### v3.6.0 新增功能
 

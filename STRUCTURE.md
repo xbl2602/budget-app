@@ -48,7 +48,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `03-components.css` | 通用组件 | `.card`, `.btn`, `.input-field`, `.modal-overlay`, `.toast`, `.badge`, `.empty-state` |
 | `04-animations.css` | 所有动画 | `@keyframes shake`, `slideInLeft`, `pageEnter`, `modalScale`, `toastSlide` 等 |
 | `05-records.css` | 流水记录 | `.record-card`, `.compact-*`, `.view-toggle-btn` |
-| `06-categories.css` | 分类手风琴 | `.cat-item`, `.cat-header`, `.cat-arrow`, `.cat-budget`, `.cat-breadcrumb` |
+| `06-categories.css` | 分类手风琴 + 分类页手机布局（≤600px 每行拆成两行：名称在上、预算/操作在下，限定 `#page-categories` 以免影响共用 `.cat-header` 的选分类弹窗） | `.cat-item`, `.cat-header`, `.cat-arrow`, `.cat-budget`, `.cat-breadcrumb` |
 | `07-heatmap.css` | 日历热力图 | `.heatmap-grid`, `.heatmap-day`, `.heatmap-legend` |
 | `08-budget.css` | 预算进度切换 | `.budget-view-toggle`, `.bvt-slider`, `.budget-bar-fill` |
 | `09-whatif.css` | 假设分析 | `.whatif-*`, `.savings-bar-*`, `.whatif-compare-*` |

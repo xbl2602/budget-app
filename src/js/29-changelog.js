@@ -39,6 +39,15 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
+    id: '2026-10-13',
+    version: '3.6.1',
+    date: '2026-10-13',
+    title: 'changelog.a6.title',
+    items: [
+      { icon: '📱', text: 'changelog.a6.item1' }
+    ]
+  },
+  {
     id: '2026-10-08',
     version: '3.6.0',
     date: '2026-10-08',
@@ -325,6 +334,12 @@ function close() {
     'changelog.settingsHint': { zh: '随时回看历次更新内容', en: 'Browse every past update' },
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
+
+    'changelog.a6.title': { zh: 'v3.6.1 手机上的分类页不再挤字', en: 'What\'s in v3.6.1: the categories page fits on a phone' },
+    'changelog.a6.item1': {
+      zh: '<strong>手机上的分类页重新排版</strong>：以前分类名会被 ⬆️ ⬇️ ➕ ⚙️ 和预算框挤得一个字都看不到。现在每个分类占两行——上面是图标和完整的名字（太长最多折成两行），下面是预算框和操作按钮；子分类的缩进也收窄了，嵌套再深名字也不会被挤没；操作图标的点击区放大，更好按。电脑端不变。',
+      en: '<strong>Categories page re-laid out for phones</strong> - category names used to be squeezed to nothing by the ⬆️ ⬇️ ➕ ⚙️ icons and the budget box. Each category is now two lines: the icon and the full name on top (long names wrap to two lines), the budget box and actions below. Nesting indent is narrower so a name survives however deep it sits, and the action icons are bigger to tap. Desktop is unchanged.'
+    },
 
     'changelog.a5.title': { zh: 'v3.6.0 口径说清楚 + 预测有明细 + 点图看记录', en: 'What\'s in v3.6.0: clearer labels, forecast breakdown, tap-to-inspect charts' },
     'changelog.a5.item1': {

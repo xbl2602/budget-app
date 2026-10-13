@@ -323,3 +323,92 @@
   color: var(--text-primary);
   font-weight: 600;
 }
+
+/* ===== CATEGORIES PAGE ON A PHONE =====
+   On one line a row has to fit: arrow + dot + icon + name + four action icons +
+   the budget box (~130px). At 375px that leaves the name 11px, and 0px for any
+   child, whose body also burns 48px of indent per level — the name is the only
+   flexible item, so it is what gets crushed.
+
+   So below 600px a row is two lines: identity (arrow, dot, icon, name — the name
+   gets the whole line, up to two lines of text) over controls (budget on the
+   left, actions on the right). Nesting indent drops to 18px a level so depth
+   stops costing the name its width.
+
+   Scoped to #page-categories: the picker modal reuses .cat-header / .cat-name
+   with no controls, and one line is right for it. The ::after is a full-width,
+   zero-height flex item — the line break between the two rows, with no extra
+   markup for the desktop layout to carry. */
+@media (max-width: 600px) {
+  #page-categories .cat-header {
+    flex-wrap: wrap;
+    row-gap: 0;
+    padding: 8px;
+  }
+  #page-categories .cat-header::after {
+    content: '';
+    order: 1;
+    flex: 0 0 100%;
+    height: 0;
+  }
+  #page-categories .cat-name {
+    white-space: normal;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  /* Controls row. The left margin lines the budget up under the colour dot
+     (arrow 18px + 8px gap). */
+  #page-categories .cat-budget {
+    order: 2;
+    margin: 6px 0 0 26px;
+  }
+  #page-categories .cat-budget .budget-input {
+    width: 68px;
+    padding: 6px 8px;
+  }
+  #page-categories .cat-budget .budget-toggle {
+    padding: 6px 8px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #page-categories .cat-action-icons {
+    order: 3;
+    margin: 6px 0 0 auto;
+    gap: 0;
+  }
+  /* Finger-sized targets (the desktop 21x15px chip is unhittable by touch). The
+     rest state is also stronger — there is no :hover on a phone to reveal it. */
+  #page-categories .cat-action-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px;
+    height: 32px;
+    padding: 0;
+    font-size: 0.95rem;
+    opacity: 0.6;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #page-categories .cat-action-icon:active {
+    opacity: 1;
+    background: var(--bg);
+    transform: scale(0.92);
+  }
+  /* Must come after the rule above and match its specificity, or the disabled
+     arrow at the end of a list would light up like the rest. */
+  #page-categories .cat-action-icon.cat-action-off {
+    opacity: 0.15;
+  }
+  #page-categories .cat-arrow,
+  #page-categories .cat-arrow-empty {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #page-categories .cat-body-inner {
+    padding: 0 0 6px 18px;
+  }
+}

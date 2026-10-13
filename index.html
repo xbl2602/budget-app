@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://sfwnpwchujslqfnmdyxo.supabase.co; base-uri 'none'; form-action 'none';">
-  <title>记账软件 v3.6.0</title>
+  <title>记账软件 v3.6.1</title>
   <style>
 /* ===== CSS DESIGN SYSTEM ===== */
 :root {
@@ -1021,6 +1021,95 @@ body.modal-open {
 .cat-breadcrumb .crumb-current {
   color: var(--text-primary);
   font-weight: 600;
+}
+
+/* ===== CATEGORIES PAGE ON A PHONE =====
+   On one line a row has to fit: arrow + dot + icon + name + four action icons +
+   the budget box (~130px). At 375px that leaves the name 11px, and 0px for any
+   child, whose body also burns 48px of indent per level — the name is the only
+   flexible item, so it is what gets crushed.
+
+   So below 600px a row is two lines: identity (arrow, dot, icon, name — the name
+   gets the whole line, up to two lines of text) over controls (budget on the
+   left, actions on the right). Nesting indent drops to 18px a level so depth
+   stops costing the name its width.
+
+   Scoped to #page-categories: the picker modal reuses .cat-header / .cat-name
+   with no controls, and one line is right for it. The ::after is a full-width,
+   zero-height flex item — the line break between the two rows, with no extra
+   markup for the desktop layout to carry. */
+@media (max-width: 600px) {
+  #page-categories .cat-header {
+    flex-wrap: wrap;
+    row-gap: 0;
+    padding: 8px;
+  }
+  #page-categories .cat-header::after {
+    content: '';
+    order: 1;
+    flex: 0 0 100%;
+    height: 0;
+  }
+  #page-categories .cat-name {
+    white-space: normal;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  /* Controls row. The left margin lines the budget up under the colour dot
+     (arrow 18px + 8px gap). */
+  #page-categories .cat-budget {
+    order: 2;
+    margin: 6px 0 0 26px;
+  }
+  #page-categories .cat-budget .budget-input {
+    width: 68px;
+    padding: 6px 8px;
+  }
+  #page-categories .cat-budget .budget-toggle {
+    padding: 6px 8px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #page-categories .cat-action-icons {
+    order: 3;
+    margin: 6px 0 0 auto;
+    gap: 0;
+  }
+  /* Finger-sized targets (the desktop 21x15px chip is unhittable by touch). The
+     rest state is also stronger — there is no :hover on a phone to reveal it. */
+  #page-categories .cat-action-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px;
+    height: 32px;
+    padding: 0;
+    font-size: 0.95rem;
+    opacity: 0.6;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #page-categories .cat-action-icon:active {
+    opacity: 1;
+    background: var(--bg);
+    transform: scale(0.92);
+  }
+  /* Must come after the rule above and match its specificity, or the disabled
+     arrow at the end of a list would light up like the rest. */
+  #page-categories .cat-action-icon.cat-action-off {
+    opacity: 0.15;
+  }
+  #page-categories .cat-arrow,
+  #page-categories .cat-arrow-empty {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #page-categories .cat-body-inner {
+    padding: 0 0 6px 18px;
+  }
 }
 /* ===== CALENDAR HEATMAP ===== */
 .heatmap-container { user-select: none; }
@@ -3341,7 +3430,7 @@ try{
 // docs/superpowers/specs/2026-09-28-changelog-announcement-design.md.
 // Do not confuse this with the cloud ledger's monotonic integer `version` in
 // 28-cloud-sync.js — that is a different concept in a different IIFE.
-const APP_VERSION = '3.6.0';
+const APP_VERSION = '3.6.1';
 
 const COLORS = [
   '#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6',
@@ -25305,6 +25394,15 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
+    id: '2026-10-13',
+    version: '3.6.1',
+    date: '2026-10-13',
+    title: 'changelog.a6.title',
+    items: [
+      { icon: '📱', text: 'changelog.a6.item1' }
+    ]
+  },
+  {
     id: '2026-10-08',
     version: '3.6.0',
     date: '2026-10-08',
@@ -25591,6 +25689,12 @@ function close() {
     'changelog.settingsHint': { zh: '随时回看历次更新内容', en: 'Browse every past update' },
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
+
+    'changelog.a6.title': { zh: 'v3.6.1 手机上的分类页不再挤字', en: 'What\'s in v3.6.1: the categories page fits on a phone' },
+    'changelog.a6.item1': {
+      zh: '<strong>手机上的分类页重新排版</strong>：以前分类名会被 ⬆️ ⬇️ ➕ ⚙️ 和预算框挤得一个字都看不到。现在每个分类占两行——上面是图标和完整的名字（太长最多折成两行），下面是预算框和操作按钮；子分类的缩进也收窄了，嵌套再深名字也不会被挤没；操作图标的点击区放大，更好按。电脑端不变。',
+      en: '<strong>Categories page re-laid out for phones</strong> - category names used to be squeezed to nothing by the ⬆️ ⬇️ ➕ ⚙️ icons and the budget box. Each category is now two lines: the icon and the full name on top (long names wrap to two lines), the budget box and actions below. Nesting indent is narrower so a name survives however deep it sits, and the action icons are bigger to tap. Desktop is unchanged.'
+    },
 
     'changelog.a5.title': { zh: 'v3.6.0 口径说清楚 + 预测有明细 + 点图看记录', en: 'What\'s in v3.6.0: clearer labels, forecast breakdown, tap-to-inspect charts' },
     'changelog.a5.item1': {
