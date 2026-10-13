@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://sfwnpwchujslqfnmdyxo.supabase.co; base-uri 'none'; form-action 'none';">
-  <title>记账软件 v3.6.1</title>
+  <title>记账软件 v3.6.2</title>
   <style>
 /* ===== CSS DESIGN SYSTEM ===== */
 :root {
@@ -3465,7 +3465,7 @@ try{
 // docs/superpowers/specs/2026-09-28-changelog-announcement-design.md.
 // Do not confuse this with the cloud ledger's monotonic integer `version` in
 // 28-cloud-sync.js — that is a different concept in a different IIFE.
-const APP_VERSION = '3.6.1';
+const APP_VERSION = '3.6.2';
 
 const COLORS = [
   '#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6',
@@ -25754,6 +25754,19 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
+    id: '2026-10-14',
+    version: '3.6.2',
+    date: '2026-10-14',
+    title: 'changelog.a7.title',
+    items: [
+      { icon: '📅', text: 'changelog.a7.item1' },
+      { icon: '💰', text: 'changelog.a7.item2' },
+      { icon: '🤝', text: 'changelog.a7.item3' },
+      { icon: '🔮', text: 'changelog.a7.item4' },
+      { icon: '📊', text: 'changelog.a7.item5' }
+    ]
+  },
+  {
     id: '2026-10-13',
     version: '3.6.1',
     date: '2026-10-13',
@@ -26049,6 +26062,28 @@ function close() {
     'changelog.settingsHint': { zh: '随时回看历次更新内容', en: 'Browse every past update' },
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
+
+    'changelog.a7.title': { zh: 'v3.6.2 记账更顺手 + 几处数字改对了', en: 'What\'s in v3.6.2: smoother entry, a few numbers corrected' },
+    'changelog.a7.item1': {
+      zh: '<strong>记账日期可以一键换天</strong>：日期栏左右两侧多了 ‹ › 按钮，按一下就切到前一天 / 后一天；记完一笔后<strong>日期不再被重置</strong>，连着补记同一天的账不用每笔重新选日期。',
+      en: '<strong>Step the date with one tap</strong> - the date field now has ‹ and › buttons on either side to jump to the previous or next day. The date is <strong>no longer reset after saving</strong>, so you can log several entries for the same day without re-picking it.'
+    },
+    'changelog.a7.item2': {
+      zh: '<strong>金额从「分」开始填</strong>（类似 Touch \'n Go）：只按数字键，输入 23642 就是 RM 236.42，不用再找小数点，按退格删掉最后一位。记账、预算、假设分析、分摊、购物计划等<strong>全应用的金额框</strong>都是这样；可正可负的框旁边多了 ± 按钮。',
+      en: '<strong>Amounts fill in from the cents</strong> (like Touch \'n Go) - just press digits: typing 23642 gives RM 236.42, no decimal point needed, and Backspace removes the last digit. <strong>Every amount field in the app</strong> works this way (add record, budgets, what-if, split bills, purchase plans…); fields that can be negative get a ± button.'
+    },
+    'changelog.a7.item3': {
+      zh: '<strong>追账中心只列还没收齐的</strong>：已归档的账单不再出现在「按人」里，已经还清的人也不再显示，「按账单」同理。已结清 / 已归档的账单集中放在第三个标签里，恢复和删除入口都还在。',
+      en: '<strong>The split center lists only what is still owed</strong> - archived bills no longer show up under "By person", people who have fully repaid are hidden, and "By bill" works the same way. Settled and archived bills live in the third tab, where restore and delete are still available.'
+    },
+    'changelog.a7.item4': {
+      zh: '<strong>修正假设分析的重复计算</strong>：对父分类设置调整（比如餐饮每天少花 RM 2）时，旧版把这个调整给每个子分类各算了一遍，省下的钱被成倍放大。现在整组只算一次，再按各子分类过往的花销比例分摊。',
+      en: '<strong>What-if no longer double-counts</strong> - an adjustment on a parent category (say, spend RM 2 less per day on Food) used to be applied once to every subcategory, multiplying the savings. It is now applied once to the whole group and split by each subcategory\'s past spending.'
+    },
+    'changelog.a7.item5': {
+      zh: '<strong>「日均」数字统一了</strong>：报告页底部那句「本月至今已消费…日均…」以前是用总支出除以「有消费的天数」，和总览对不上；现在全应用都是「已过天数内我自己的支出 ÷ 已过天数」。滚动 30 天的日均也不再把勾了「不计日均」的大额算进去。',
+      en: '<strong>One definition of daily average</strong> - the sentence at the bottom of the report page ("spent so far this month… average per day…") used to divide by the number of days that had spending, so it disagreed with the overview. Everywhere now uses "my own spending so far ÷ days elapsed", and the rolling 30-day average also leaves out records marked "exclude from daily average".'
+    },
 
     'changelog.a6.title': { zh: 'v3.6.1 手机上的分类页不再挤字', en: 'What\'s in v3.6.1: the categories page fits on a phone' },
     'changelog.a6.item1': {
