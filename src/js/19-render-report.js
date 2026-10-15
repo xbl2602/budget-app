@@ -34,7 +34,9 @@ function renderReport() {
   const netDisposable = spRep.netDisposable;
   const targetAmount = spRep.targetAmount;
   const planDueVirtual = spRep.planDueVirtual;
-  const spendableBudget = spRep.spendableBudget;
+  // This page sets the budget against the month's FULL total (instalments
+  // included), so it must not have them carved out of the budget a second time.
+  const spendableBudget = spRep.spendableBudget + (spRep.planDueCredit || 0);
   const variableSpending = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month);
   const actualSavings = Math.max(0, budget - (monthTotal + unpaidPlannedBillsRep));
   const savingsRate = budget > 0 ? (actualSavings / budget * 100) : 0;
@@ -110,7 +112,7 @@ function renderReport() {
           <div class="card-title">${__('report.totalExpenditure')}</div>
           <div class="text-xl font-bold" style="color:${monthTotal <= spendableBudget ? 'var(--success)' : 'var(--danger)'}">${formatMoney(monthTotal)}</div>
           ${(() => {
-            const billActual = StatsEngine.getBillSpendingActual(month);
+            const billActual = isRolling ? StatsEngine.getPeriodFixedSpending() : StatsEngine.getFixedSpendingActual(month);
             if (billActual > 0) {
               const varSpend = monthTotal - billActual;
               return `<div class="text-xs text-muted mt-4">${__('report.daily')} ${formatMoney(varSpend)} · ${__('report.bills')} ${formatMoney(billActual)}</div>`;

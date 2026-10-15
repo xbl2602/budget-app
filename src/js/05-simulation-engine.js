@@ -35,7 +35,10 @@ const SimulationEngine = {
     const netDisposable = sp.netDisposable;
     const targetAmount = sp.targetAmount;
     const planDueVirtual = sp.planDueVirtual;
-    const spendable = sp.spendableBudget;
+    // The simulation projects spending from every non-bill record, and card
+    // instalments are among them (it has no 含固定账单 toggle), so the budget it
+    // compares against must not have the instalments carved out a second time.
+    const spendable = sp.spendableBudget + (sp.planDueCredit || 0);
 
     // Get actual spending to date (variable categories only)
     const allRecords = expenseRecords((isRolling

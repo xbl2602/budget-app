@@ -281,8 +281,11 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `getOverspentCategories(month)` | 超支分类（>80%） |
 | `getLast7Days()` | 近 7 天 `[{date, total, label}]` |
 | `isBillCategory(categoryId)` | 是否是账单分类 |
-| `getBillSpendingActual(month)` | 账单分类实际支出 |
-| `getVariableSpending(month)` | 非账单支出 |
+| `isFixedRecord(record)` | 是否「固定」流水：记在账单分类下，或信用卡分期流水（带 planId）——「含固定账单」开关以此划分 |
+| `getBillSpendingActual(month)` | 账单分类实际支出（只算账单分类，用于和计划账单对账） |
+| `getInstalmentSpending(month)` | 信用卡分期流水合计（不含已记在账单分类下的） |
+| `getFixedSpendingActual(month)` | 账单 + 分期，开关取消勾选时被排除的部分 |
+| `getVariableSpending(month)` | 日常支出（非固定流水） |
 | `getDailyTotalsVariable(month)` | 排除账单的日支出 |
 | `getDailyAverageVariable(month)` | 排除账单的日均 |
 | `getDisposableInfo(month)` | 可支配信息汇总 |

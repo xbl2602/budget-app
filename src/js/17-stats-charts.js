@@ -498,11 +498,13 @@ function getHierarchyRecords(month, startDate, endDate) {
 function buildPieSliceRows(level, canvasId, startDate, endDate) {
   const toggleId = canvasId === 'expandPieChart' ? 'pieChart' : canvasId;
   const excludeBills = !isBillToggleChecked(toggleId);
-  const billSet = excludeBills ? new Set((DataStore.getBillCategories() || []).map(function (c) { return getRootAncestorId(c.id); })) : null;
+  // "Fixed" = a fixed-bill category record OR a card-instalment record. This used
+  // to compare root ancestors, but getRootAncestorId cannot resolve a fixed-bill
+  // category (they live in their own list), so every bill id collapsed to null.
   const directOf = function (records, catId) {
     return records.filter(function (r) {
       if (r.categoryId !== catId) return false;
-      if (billSet && billSet.has(getRootAncestorId(r.categoryId))) return false;
+      if (excludeBills && StatsEngine.isFixedRecord(r)) return false;
       return true;
     }).reduce(function (s, r) { return s + r.amount; }, 0);
   };
@@ -511,7 +513,7 @@ function buildPieSliceRows(level, canvasId, startDate, endDate) {
   const rows = [];
 
   if (drillCategory) {
-    const breakdown = StatsEngine.getCategoryBreakdownDeep(statsMonth, drillCategory);
+    const breakdown = StatsEngine.getCategoryBreakdownDeep(statsMonth, drillCategory, excludeBills);
     if (!breakdown) return rows;
     if (level <= 1) {
       const childrenData = (breakdown.children || []).map(function (c) { return { id: c.category.id, total: c.total, cat: c.category }; });
@@ -535,7 +537,7 @@ function buildPieSliceRows(level, canvasId, startDate, endDate) {
   }
 
   // Non-drill: start from root categories
-  const roots = getChartData(statsMonth, startDate, endDate, { excludeBills });
+  const roots = getChartData(statsMonth, startDate, endDate, { excludeBills, includeBillCats: !excludeBills });
   if (level <= 1) {
     return roots.map(function (d) { return { id: d.id, cat: d.cat, total: d.total, depth: 0, path: [] }; });
   }
@@ -596,7 +598,7 @@ function showCategoryRecords(catId) {
   if (!catId) return;
   const isDirect = String(catId).slice(-7) === '-direct';
   const realId = isDirect ? String(catId).slice(0, -7) : catId;
-  const cat = DataStore.getCategory(realId);
+  const cat = DataStore.getCategory(realId) || DataStore.getBillCategory(realId);
   if (!cat) return;
   const isCustom = useCustomRange();
   const sD = isCustom ? statsStartDate : null;
@@ -626,7 +628,7 @@ function showCategoryRecords(catId) {
   } else {
     html += `<div style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:8px">`;
     recs.slice(0, 200).forEach(r => {
-      const rc = DataStore.getCategory(r.categoryId) || { name: __('stats.unknown'), icon: '' };
+      const rc = DataStore.getCategory(r.categoryId) || DataStore.getBillCategory(r.categoryId) || { name: __('stats.unknown'), icon: '' };
       const dstr = String(r.date || r.createdAt || '').slice(0, 10);
       html += `<div class="record-card compact" style="cursor:pointer;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card-bg);display:flex;align-items:center;gap:8px;font-size:0.82rem" onclick="closeModal();openEditRecord('${r.id}')">`
         + `<span style="font-size:0.8rem">${escHtml(rc.icon || '')}</span>`
@@ -1063,8 +1065,8 @@ function renderStats() {
 
     <!-- Stats cards row 1: Core summary -->
     <div class="grid-4 mb-16">
-      <div class="card"><div class="card-title">${isCustom ? __('stats.rangeTotal') : (isRolling ? __('stats.rollingTotal') : __('stats.monthTotal'))}</div><div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">${__('stats.monthTotalBreakdownPrefix')}${__('stats.daily')} ${formatMoney(monthTotal - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)))} · ${__('stats.bills')} ${formatMoney(isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth))}</div>` : ''}</div>
-      <div class="card"><div class="card-title">${isCustom ? __('stats.recordCount') : __('stats.dailyAvg')}</div><div class="text-xl font-bold">${isCustom ? rangeTotal.count : formatMoney(dailyAvg)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">${__('stats.dailyAvgDaily')} ${formatMoney(isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(statsMonth))}</div>` : ''}</div>
+      <div class="card"><div class="card-title">${isCustom ? __('stats.rangeTotal') : (isRolling ? __('stats.rollingTotal') : __('stats.monthTotal'))}</div><div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(isCustom ? rangeTotal.total : monthTotal)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodFixedSpending() : StatsEngine.getFixedSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">${__('stats.monthTotalBreakdownPrefix')}${__('stats.daily')} ${formatMoney(monthTotal - (isRolling ? StatsEngine.getPeriodFixedSpending() : StatsEngine.getFixedSpendingActual(statsMonth)))} · ${__('stats.bills')} ${formatMoney(isRolling ? StatsEngine.getPeriodFixedSpending() : StatsEngine.getFixedSpendingActual(statsMonth))}</div>` : ''}</div>
+      <div class="card"><div class="card-title">${isCustom ? __('stats.recordCount') : __('stats.dailyAvg')}</div><div class="text-xl font-bold">${isCustom ? rangeTotal.count : formatMoney(dailyAvg)}</div>${!isCustom && (isRolling ? StatsEngine.getPeriodFixedSpending() : StatsEngine.getFixedSpendingActual(statsMonth)) > 0 ? `<div class="text-xs text-muted mt-4">${__('stats.dailyAvgDaily')} ${formatMoney(isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverageVariable(statsMonth))}</div>` : ''}</div>
       <div class="card"><div class="card-title">${isRolling ? __('stats.predictedRolling') : __('stats.predicted')}</div><div class="text-xl font-bold">${formatMoney(predicted)}</div>${(() => {
         if (isCustom) return '';
         try {
@@ -1401,6 +1403,11 @@ function getStatsDailyTotals() {
 
 function getChartData(month, startDate, endDate, options = {}) {
   const excludeBills = options.excludeBills || false;
+  // Fixed-bill categories are a separate list that getCategory/getRootAncestorId
+  // cannot resolve, so by default they never reach a chart at all. The
+  // 含固定账单 charts opt in with includeBillCats so that ticking the box
+  // actually adds them (each bill is a flat, parent-less slice of its own).
+  const includeBillCats = !!options.includeBillCats && !excludeBills;
   let catTotals;
   if (startDate && endDate) {
     const range = StatsEngine.getCustomRangeTotals(startDate, endDate);
@@ -1412,24 +1419,27 @@ function getChartData(month, startDate, endDate, options = {}) {
       : getStatsCatTotals();
   }
 
-  // Filter out bill categories if excludeBills
+  const billCatIds = new Set((DataStore.getBillCategories ? DataStore.getBillCategories() : []).map(c => c.id));
+  // Filter out bill categories if excludeBills — and the card-instalment records
+  // that sit inside ordinary categories (a category total can't tell them apart,
+  // so they come back out record by record).
   if (excludeBills) {
-    const billCatIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
     Object.keys(catTotals).forEach(id => {
       if (billCatIds.has(id)) delete catTotals[id];
     });
+    catTotals = StatsEngine.withoutInstalments(catTotals, getHierarchyRecords(month || statsMonth, startDate, endDate));
   }
 
   // Aggregate to root categories (split records already carry their real category)
   const rootTotals = {};
   Object.entries(catTotals).forEach(([id, total]) => {
-    const rootId = getRootAncestorId(id);
+    const rootId = getRootAncestorId(id) || (includeBillCats && billCatIds.has(id) ? id : null);
     if (rootId) {
       rootTotals[rootId] = (rootTotals[rootId] || 0) + total;
     }
   });
   return Object.entries(rootTotals)
-    .map(([id, total]) => ({ id, total, cat: DataStore.getCategory(id) }))
+    .map(([id, total]) => ({ id, total, cat: DataStore.getCategory(id) || (includeBillCats ? DataStore.getBillCategory(id) : null) }))
     .filter(x => x.cat && x.total > 0)
     .sort((a,b) => b.total - a.total);
 }
@@ -2536,13 +2546,11 @@ function squarify(nodes, x, y, w, h) {
    level 1 → roots only, 2 → roots + direct children, 3 → all the way down. */
 function buildCategoryTreeNodes(level, startDate, endDate) {
   const excludeBills = !isBillToggleChecked('pieChart');
-  const billSet = excludeBills
-    ? new Set((DataStore.getBillCategories() || []).map(c => getRootAncestorId(c.id)))
-    : null;
   const records = getHierarchyRecords(statsMonth, startDate, endDate);
   const direct = {};
   records.forEach(r => {
-    if (billSet && billSet.has(getRootAncestorId(r.categoryId))) return;
+    // Fixed = fixed-bill category OR card instalment (see StatsEngine.isFixedRecord)
+    if (excludeBills && StatsEngine.isFixedRecord(r)) return;
     direct[r.categoryId] = (direct[r.categoryId] || 0) + r.amount;
   });
 
@@ -2554,7 +2562,8 @@ function buildCategoryTreeNodes(level, startDate, endDate) {
 
   const maxDepth = level >= 3 ? 99 : Math.max(1, level);
   const build = (catId, depth, color) => {
-    const cat = DataStore.getCategory(catId);
+    // Fixed-bill categories are a separate list getCategory cannot see
+    const cat = DataStore.getCategory(catId) || DataStore.getBillCategory(catId);
     if (!cat) return null;
     const total = subtotal(catId);
     if (total <= 0.005) return null;
@@ -2592,9 +2601,9 @@ function buildCategoryTreeNodes(level, startDate, endDate) {
     }
     return nodes.sort((a, b) => b.value - a.value);
   }
-  rootIds = (DataStore.getExpenseRootCategories() || [])
-    .filter(c => !(billSet && billSet.has(c.id)))
-    .map(c => c.id);
+  rootIds = (DataStore.getExpenseRootCategories() || []).map(c => c.id);
+  // Ticking 含固定账单 adds each fixed bill as a flat top-level box of its own
+  if (!excludeBills) (DataStore.getBillCategories() || []).forEach(c => rootIds.push(c.id));
   // Colour by descending spend so the palette matches the pie and the waffle
   const ranked = rootIds.map(id => ({ id, v: subtotal(id) })).filter(r => r.v > 0.005)
     .sort((a, b) => b.v - a.v);
@@ -3172,7 +3181,7 @@ addI18nEntries({
   'stats.thisMonth': { zh: '本月', en: 'This month' },
   'stats.lastMonth': { zh: '上月', en: 'Last month' },
   'stats.billToggle.includeBills': { zh: '含固定账单', en: 'Incl. fixed bills' },
-  'stats.billToggle.hint': { zh: '勾选=统计含房租水电等固定账单；取消=只看日常消费', en: 'Checked = include fixed bills like rent & utilities; unchecked = daily spending only' },
+  'stats.billToggle.hint': { zh: '勾选=统计含房租水电等固定账单和信用卡分期；取消=只看日常消费', en: 'Checked = include fixed bills like rent & utilities, and card instalments; unchecked = daily spending only' },
   'stats.overspent': { zh: '超支', en: 'Overspent' },
   'stats.monthlyIncome': { zh: '月收入', en: 'Monthly income' },
   'stats.bills': { zh: '账单流水', en: 'Bill records' },

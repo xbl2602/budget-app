@@ -66,6 +66,10 @@ function renderOverview() {
   const netDisposable = sp.netDisposable;
   const targetAmount = sp.targetAmount;
   const planDueVirtual = sp.planDueVirtual;
+  // Card instalments come off the daily budget too (they are fixed obligations
+  // switched by 含固定账单), so the "plans reserved" figure has to include them
+  // or the budget arithmetic shown on this page would not add up.
+  const planOccupied = planDueVirtual + (sp.planDueCredit || 0);
   const spendableBudget = sp.spendableBudget;
   // What plans really took this month — less than the due amount if money ran short
   const planPaidThisMonth = (typeof PlanMath !== 'undefined') ? PlanMath.getVirtualPaid(month) : 0;
@@ -89,15 +93,22 @@ function renderOverview() {
   const actualSavings = Math.max(0, budget - effectiveTotal);
   const savingsPct = targetAmount > 0 ? Math.min(savingsPred / targetAmount, 1) : 0;
 
-  // Aggregate to root categories for top 5
+  // Aggregate to root categories for top 5.
+  // Fixed-bill categories live in their own list, which getRootAncestorId cannot
+  // see — so they used to be silently dropped here even with 含固定账单 ticked.
+  // They are flat (no parent), so each one is simply its own row.
+  const billCatIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
+  // Card instalments sit in an ordinary category the user picked, so removing
+  // them for the toggle has to happen per record, not per category.
+  const topTotals = includeBills
+    ? catTotals
+    : StatsEngine.withoutInstalments(catTotals, isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(month));
   const rootCatTotals = {};
-  Object.entries(catTotals).forEach(([id, total]) => {
-    const rootId = getRootAncestorId(id);
+  Object.entries(topTotals).forEach(([id, total]) => {
+    const rootId = getRootAncestorId(id) || (billCatIds.has(id) ? id : null);
     if (rootId) rootCatTotals[rootId] = (rootCatTotals[rootId] || 0) + total;
   });
-  // Filter out bill categories when toggle is off
-  const billCatIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
-  let topCatsSource = Object.keys(rootCatTotals).length > 0 ? rootCatTotals : catTotals;
+  let topCatsSource = Object.keys(rootCatTotals).length > 0 ? rootCatTotals : topTotals;
   if (!includeBills) {
     const filtered = {};
     Object.entries(topCatsSource).forEach(([id, total]) => {
@@ -106,7 +117,7 @@ function renderOverview() {
     topCatsSource = filtered;
   }
   const topCats = Object.entries(topCatsSource)
-    .map(([id, total]) => ({ cat: DataStore.getCategory(id), total }))
+    .map(([id, total]) => ({ cat: DataStore.getCategory(id) || DataStore.getBillCategory(id), total, isBill: billCatIds.has(id) }))
     .filter(x => x.cat)
     .sort((a,b) => b.total - a.total)
     .slice(0, 5);
@@ -131,7 +142,7 @@ function renderOverview() {
         </div>
         <div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(monthTotal)}</div>
         ${(() => {
-          const billActual = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month);
+          const billActual = isRolling ? StatsEngine.getPeriodFixedSpending() : StatsEngine.getFixedSpendingActual(month);
           const varSpending = monthTotal - billActual;
           if (billActual > 0) {
             return `<div class="text-xs text-muted mt-4" title="${__('overview.dailyBillsHint')}">${__('overview.dailyBillsBreakdown', formatMoney(varSpending), formatMoney(billActual))}</div>`;
@@ -285,10 +296,10 @@ function renderOverview() {
           <div class="text-xs text-secondary">${__('overview.targetAchievement')}</div>
           <div class="text-lg font-bold">${targetAmount > 0 ? Math.min(100, (savingsPred/targetAmount)*100).toFixed(0) + '%' : '—'}</div>
         </div>
-        ${planDueVirtual > 0 ? `
+        ${planOccupied > 0 ? `
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('plan.occupiedRow')}</div>
-          <div class="text-lg font-bold" style="color:var(--warning)">${formatMoney(planDueVirtual)}</div>
+          <div class="text-lg font-bold" style="color:var(--warning)">${formatMoney(planOccupied)}</div>
         </div>` : ''}
       </div>
       <div class="text-sm text-secondary mb-8">
@@ -341,7 +352,7 @@ function renderOverview() {
     <div class="card mb-16">
       <div class="card-title">${__('overview.top5')}</div>
       ${topCats.length ? topCats.map((item, i) => {
-        const catBudget = item.cat.id ? (DataStore.getCategoryBudget(item.cat.id, month).value || 0) : 0;
+        const catBudget = item.cat.id && !item.isBill ? (DataStore.getCategoryBudget(item.cat.id, month).value || 0) : 0;
         const exceeded = catBudget > 0 && item.total > catBudget;
         return `
         <div class="flex items-center justify-between" style="padding:8px 0;border-bottom:1px solid var(--border)">

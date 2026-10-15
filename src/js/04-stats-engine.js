@@ -46,7 +46,7 @@ const StatsEngine = {
   getDailyTotals(month, options = {}) {
     const daily = {};
     const records = options.excludeBills
-      ? this.getRecordsInMonth(month).filter(r => !this.isBillCategory(r.categoryId))
+      ? this.getRecordsInMonth(month).filter(r => !this.isFixedRecord(r))
       : this.getRecordsInMonth(month);
     records.forEach(r => {
       const d = new Date(r.date || r.createdAt);
@@ -131,8 +131,8 @@ const StatsEngine = {
   getPredictedBreakdown(month) {
     const records = this.getRecordsInMonth(month);
     const excludedActual = records.filter(r => r && r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0);
-    const billNonExcluded = records.filter(r => r && !r.excludeFromAvg && this.isBillCategory(r.categoryId)).reduce((s, r) => s + (r.amount || 0), 0);
-    const normalNonExcluded = records.filter(r => r && !r.excludeFromAvg && !this.isBillCategory(r.categoryId)).reduce((s, r) => s + (r.amount || 0), 0);
+    const billNonExcluded = records.filter(r => r && !r.excludeFromAvg && this.isFixedRecord(r)).reduce((s, r) => s + (r.amount || 0), 0);
+    const normalNonExcluded = records.filter(r => r && !r.excludeFromAvg && !this.isFixedRecord(r)).reduce((s, r) => s + (r.amount || 0), 0);
     const totalNonExcluded = billNonExcluded + normalNonExcluded;
     const parts = String(month || '').split('-');
     const daysInMonth = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10), 0).getDate() || 30;
@@ -157,7 +157,7 @@ const StatsEngine = {
   // Variable (ex-bills) twin: large (non-bill excludeFromAvg, already happened)
   // + normal (projected daily trend, net of splits) = cash-flow variable total.
   getPredictedBreakdownVariable(month) {
-    const records = this.getRecordsInMonth(month).filter(r => r && !this.isBillCategory(r.categoryId));
+    const records = this.getRecordsInMonth(month).filter(r => r && !this.isFixedRecord(r));
     const large = round2(records.filter(r => r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0));
     const predictedTrend = round2(this.getDailyAverageVariable(month) * (new Date(parseInt(String(month).split('-')[0], 10), parseInt(String(month).split('-')[1], 10), 0).getDate() || 30));
     const predicted = round2(predictedTrend + large);
@@ -169,9 +169,8 @@ const StatsEngine = {
   getPeriodPredictedBreakdown() {
     const records = this.getPeriodRecords();
     const excludedActual = records.filter(r => r && r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0);
-    const billIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
-    const billNonExcluded = records.filter(r => r && !r.excludeFromAvg && billIds.has(r.categoryId)).reduce((s, r) => s + (r.amount || 0), 0);
-    const normalNonExcluded = records.filter(r => r && !r.excludeFromAvg && !billIds.has(r.categoryId)).reduce((s, r) => s + (r.amount || 0), 0);
+    const billNonExcluded = records.filter(r => r && !r.excludeFromAvg && this.isFixedRecord(r)).reduce((s, r) => s + (r.amount || 0), 0);
+    const normalNonExcluded = records.filter(r => r && !r.excludeFromAvg && !this.isFixedRecord(r)).reduce((s, r) => s + (r.amount || 0), 0);
     const totalNonExcluded = billNonExcluded + normalNonExcluded;
     const range = getPeriodDateRange();
     const daysInPeriod = range.daysInPeriod || 30;
@@ -191,8 +190,7 @@ const StatsEngine = {
   },
 
   getPeriodPredictedBreakdownVariable() {
-    const billIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
-    const records = this.getPeriodRecords().filter(r => r && !billIds.has(r.categoryId));
+    const records = this.getPeriodRecords().filter(r => r && !this.isFixedRecord(r));
     const large = round2(records.filter(r => r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0));
     const range = getPeriodDateRange();
     const predictedTrend = round2(this.getPeriodVariablePredictedTrend());
@@ -206,8 +204,7 @@ const StatsEngine = {
     const daysPassed = range.daysPassed || 0;
     const daysInPeriod = range.daysInPeriod || 30;
     if (!(daysPassed > 0)) return 0;
-    const billIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
-    const recs = this.getPeriodRecords().filter(r => r && !billIds.has(r.categoryId) && !r.excludeFromAvg);
+    const recs = this.getPeriodRecords().filter(r => r && !this.isFixedRecord(r) && !r.excludeFromAvg);
     const total = recs.reduce((s, r) => s + (r.amount || 0), 0);
     const splitOthers = Math.max(0, this.getPeriodSplitOthers() || 0);
     return round2(Math.max(0, total - Math.min(splitOthers, total)) / daysPassed * daysInPeriod);
@@ -233,10 +230,12 @@ const StatsEngine = {
     return remaining / remainingDays;
   },
 
-  getCategoryBreakdownDeep(month, categoryId) {
+  // `excludeInstalments`: leave out card-instalment records (the 含固定账单
+  // toggle is off), which sit inside ordinary categories.
+  getCategoryBreakdownDeep(month, categoryId, excludeInstalments) {
     const cat = DataStore.getCategory(categoryId);
     if (!cat) return null;
-    const records = this.getRecordsInMonth(month).filter(r => r.categoryId === categoryId);
+    const records = this.getRecordsInMonth(month).filter(r => r.categoryId === categoryId && !(excludeInstalments && r.planId));
     const children = DataStore.getChildren(categoryId);
     const breakdown = {
       category: cat,
@@ -245,7 +244,7 @@ const StatsEngine = {
       children: []
     };
     children.forEach(child => {
-      const childBreak = this.getCategoryBreakdownDeep(month, child.id);
+      const childBreak = this.getCategoryBreakdownDeep(month, child.id, excludeInstalments);
       if (childBreak) {
         breakdown.total += childBreak.total;
         breakdown.children.push(childBreak);
@@ -456,17 +455,56 @@ const StatsEngine = {
     return billCats.some(b => b.id === categoryId);
   },
 
-  // Get spending in bill categories only (for a month)
+  // What the 含固定账单 toggle calls a "fixed" record: one filed under a
+  // fixed-bill category, OR a credit-instalment record (planId — syncPlanRecords
+  // is the only writer of that field). An instalment sits in an ordinary
+  // category the user picked, so a category test alone can never see it; but it
+  // is a fixed monthly obligation exactly like rent, so every place the toggle
+  // splits "daily" from "fixed" must go through this, not isBillCategory.
+  isFixedRecord(r) {
+    return !!r && (!!r.planId || this.isBillCategory(r.categoryId));
+  },
+
+  // Spending in fixed-bill CATEGORIES only. This stays category-only on purpose:
+  // it is what gets reconciled against the planned bill amounts
+  // (unpaid planned bills = planned − this), and an instalment is not part of
+  // any planned bill. For the toggle's "fixed" total use getFixedSpendingActual.
   getBillSpendingActual(month) {
     return this.getRecordsInMonth(month)
       .filter(r => this.isBillCategory(r.categoryId))
       .reduce((sum, r) => sum + r.amount, 0);
   },
 
-  // Get spending in non-bill categories only
+  // Credit-instalment records that are NOT already in a bill category, so
+  // bills + instalments never overlap.
+  getInstalmentSpending(month) {
+    return this.getRecordsInMonth(month)
+      .filter(r => r.planId && !this.isBillCategory(r.categoryId))
+      .reduce((sum, r) => sum + r.amount, 0);
+  },
+
+  // Bills + instalments: everything the 含固定账单 toggle switches off.
+  getFixedSpendingActual(month) {
+    return this.getBillSpendingActual(month) + this.getInstalmentSpending(month);
+  },
+
+  // Remove credit-instalment amounts from a {categoryId: total} map that was
+  // built from `records`. A category total cannot tell an instalment from the
+  // user's own spending in the same category, so when the 含固定账单 toggle is
+  // off the instalments have to be taken back out record by record.
+  withoutInstalments(totals, records) {
+    const out = Object.assign({}, totals);
+    (records || []).forEach(r => {
+      if (r && r.planId) out[r.categoryId] = (out[r.categoryId] || 0) - r.amount;
+    });
+    Object.keys(out).forEach(id => { if (!(out[id] > 0.004)) delete out[id]; });
+    return out;
+  },
+
+  // Daily spending: everything that is not a fixed record (see isFixedRecord)
   getVariableSpending(month) {
     return this.getRecordsInMonth(month)
-      .filter(r => !this.isBillCategory(r.categoryId))
+      .filter(r => !this.isFixedRecord(r))
       .reduce((sum, r) => sum + r.amount, 0) - this.getSplitContrib(month);
   },
 
@@ -474,7 +512,7 @@ const StatsEngine = {
   getDailyTotalsVariable(month) {
     const daily = {};
     this.getRecordsInMonth(month)
-      .filter(r => !this.isBillCategory(r.categoryId))
+      .filter(r => !this.isFixedRecord(r))
       .forEach(r => {
         const d = new Date(r.date || r.createdAt);
         const day = d.getDate();
@@ -501,7 +539,7 @@ const StatsEngine = {
 
   // Get daily average excluding bills
   getDailyAverageVariable(month) {
-    const records = this.getRecordsInMonth(month).filter(r => !this.isBillCategory(r.categoryId) && !r.excludeFromAvg);
+    const records = this.getRecordsInMonth(month).filter(r => !this.isFixedRecord(r) && !r.excludeFromAvg);
     if (!records.length) return 0;
     const daysInMonth = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
     const now = new Date();
@@ -548,8 +586,14 @@ const StatsEngine = {
     if (t.type === 'fixed') targetAmount = t.fixedAmount || 0;
     else if (t.type === 'percent') targetAmount = baseAmount * (t.percent || 0) / 100;
     const planDueVirtual = (typeof PlanMath !== 'undefined') ? PlanMath.getVirtualDue(month) : 0;
-    const spendableBudget = Math.max(0, netDisposable - targetAmount - planDueVirtual);
-    return { income, totalBills, netDisposable, baseAmount, targetAmount, planDueVirtual, spendableBudget };
+    // Credit instalments are real records, but the daily-spending side
+    // (getVariableSpending & friends) no longer counts them — they are fixed
+    // obligations, switched by the same 含固定账单 toggle as rent. So they are
+    // carved out of the daily budget here instead, from the same records, which
+    // keeps (spendable − variable spending) exactly what it was before.
+    const planDueCredit = this.getInstalmentSpending(month);
+    const spendableBudget = Math.max(0, netDisposable - targetAmount - planDueVirtual - planDueCredit);
+    return { income, totalBills, netDisposable, baseAmount, targetAmount, planDueVirtual, planDueCredit, spendableBudget };
   },
 
   getMonthlyTotals(numMonths = 6) {
@@ -654,13 +698,21 @@ const StatsEngine = {
     const billCatIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
     return records.filter(r => billCatIds.has(r.categoryId)).reduce((s, r) => s + r.amount, 0);
   },
+  getPeriodInstalmentSpending() {
+    return this.getPeriodRecords()
+      .filter(r => r.planId && !this.isBillCategory(r.categoryId))
+      .reduce((s, r) => s + r.amount, 0);
+  },
+  getPeriodFixedSpending() {
+    return this.getPeriodBillSpending() + this.getPeriodInstalmentSpending();
+  },
   getPeriodVariableSpending() {
-    return this.getPeriodTotal() - this.getPeriodBillSpending();
+    return this.getPeriodTotal() - this.getPeriodFixedSpending();
   },
   getPeriodDailyTotals(options = {}) {
     const daily = {};
     const records = options.excludeBills
-      ? this.getPeriodRecords().filter(r => !this.isBillCategory(r.categoryId))
+      ? this.getPeriodRecords().filter(r => !this.isFixedRecord(r))
       : this.getPeriodRecords();
     records.forEach(r => {
       const d = new Date(r.date || r.createdAt);
