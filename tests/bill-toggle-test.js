@@ -49,8 +49,20 @@ const dom = new JSDOM(html, {
       constructor(...a) { if (a.length === 0) super(FIXED); else super(...a); }
       static now() { return FIXED; }
     };
-    const s = stub();
-    w.HTMLCanvasElement.prototype.getContext = function () { s.canvas = this; return s; };
+    // One recording context per canvas: `_frame` is the set of fill colours used
+    // since the last clearRect, i.e. what the most recent frame actually painted.
+    w.HTMLCanvasElement.prototype.getContext = function () {
+      if (!this._rec) {
+        const c = stub();
+        c.canvas = this;
+        c._frame = new Set();
+        c.clearRect = () => { c._frame = new Set(); };
+        c.fill = () => { c._frame.add(c.fillStyle); };
+        c.fillRect = () => { c._frame.add(c.fillStyle); };
+        this._rec = c;
+      }
+      return this._rec;
+    };
     w.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AAA';
     w.CanvasRenderingContext2D = function () {};
     w.CanvasRenderingContext2D.prototype.roundRect = function () { return this; };
@@ -68,7 +80,8 @@ const ok = (name, cond, extra) => {
 const near = (a, b) => Math.abs(a - b) < 0.011;
 const section = t => console.log('\n' + t);
 
-setTimeout(() => {
+setTimeout(async () => {
+  const wait = ms => new Promise(r => setTimeout(r, ms));
   try { w.Changelog.markSeen(w.Changelog.all()[0].id); w.closeModal(); } catch (e) { /* not booted */ }
   const DS = w.DataStore, SE = w.StatsEngine;
   const food = DS.getChildren(DS.getExpenseRootCategories().find(c => c.name === '餐饮').id)[0];
@@ -163,6 +176,44 @@ setTimeout(() => {
   section('【模拟器】没有开关，仍把分期当消费，预算不重复扣');
   const sim = w.SimulationEngine.run(MONTH, { categoryAdjustments: {}, globalAdjustment: { mode: null, value: null } });
   ok('模拟器的日常可花 = 5000 − 1000 = 4000（分期在它的「已花」里，预算里不再扣）', sim && near(sim.spendable, 4000), sim && sim.spendable);
+
+  /* ---------- 6. 真的点开关：格子图 / 矩形图 / 明细表 都要跟着刷新 ---------- */
+  section('【点开关】格子图 / 矩形图 / 明细表随勾选刷新（旧版只重画饼图，其余像没反应）');
+  // 开关就在饼图 / 格子图 / 矩形图共用的那一栏上；用户在哪个视图上点，哪个视图就要变
+  w.renderStats();
+  w.togglePieDetailTable();      // 展开明细表（状态变量在脚本加载时就读完了，改 localStorage 没用）
+  ok('明细表已展开', w.document.getElementById('pieDetailTable').style.display === 'block');
+  const box = () => w.document.getElementById('toggle-pieChart');
+  const tick = on => { const el = box(); el.checked = on; el.dispatchEvent(new w.Event('change')); };
+  const tableText = () => w.document.getElementById('pieDetailTable').textContent;
+  const frameColors = id => w.document.getElementById(id)._rec._frame.size;
+
+  w.setStatsCatView('treemap');
+  tick(true);
+  const tmNames = () => (w.document.getElementById('catTreemapChart')._treemapRects || []).map(n => n.name);
+  ok('矩形图：勾选后出现「房租」', tmNames().indexOf('房租') !== -1, tmNames());
+  tick(false);
+  ok('矩形图：取消勾选后立刻只剩「餐饮」', tmNames().join() === '餐饮', tmNames());
+  tick(true);
+  ok('矩形图：再勾选又回来', tmNames().indexOf('房租') !== -1 && tmNames().length === 3, tmNames());
+  ok('明细表跟着变（矩形图视图下也一样）：勾选时有「房租」', tableText().indexOf('房租') !== -1, tableText().slice(0, 80));
+  tick(false);
+  ok('明细表：取消勾选后没有「房租」', tableText().indexOf('房租') === -1, tableText().slice(0, 80));
+
+  w.setStatsCatView('waffle');
+  await wait(1500);              // 格子图有入场动画，等最后一帧画完
+  tick(true);
+  await wait(1500);
+  ok('格子图：勾选后最后一帧有 3 种颜色（房租 / 购物 / 餐饮）', frameColors('catWaffleChart') === 3, frameColors('catWaffleChart'));
+  tick(false);
+  await wait(1500);
+  ok('格子图：取消勾选后最后一帧只剩 1 种颜色（餐饮）', frameColors('catWaffleChart') === 1, frameColors('catWaffleChart'));
+
+  w.setStatsCatView('pie');
+  tick(true);
+  ok('饼图视图：明细表勾选时有「房租」', tableText().indexOf('房租') !== -1);
+  tick(false);
+  ok('饼图视图：明细表取消勾选后没有「房租」', tableText().indexOf('房租') === -1);
 
   console.log('\n===== RESULT: ' + pass + ' PASS / ' + fail + ' FAIL =====');
   process.exit(fail > 0 ? 1 : 0);

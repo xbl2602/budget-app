@@ -496,7 +496,10 @@ function getHierarchyRecords(month, startDate, endDate) {
    level 3: recursive to all leaves (own direct spend)
    Rows are mutually exclusive: sum(rows) === total spend. */
 function buildPieSliceRows(level, canvasId, startDate, endDate) {
-  const toggleId = canvasId === 'expandPieChart' ? 'pieChart' : canvasId;
+  // One checkbox ('pieChart') governs every view of this card — pie, waffle,
+  // treemap and the tables. Keying the lookup on the canvas id made the waffle
+  // read a toggle nobody can tick, so it silently stayed on "include bills".
+  const toggleId = 'pieChart';
   const excludeBills = !isBillToggleChecked(toggleId);
   // "Fixed" = a fixed-bill category record OR a card-instalment record. This used
   // to compare root ancestors, but getRootAncestorId cannot resolve a fixed-bill
@@ -957,7 +960,12 @@ function refreshPieChart() {
   const isCustom = useCustomRange();
   const sD = isCustom ? statsStartDate : null;
   const eD = isCustom ? statsEndDate : null;
-  drawPieChart('pieChart', statsMonth, sD, eD);
+  // The 含固定账单 checkbox sits above the pie, waffle and treemap alike (they
+  // share one data builder) and the detail table is built from the same rows.
+  // This used to redraw only the pie, so with the waffle or treemap showing, the
+  // toggle looked dead — redraw whichever view is on screen, plus the table.
+  updateDrillCharts();
+  if (statsCatView !== 'pie') { refreshExpandedCatChart(); renderExpandPieTable(); }
   // Also redraw the expanded chart if it's open
   const expandCanvas = document.getElementById('expandPieChart');
   if (expandCanvas) {

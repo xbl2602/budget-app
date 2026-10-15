@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.6.3
+# 记账软件 · Budget App v3.6.4
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -123,6 +123,10 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
+
+### v3.6.4 「含固定账单」补丁（小版本，无公告）
+
+- **📊 格子图 / 矩形图 / 明细表也随开关刷新**：v3.6.3 的开关只重画饼图，格子图和矩形图点了没反应；而且格子图读的是以画布 id 命名的开关（`catWaffleChart`，没有任何复选框控制它），一直停在「含账单」。现在 `buildPieSliceRows` 对饼图 / 格子图 / 矩形图 / 明细表统一读 `pieChart` 这一个开关，`refreshPieChart` 重画当前视图（`updateDrillCharts`）并刷新展开层与明细表。`tests/bill-toggle-test.js` 新增「真点开关」检查（矩形图 / 格子图 / 明细表，旧版会失败）。
 
 ### v3.6.3 「含固定账单」开关修正
 
