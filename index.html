@@ -13194,7 +13194,7 @@ function getPlannedFixedExtras(startDate, endDate) {
   if (typeof PlanMath !== 'undefined' && PlanMath.getVirtualDueByPlan) {
     PlanMath.getVirtualDueByPlan(month).forEach(function (x) {
       extras.push({ id: 'plan-due:' + x.plan.id, total: x.due,
-        cat: { id: 'plan-due:' + x.plan.id, name: x.plan.name + __('stats.extra.planDue'), icon: x.plan.icon || '🎯', color: '#F59E0B' } });
+        cat: { id: 'plan-due:' + x.plan.id, name: x.plan.name + __(x.plan.mode === 'borrow' ? 'stats.extra.planRepay' : 'stats.extra.planSave'), icon: x.plan.icon || '🎯', color: '#F59E0B' } });
     });
   }
   return extras;
@@ -15352,7 +15352,7 @@ function buildCategoryTreeNodes(level, startDate, endDate) {
     // 月账单 is one parent box with the bills nested inside (see getMonthlyBillGroup)
     const group = getMonthlyBillGroup(startDate, endDate);
     if (group) ranked.push({ id: BILL_GROUP_ID, v: group.total, group });
-    // Plan repayments due this month: a flat box each (see getPlannedFixedExtras)
+    // Plan amounts expected this month: a flat box each (see getPlannedFixedExtras)
     getPlannedFixedExtras(startDate, endDate).forEach(e => ranked.push({ id: e.id, v: e.total, extra: e }));
   }
   ranked.sort((a, b) => b.v - a.v);
@@ -15945,10 +15945,14 @@ addI18nEntries({
   'stats.thisMonth': { zh: '本月', en: 'This month' },
   'stats.lastMonth': { zh: '上月', en: 'Last month' },
   'stats.billToggle.includeBills': { zh: '含固定账单', en: 'Incl. fixed bills' },
-  'stats.billToggle.hint': { zh: '勾选=统计含房租水电等固定账单（图表里归在「月账单」大块下）和信用卡分期；图表另外把月账单里设了金额但没记流水的部分、大额计划本月应还也列出来（不计入总支出）；取消=只看日常消费', en: 'Checked = include fixed bills like rent & utilities (grouped under a Monthly bills block in the charts) and card instalments; the charts also list bill amounts set without a record and plan repayments due this month (not counted in the total); unchecked = daily spending only' },
+  'stats.billToggle.hint': { zh: '勾选=统计含房租水电等固定账单（图表里归在「月账单」大块下）和信用卡分期；图表另外把月账单里设了金额但没记流水的部分、大额计划本月预计要存 / 还的金额也列出来（不计入总支出）；取消=只看日常消费', en: 'Checked = include fixed bills like rent & utilities (grouped under a Monthly bills block in the charts) and card instalments; the charts also list bill amounts set without a record and what your plans expect you to set aside / repay this month (not counted in the total); unchecked = daily spending only' },
   'stats.billGroup': { zh: '月账单', en: 'Monthly bills' },
-  'stats.extra.planDue': { zh: '（本月应还）', en: ' (due this month)' },
-  'stats.extra.note': { zh: '其中 {0} 是月账单里设了金额但没记流水的部分（按已付算）和大额计划本月应还，只用来看全貌，不计入本月总支出', en: 'Of which {0} is monthly-bill amounts set without a record (counted as paid) and plan repayments due - shown for the full picture only, not counted in this month\'s total' },
+  // Suffix on a plan's block: short on purpose (the name is truncated first), and
+  // "expected" because it is what the plan says to set aside / repay this month,
+  // not something that has happened. Save plans set money aside; borrow plans repay.
+  'stats.extra.planSave': { zh: '（预计存）', en: ' (est. save)' },
+  'stats.extra.planRepay': { zh: '（预计还）', en: ' (est. repay)' },
+  'stats.extra.note': { zh: '其中 {0} 是月账单里设了金额但没记流水的部分（按已付算）和大额计划本月预计要存 / 还的金额（还没发生），只用来看全貌，不计入本月总支出', en: 'Of which {0} is monthly-bill amounts set without a record (counted as paid) and what your plans expect you to set aside / repay this month (not happened yet) - shown for the full picture only, not counted in this month\'s total' },
   'stats.overspent': { zh: '超支', en: 'Overspent' },
   'stats.monthlyIncome': { zh: '月收入', en: 'Monthly income' },
   'stats.bills': { zh: '账单流水', en: 'Bill records' },

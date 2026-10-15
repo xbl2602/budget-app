@@ -128,7 +128,7 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 
 - **📋 「月账单」是一个独立的父级大块**：勾选「含固定账单」时，饼图 / 格子图 / 矩形图 / 明细表 / 总览「支出前五分类」里，房租、水电等固定账单归在「月账单」之下，旗下各项是它的子项——1 层只显示「月账单」一整块，2 层 / 全部时展开各项（矩形图里嵌套）；点「月账单」弹出它名下所有账单的流水。固定账单分类存在独立的 `billCategories`，`getCategory` / `getRootAncestorId` 认不出，所以由 `getMonthlyBillGroup` 把它们合成这个父级（`buildPieSliceRows` / `buildCategoryTreeNodes`）。
 - **💰 月账单里的都算已付**：每项取「已记流水」与「月账单中心设的金额」较大者——没记流水的也算，已记的流水不会被重复算。仅月份视图使用设的金额，自定义范围 / 近 30 天只算已记流水。
-- **🐖 大额计划本月应还**：save / borrow 计划的本月应还（`PlanMath.getVirtualDueByPlan`）作为平级的单独块列出，标「（本月应还）」；信用卡分期已有流水，不重复。
+- **🐖 大额计划本月预计金额**：save / borrow 计划本月预计要存 / 还的金额（`PlanMath.getVirtualDueByPlan`，= 剩余金额 ÷ 剩余期数，还没发生）作为平级的单独块列出，先攒后买标「（预计存）」、先买后还标「（预计还）」；信用卡分期已有流水，不重复。
 - 以上没有流水的部分只用来看全貌：不生成流水，不计入本月总支出 / 日均 / 预算环，明细表下方有说明行。`tests/bill-toggle-test.js` 同步覆盖。
 
 ### v3.6.4 「含固定账单」补丁（小版本，无公告）
