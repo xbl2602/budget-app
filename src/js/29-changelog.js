@@ -39,6 +39,16 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
+    id: '2026-10-15',
+    version: '3.6.3',
+    date: '2026-10-15',
+    title: 'changelog.a8.title',
+    items: [
+      { icon: '📊', text: 'changelog.a8.item1' },
+      { icon: '💳', text: 'changelog.a8.item2' }
+    ]
+  },
+  {
     id: '2026-10-14',
     version: '3.6.2',
     date: '2026-10-14',
@@ -347,6 +357,16 @@ function close() {
     'changelog.settingsHint': { zh: '随时回看历次更新内容', en: 'Browse every past update' },
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
+
+    'changelog.a8.title': { zh: 'v3.6.3 「含固定账单」开关终于管用了', en: 'What\'s in v3.6.3: the “Include fixed bills” switch now actually works' },
+    'changelog.a8.item1': {
+      zh: '<strong>「含固定账单」勾不勾，图表现在真的会变</strong>：以前统计页的饼图 / 格子图 / 矩形图，不管勾不勾，房租水电这些固定账单<strong>从来没出现过</strong>。现在勾选时每个账单是图里单独的一块（点一下能看该账单的流水），取消勾选就去掉；总览的「支出前五分类」同理。',
+      en: '<strong>Ticking “Include fixed bills” now really changes the charts</strong> - before, the pie / waffle / treemap on Stats <strong>never showed</strong> fixed bills like rent and utilities, ticked or not. Now each bill is its own block while the box is ticked (tap it to see that bill\'s records) and disappears when unticked; the Overview top-5 categories follow the same rule.'
+    },
+    'changelog.a8.item2': {
+      zh: '<strong>信用卡分期跟着这个开关走</strong>：分期的每月还款和房租一样是固定支出，取消勾选「含固定账单」时，它不再算进日常消费、日均、预测和图表，日常可花预算也会先把它扣掉。「剩余日常」的数字和以前一致；报告页、假设分析没有这个开关，口径不变。',
+      en: '<strong>Card instalments follow the switch</strong> - a monthly instalment is a fixed expense just like rent, so with “Include fixed bills” unticked it is left out of daily spending, the daily average, the forecast and the charts, and the daily budget has it taken out first. “Remaining daily” is unchanged; the Report and What-If pages have no such switch and are unchanged.'
+    },
 
     'changelog.a7.title': { zh: 'v3.6.2 记账更顺手 + 几处数字改对了', en: 'What\'s in v3.6.2: smoother entry, a few numbers corrected' },
     'changelog.a7.item1': {

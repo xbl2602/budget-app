@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.6.2
+# 记账软件 · Budget App v3.6.3
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -123,6 +123,11 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
+
+### v3.6.3 「含固定账单」开关修正
+
+- **📊 图表真的随开关变化**：固定账单分类存在独立的 `billCategories` 里，`getRootAncestorId` / `getCategory` 认不出它，汇总到根分类时被悄悄丢掉，所以统计页的饼图 / 格子图 / 矩形图和总览前五分类**从来没有**账单，勾不勾都一样。现在勾选时每个账单是一个独立的顶层块（点击可看该账单流水），取消勾选去掉。
+- **💳 信用卡分期跟着开关走**：分期流水记在用户自己选的普通分类下，旧开关只按「分类是否账单」判断，取消勾选时分期仍算日常。新增 `StatsEngine.isFixedRecord`（账单分类 或 带 `planId` 的分期流水），日常 / 固定的划分、日均、预测、日常支出、图表统一走它；`getSpendablePlan` 多返回 `planDueCredit`，日常可花预算先扣掉分期，所以「剩余日常」数字不变，只是取消勾选时分期不再算进日常。「已付账单 vs 计划账单」对账仍只看账单分类；报告页、假设分析 / 模拟器没有这个开关，口径不变。新增 `tests/bill-toggle-test.js`。
 
 ### v3.6.2 记账更顺手 + 数字口径修正
 
