@@ -109,7 +109,7 @@ const noStray = w => MC(w).textContent.indexOf('??') === -1;
     const dom = boot({ [LS_KEY]: A1 });
     const w = dom.window, C = w.Changelog;
 
-    ok(typeof w.APP_VERSION === 'string' && w.APP_VERSION === '3.6.4', 'L10 APP_VERSION present and is 3.6.4');
+    ok(typeof w.APP_VERSION === 'string' && w.APP_VERSION === '3.6.5', 'L10 APP_VERSION present and is 3.6.5');
     ok(typeof C === 'object' && C !== null, 'L10 Changelog API present (29 loaded after 01)');
     ok(typeof w.ModalQueue === 'object', 'L10 ModalQueue present');
 
