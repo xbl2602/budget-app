@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.6.5
+# 记账软件 · Budget App v3.6.6
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -123,6 +123,10 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
+
+### v3.6.6 大额计划块的标签（小版本，无公告）
+
+- **🐖 「预计存 / 预计还」**：图表里大额计划那一块的金额是计划按「剩余金额 ÷ 剩余期数」算出的本月该存 / 该还多少，还没发生，所以不再叫「本月应还」。先攒后买标「（预计存）」，先买后还标「（预计还）」，后缀只有 5 个字，名字被截断时不至于太长；明细表说明行和开关提示同步改成「本月预计要存 / 还的金额（还没发生）」。
 
 ### v3.6.5 「含固定账单」：月账单成为独立的父级大块（小版本，无公告）
 
