@@ -911,16 +911,23 @@ const PlanMath = {
   // credit-mode plans are excluded: their real record already squeezes the
   // budget through monthTotal, and subtracting twice would double-count.
   getVirtualDue(month) {
+    return round2(this.getVirtualDueByPlan(month).reduce((s, x) => s + x.due, 0));
+  },
+
+  // The same figure plan by plan: [{ plan, due }] for the active save / borrow
+  // plans that owe something in `month`. The category charts list these as
+  // their own blocks (they have no record to show up through).
+  getVirtualDueByPlan(month) {
     const state = this.computeUpTo(month);
-    let sum = 0;
+    const out = [];
     Object.keys(state).forEach(id => {
       const st = state[id];
       if (st.plan.mode === 'credit') return;
       if (st.plan.status !== 'active') return;
       const cur = st.byMonth[month];
-      if (cur) sum += cur.due;
+      if (cur && cur.due > 0) out.push({ plan: st.plan, due: cur.due });
     });
-    return round2(sum);
+    return out;
   },
 
   // Earliest deadline first, ties on creation order — the allocation order used

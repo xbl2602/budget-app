@@ -215,6 +215,56 @@ setTimeout(async () => {
   tick(false);
   ok('饼图视图：明细表取消勾选后没有「房租」', tableText().indexOf('房租') === -1);
 
+  /* ---------- 7. 勾选后图表里另外列出「还没付的月账单」和「大额计划本月应还」 ---------- */
+  section('【未付账单 / 计划应还】只在图表和明细表里显示，不计入总支出，也不生成流水');
+  w.localStorage.setItem('budgetStatsRange', 'month');
+  DS.addBillCategory({ name: '水电', icon: '💡' });
+  const util = DS.getBillCategories().find(c => c.name === '水电');
+  DS.setBillAmount(MONTH, util.id, 200);                       // 设了 200，但一笔流水都还没记
+  DS.addPurchasePlan({ name: '买电脑', icon: '🐖', mode: 'save', totalAmount: 1200, months: 6, startMonth: MONTH, categoryId: '' });
+  const recCount = DS.getRecords().length;
+  w.renderStats();
+  const rowOf = (rows, name) => rows.find(r => r.cat.name === name);
+
+  setToggle(true);
+  rows = w.buildPieSliceRows(1, 'pieChart', null, null);
+  ok('勾选：出现「水电（未付）」= 200（计划 200 − 已记 0）', near((rowOf(rows, '水电（未付）') || {}).total, 200), names(rows));
+  ok('勾选：出现「买电脑（本月应还）」= 200（1200 ÷ 6 期）', near((rowOf(rows, '买电脑（本月应还）') || {}).total, 200), names(rows));
+  ok('房租已付满 1000 → 不再出现「房租（未付）」，已付的 1000 还在', !rowOf(rows, '房租（未付）') && near((rowOf(rows, '房租') || {}).total, 1000), names(rows));
+  ok('饼图合计 = 已花 1700 + 未付 200 + 应还 200', near(sum(rows), 2100), sum(rows));
+  ok('不改任何总数：本月总支出仍是 1700、日常仍是 100', near(SE.getMonthTotal(MONTH), 1700) && near(SE.getVariableSpending(MONTH), 100));
+  ok('不生成流水', DS.getRecords().length === recCount);
+  t = overviewText();
+  ok('总览预算环不变：RM 1,700.00 / RM 5,000.00', t.indexOf('RM 1,700.00 / RM 5,000.00') !== -1);
+
+  tree = w.buildCategoryTreeNodes(1, null, null);
+  ok('矩形图 / 格子图同样列出这两块，合计 2100', tree.some(n => n.name === '水电（未付）') && tree.some(n => n.name === '买电脑（本月应还）') && near(tree.reduce((x, n) => x + n.value, 0), 2100), tree.map(n => n.name + ':' + n.value));
+
+  DS.setBillAmount(MONTH, rent.id, 1500);                      // 房租计划 1500，已付 1000
+  rows = w.buildPieSliceRows(1, 'pieChart', null, null);
+  ok('房租计划 1500、已付 1000 → 「房租（未付）」= 500，不重复算已付的', near((rowOf(rows, '房租（未付）') || {}).total, 500), names(rows));
+
+  w.setStatsCatView('pie');
+  tick(true);
+  ok('明细表带说明：这些不计入本月总支出', tableText().indexOf('不计入本月总支出') !== -1, tableText().slice(-120));
+  ok('明细表里有「水电（未付）」', tableText().indexOf('水电（未付）') !== -1);
+
+  setToggle(false);
+  rows = w.buildPieSliceRows(1, 'pieChart', null, null);
+  ok('取消勾选：这些块全部消失', !rows.some(r => /未付|本月应还/.test(r.cat.name)) && near(sum(rows), 100), names(rows));
+  tree = w.buildCategoryTreeNodes(1, null, null);
+  ok('取消勾选：矩形图里也没有', !tree.some(n => /未付|本月应还/.test(n.name)));
+
+  setToggle(true);
+  w.localStorage.setItem('budgetStatsRange', 'rolling30');
+  rows = w.buildPieSliceRows(1, 'pieChart', null, null);
+  ok('近 30 天范围：不显示（计划金额是按月的，「未付」没有意义）', !rows.some(r => /未付|本月应还/.test(r.cat.name)), names(rows));
+  w.localStorage.setItem('budgetStatsRange', 'month');
+
+  let threw = false;
+  try { w.showCategoryRecords('unpaid-bill:' + util.id); w.drillIntoCategory('plan-due:x'); } catch (e) { threw = true; }
+  ok('点这些块不会报错（没有流水可看，什么都不弹）', !threw);
+
   console.log('\n===== RESULT: ' + pass + ' PASS / ' + fail + ' FAIL =====');
   process.exit(fail > 0 ? 1 : 0);
 }, 600);

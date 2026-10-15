@@ -7020,16 +7020,23 @@ const PlanMath = {
   // credit-mode plans are excluded: their real record already squeezes the
   // budget through monthTotal, and subtracting twice would double-count.
   getVirtualDue(month) {
+    return round2(this.getVirtualDueByPlan(month).reduce((s, x) => s + x.due, 0));
+  },
+
+  // The same figure plan by plan: [{ plan, due }] for the active save / borrow
+  // plans that owe something in `month`. The category charts list these as
+  // their own blocks (they have no record to show up through).
+  getVirtualDueByPlan(month) {
     const state = this.computeUpTo(month);
-    let sum = 0;
+    const out = [];
     Object.keys(state).forEach(id => {
       const st = state[id];
       if (st.plan.mode === 'credit') return;
       if (st.plan.status !== 'active') return;
       const cur = st.byMonth[month];
-      if (cur) sum += cur.due;
+      if (cur && cur.due > 0) out.push({ plan: st.plan, due: cur.due });
     });
-    return round2(sum);
+    return out;
   },
 
   // Earliest deadline first, ties on creation order — the allocation order used
@@ -13129,7 +13136,57 @@ function getHierarchyRecords(month, startDate, endDate) {
    level 2: + direct children (own direct spend)
    level 3: recursive to all leaves (own direct spend)
    Rows are mutually exclusive: sum(rows) === total spend. */
+/* Fixed money that is owed this month but has no record yet: the unpaid part of
+   each monthly bill, and what the save / borrow plans must set aside. None of it
+   is spending — nothing has left the wallet and no record is created for it — so
+   it appears ONLY as extra blocks in the category charts and their detail table
+   while 含固定账单 is ticked, and never in 本月总支出, the daily average or the
+   budget ring.
+   Calendar-month view of the current month only: planned amounts are per month,
+   so against a custom range, a rolling 30 days or a past month "unpaid" means
+   nothing. Credit instalments are not repeated here — they have real records. */
+function getPlannedFixedExtras(startDate, endDate) {
+  if (startDate && endDate) return [];
+  if (typeof useCustomRange === 'function' && useCustomRange()) return [];
+  const month = statsMonth;
+  if (!month || month !== getMonthKey(new Date().toISOString())) return [];
+  if (getStatsRange() === 'rolling30') return [];
+  const extras = [];
+  const planned = DataStore.getBillAmounts(month) || {};
+  const recs = StatsEngine.getRecordsInMonth(month);
+  (DataStore.getBillCategories() || []).forEach(function (b) {
+    const amt = parseFloat(planned[b.id]) || 0;
+    if (amt <= 0) return;
+    const paid = recs.filter(function (r) { return r.categoryId === b.id; })
+      .reduce(function (s, r) { return s + r.amount; }, 0);
+    const left = Math.round((amt - paid) * 100) / 100;
+    if (left > 0.005) {
+      extras.push({ id: 'unpaid-bill:' + b.id, total: left,
+        cat: { id: 'unpaid-bill:' + b.id, name: b.name + __('stats.extra.unpaid'), icon: b.icon || '📄', color: b.color || '#6366F1' } });
+    }
+  });
+  if (typeof PlanMath !== 'undefined' && PlanMath.getVirtualDueByPlan) {
+    PlanMath.getVirtualDueByPlan(month).forEach(function (x) {
+      extras.push({ id: 'plan-due:' + x.plan.id, total: x.due,
+        cat: { id: 'plan-due:' + x.plan.id, name: x.plan.name + __('stats.extra.planDue'), icon: x.plan.icon || '🎯', color: '#F59E0B' } });
+    });
+  }
+  return extras;
+}
+
+/* Rows for the pie / waffle / detail table: the real ones plus, when 含固定账单
+   is ticked and no category is drilled into, the not-yet-spent extras above. */
 function buildPieSliceRows(level, canvasId, startDate, endDate) {
+  const rows = buildPieSliceRowsCore(level, canvasId, startDate, endDate);
+  if (getDrillCategory() || !isBillToggleChecked('pieChart')) return rows;
+  const extras = getPlannedFixedExtras(startDate, endDate);
+  if (!extras.length) return rows;
+  return rows
+    .concat(extras.map(function (e) { return { id: e.id, cat: e.cat, total: e.total, depth: 0, path: [], planned: true }; }))
+    .sort(function (a, b) { return b.total - a.total; });
+}
+
+function buildPieSliceRowsCore(level, canvasId, startDate, endDate) {
   // One checkbox ('pieChart') governs every view of this card — pie, waffle,
   // treemap and the tables. Keying the lookup on the canvas id made the waffle
   // read a toggle nobody can tick, so it silently stayed on "include bills".
@@ -13406,6 +13463,12 @@ function renderPieTable(containerId) {
   html += '<span style="width:80px;text-align:right">' + formatMoney(total) + '</span>';
   html += '<span style="width:50px;text-align:right;color:var(--text-muted)">100%</span>';
   html += '</div>';
+  // The owed-but-unspent rows are in the total above; say so, or this total
+  // would look like it disagrees with 本月总支出
+  const plannedSum = data.filter(d => d.planned).reduce((sum, d) => sum + d.total, 0);
+  if (plannedSum > 0.005) {
+    html += '<div class="text-xs text-muted" style="padding:6px 4px">' + __('stats.extra.note', formatMoney(plannedSum)) + '</div>';
+  }
 
   // Reconciliation with the headline figure. Category rows count the FULL amount
   // of a split record (that is what was spent in the category), while the stats
@@ -15247,9 +15310,17 @@ function buildCategoryTreeNodes(level, startDate, endDate) {
   // Ticking 含固定账单 adds each fixed bill as a flat top-level box of its own
   if (!excludeBills) (DataStore.getBillCategories() || []).forEach(c => rootIds.push(c.id));
   // Colour by descending spend so the palette matches the pie and the waffle
-  const ranked = rootIds.map(id => ({ id, v: subtotal(id) })).filter(r => r.v > 0.005)
-    .sort((a, b) => b.v - a.v);
-  return ranked.map((r, i) => build(r.id, 1, COLORS[i % COLORS.length])).filter(Boolean);
+  const ranked = rootIds.map(id => ({ id, v: subtotal(id) })).filter(r => r.v > 0.005);
+  // Owed-but-unspent extras (unpaid bills, plan repayments) get a flat box of
+  // their own — see getPlannedFixedExtras
+  if (!excludeBills) {
+    getPlannedFixedExtras(startDate, endDate).forEach(e => ranked.push({ id: e.id, v: e.total, extra: e }));
+  }
+  ranked.sort((a, b) => b.v - a.v);
+  return ranked.map((r, i) => r.extra
+    ? { id: r.extra.id, name: r.extra.cat.name, icon: r.extra.cat.icon, value: r.extra.total,
+        color: COLORS[i % COLORS.length], children: [], leafOnly: true }
+    : build(r.id, 1, COLORS[i % COLORS.length])).filter(Boolean);
 }
 
 function drawCategoryTreemap(canvasId, startDate, endDate, height) {
@@ -15823,7 +15894,10 @@ addI18nEntries({
   'stats.thisMonth': { zh: '本月', en: 'This month' },
   'stats.lastMonth': { zh: '上月', en: 'Last month' },
   'stats.billToggle.includeBills': { zh: '含固定账单', en: 'Incl. fixed bills' },
-  'stats.billToggle.hint': { zh: '勾选=统计含房租水电等固定账单和信用卡分期；取消=只看日常消费', en: 'Checked = include fixed bills like rent & utilities, and card instalments; unchecked = daily spending only' },
+  'stats.billToggle.hint': { zh: '勾选=统计含房租水电等固定账单和信用卡分期，图表里另外列出还没付的月账单和大额计划本月应还（不计入总支出）；取消=只看日常消费', en: 'Checked = include fixed bills like rent & utilities and card instalments, and list unpaid monthly bills and plan repayments due this month as extra blocks in the charts (not counted in the total); unchecked = daily spending only' },
+  'stats.extra.unpaid': { zh: '（未付）', en: ' (unpaid)' },
+  'stats.extra.planDue': { zh: '（本月应还）', en: ' (due this month)' },
+  'stats.extra.note': { zh: '其中 {0} 是还没花出去的月账单 / 大额计划应还，只用来看全貌，不计入本月总支出', en: 'Of which {0} is monthly bills not yet paid and plan repayments due - shown for the full picture only, not counted in this month\'s total' },
   'stats.overspent': { zh: '超支', en: 'Overspent' },
   'stats.monthlyIncome': { zh: '月收入', en: 'Monthly income' },
   'stats.bills': { zh: '账单流水', en: 'Bill records' },
