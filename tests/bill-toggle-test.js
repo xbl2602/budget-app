@@ -143,10 +143,15 @@ setTimeout(async () => {
   section('【饼图 / 格子图 / 矩形图】勾选 = 含账单和分期；取消 = 只看日常');
   setToggle(true);
   let rows = w.buildPieSliceRows(1, 'pieChart', null, null);
-  ok('勾选：饼图含 房租、购物（分期）、餐饮', ['房租', '购物', '餐饮'].every(n => names(rows).indexOf(n) !== -1), names(rows));
+  ok('勾选：饼图含 月账单（一整块）、购物（分期）、餐饮；房租在「月账单」里面，不单独占一块',
+    ['月账单', '购物', '餐饮'].every(n => names(rows).indexOf(n) !== -1) && names(rows).indexOf('房租') === -1, names(rows));
+  ok('勾选：「月账单」这一块 = 1000（房租）', near((rows.find(r => r.cat.name === '月账单') || {}).total, 1000), rows.map(r => r.cat.name + ':' + r.total));
   ok('勾选：饼图合计 = 月总额 1700', near(sum(rows), 1700), sum(rows));
   let tree = w.buildCategoryTreeNodes(1, null, null);
-  ok('勾选：矩形/格子图含 房租', tree.some(n => n.name === '房租'), tree.map(n => n.name));
+  ok('勾选：矩形/格子图含「月账单」，1 层时不展开子项', tree.some(n => n.name === '月账单' && n.children.length === 0), tree.map(n => n.name));
+  const tree2 = w.buildCategoryTreeNodes(2, null, null);
+  const g2 = tree2.find(n => n.name === '月账单') || { children: [] };
+  ok('2 层时「月账单」里嵌着 房租 = 1000（子集）', g2.children.length === 1 && g2.children[0].name === '房租' && near(g2.children[0].value, 1000) && near(g2.value, 1000), g2);
   ok('勾选：矩形/格子图合计 = 1700', near(tree.reduce((s, n) => s + n.value, 0), 1700));
 
   setToggle(false);
@@ -158,18 +163,18 @@ setTimeout(async () => {
   ok('取消 + 展开到末级：分期所在的「电子产品」也不出现', names(rows).indexOf('电子产品') === -1 && near(sum(rows), 100), [names(rows), sum(rows)]);
   setToggle(true);
   rows = w.buildPieSliceRows(3, 'pieChart', null, null);
-  ok('勾选 + 展开到末级：「电子产品」= 600、「房租」= 1000', near((rows.find(r => r.cat.name === '电子产品') || {}).total, 600) && near((rows.find(r => r.cat.name === '房租') || {}).total, 1000), rows.map(r => r.cat.name + ':' + r.total));
+  ok('勾选 + 展开到末级：「电子产品」= 600、「房租」= 1000（在「月账单」之下）', near((rows.find(r => r.cat.name === '电子产品') || {}).total, 600) && near((rows.find(r => r.cat.name === '房租') || {}).total, 1000), rows.map(r => r.cat.name + ':' + r.total));
 
   /* ---------- 4. 总览 ---------- */
   section('【总览】预算环 / 前五分类');
   setToggle(true);
   let t = overviewText();
   ok('勾选：预算环 RM 1,700.00 / RM 5,000.00', t.indexOf('RM 1,700.00 / RM 5,000.00') !== -1);
-  ok('勾选：前五分类里有「房租」', t.indexOf('房租') !== -1);
+  ok('勾选：前五分类里有「月账单」这一块（不是零散的「房租」）', /月账单/.test(t.slice(t.indexOf('支出前五') >= 0 ? t.indexOf('支出前五') : 0)) && t.indexOf('房租') === -1, t.slice(0, 40));
   setToggle(false);
   t = overviewText();
   ok('取消：预算环 RM 100.00 / RM 3,400.00（日常 / 扣掉账单和分期后的日常预算）', t.indexOf('RM 100.00 / RM 3,400.00') !== -1);
-  ok('取消：前五分类里没有「房租」', t.indexOf('房租') === -1);
+  ok('取消：前五分类里没有「房租」也没有「月账单」', t.indexOf('房租') === -1 && !/月账单\s*RM/.test(t));
   ok('取消：前五分类里没有分期所在的「购物」', !/购物[^。]{0,40}RM 600\.00/.test(t));
 
   /* ---------- 5. 假设分析 / 模拟器保持原口径 ---------- */
@@ -191,14 +196,14 @@ setTimeout(async () => {
   w.setStatsCatView('treemap');
   tick(true);
   const tmNames = () => (w.document.getElementById('catTreemapChart')._treemapRects || []).map(n => n.name);
-  ok('矩形图：勾选后出现「房租」', tmNames().indexOf('房租') !== -1, tmNames());
+  ok('矩形图：勾选后出现「月账单」', tmNames().indexOf('月账单') !== -1, tmNames());
   tick(false);
   ok('矩形图：取消勾选后立刻只剩「餐饮」', tmNames().join() === '餐饮', tmNames());
   tick(true);
-  ok('矩形图：再勾选又回来', tmNames().indexOf('房租') !== -1 && tmNames().length === 3, tmNames());
-  ok('明细表跟着变（矩形图视图下也一样）：勾选时有「房租」', tableText().indexOf('房租') !== -1, tableText().slice(0, 80));
+  ok('矩形图：再勾选又回来（月账单 / 购物 / 餐饮 三块）', tmNames().indexOf('月账单') !== -1 && tmNames().length === 3, tmNames());
+  ok('明细表跟着变（矩形图视图下也一样）：勾选时有「月账单」', tableText().indexOf('月账单') !== -1, tableText().slice(0, 80));
   tick(false);
-  ok('明细表：取消勾选后没有「房租」', tableText().indexOf('房租') === -1, tableText().slice(0, 80));
+  ok('明细表：取消勾选后没有「月账单」', tableText().indexOf('月账单') === -1, tableText().slice(0, 80));
 
   w.setStatsCatView('waffle');
   await wait(1500);              // 格子图有入场动画，等最后一帧画完
@@ -211,59 +216,86 @@ setTimeout(async () => {
 
   w.setStatsCatView('pie');
   tick(true);
-  ok('饼图视图：明细表勾选时有「房租」', tableText().indexOf('房租') !== -1);
+  ok('饼图视图：明细表勾选时有「月账单」', tableText().indexOf('月账单') !== -1);
   tick(false);
-  ok('饼图视图：明细表取消勾选后没有「房租」', tableText().indexOf('房租') === -1);
+  ok('饼图视图：明细表取消勾选后没有「月账单」', tableText().indexOf('月账单') === -1);
 
-  /* ---------- 7. 勾选后图表里另外列出「还没付的月账单」和「大额计划本月应还」 ---------- */
-  section('【未付账单 / 计划应还】只在图表和明细表里显示，不计入总支出，也不生成流水');
+  /* ---------- 7. 「月账单」是一个独立的父级大块；没记流水的月账单项按已付算、大额计划本月应还另成块 ---------- */
+  section('【月账单 = 父级大块】房租 / 水电等是它的子集；不计入总支出、不生成流水');
   w.localStorage.setItem('budgetStatsRange', 'month');
   DS.addBillCategory({ name: '水电', icon: '💡' });
   const util = DS.getBillCategories().find(c => c.name === '水电');
-  DS.setBillAmount(MONTH, util.id, 200);                       // 设了 200，但一笔流水都还没记
+  DS.setBillAmount(MONTH, util.id, 200);                       // 月账单里设了 200，但一笔流水都没记 —— 按已付算
   DS.addPurchasePlan({ name: '买电脑', icon: '🐖', mode: 'save', totalAmount: 1200, months: 6, startMonth: MONTH, categoryId: '' });
   const recCount = DS.getRecords().length;
   w.renderStats();
-  const rowOf = (rows, name) => rows.find(r => r.cat.name === name);
+  const rowOf = (list, name) => list.find(r => r.cat.name === name);
 
   setToggle(true);
   rows = w.buildPieSliceRows(1, 'pieChart', null, null);
-  ok('勾选：出现「水电（未付）」= 200（计划 200 − 已记 0）', near((rowOf(rows, '水电（未付）') || {}).total, 200), names(rows));
-  ok('勾选：出现「买电脑（本月应还）」= 200（1200 ÷ 6 期）', near((rowOf(rows, '买电脑（本月应还）') || {}).total, 200), names(rows));
-  ok('房租已付满 1000 → 不再出现「房租（未付）」，已付的 1000 还在', !rowOf(rows, '房租（未付）') && near((rowOf(rows, '房租') || {}).total, 1000), names(rows));
-  ok('饼图合计 = 已花 1700 + 未付 200 + 应还 200', near(sum(rows), 2100), sum(rows));
+  ok('1 层：「月账单」= 房租 1000 + 水电 200（没记流水的也算，按已付）= 1200', near((rowOf(rows, '月账单') || {}).total, 1200), names(rows));
+  ok('1 层：房租 / 水电不再各占一块', !rowOf(rows, '房租') && !rowOf(rows, '水电'), names(rows));
+  ok('没有「（未付）」之类的标签——月账单里的都当作已付', !rows.some(r => /未付/.test(r.cat.name)), names(rows));
+  ok('「买电脑（本月应还）」= 200（1200 ÷ 6 期）单独成块', near((rowOf(rows, '买电脑（本月应还）') || {}).total, 200), names(rows));
+  ok('饼图合计 = 已花 1700 + 没记流水的水电 200 + 计划应还 200 = 2100', near(sum(rows), 2100), sum(rows));
+
+  rows = w.buildPieSliceRows(2, 'pieChart', null, null);
+  const kid = n => rowOf(rows, n) || {};
+  ok('2 层：房租 1000、水电 200 作为「月账单」的子项列出', near(kid('房租').total, 1000) && near(kid('水电').total, 200), names(rows));
+  ok('2 层：子项的路径以「月账单」开头', kid('房租').path && kid('房租').path[0] === '月账单' && kid('水电').path[0] === '月账单', [kid('房租').path, kid('水电').path]);
+  ok('2 层：不再重复出现「月账单」父行（总数不变，不重复算）', !rowOf(rows, '月账单') && near(sum(rows), 2100), [names(rows), sum(rows)]);
+
   ok('不改任何总数：本月总支出仍是 1700、日常仍是 100', near(SE.getMonthTotal(MONTH), 1700) && near(SE.getVariableSpending(MONTH), 100));
   ok('不生成流水', DS.getRecords().length === recCount);
   t = overviewText();
   ok('总览预算环不变：RM 1,700.00 / RM 5,000.00', t.indexOf('RM 1,700.00 / RM 5,000.00') !== -1);
 
-  tree = w.buildCategoryTreeNodes(1, null, null);
-  ok('矩形图 / 格子图同样列出这两块，合计 2100', tree.some(n => n.name === '水电（未付）') && tree.some(n => n.name === '买电脑（本月应还）') && near(tree.reduce((x, n) => x + n.value, 0), 2100), tree.map(n => n.name + ':' + n.value));
+  tree = w.buildCategoryTreeNodes(2, null, null);
+  const bg = tree.find(n => n.name === '月账单') || { children: [] };
+  ok('矩形图 2 层：「月账单」= 1200，里面嵌着 房租 + 水电', near(bg.value, 1200) && bg.children.map(c => c.name).sort().join() === '房租,水电', bg);
+  ok('矩形图：大额计划本月应还是平级的另一块', tree.some(n => n.name === '买电脑（本月应还）' && n.leafOnly), tree.map(n => n.name));
+  ok('矩形图合计 2100', near(tree.reduce((x, n) => x + n.value, 0), 2100));
 
-  DS.setBillAmount(MONTH, rent.id, 1500);                      // 房租计划 1500，已付 1000
-  rows = w.buildPieSliceRows(1, 'pieChart', null, null);
-  ok('房租计划 1500、已付 1000 → 「房租（未付）」= 500，不重复算已付的', near((rowOf(rows, '房租（未付）') || {}).total, 500), names(rows));
+  // 月账单中心设得比已记的高 / 低 —— 取较大者，已记的流水不会被重复算
+  DS.setBillAmount(MONTH, rent.id, 1500);                      // 计划 1500，已记 1000
+  rows = w.buildPieSliceRows(2, 'pieChart', null, null);
+  ok('计划 1500 > 已记 1000 → 房租按 1500 算（不是 2500）', near(kid('房租').total, 1500), kid('房租').total);
+  DS.setBillAmount(MONTH, rent.id, 800);                       // 计划 800，已记 1000
+  rows = w.buildPieSliceRows(2, 'pieChart', null, null);
+  ok('计划 800 < 已记 1000 → 房租按已记的 1000 算（流水不会被计划压低）', near(kid('房租').total, 1000), kid('房租').total);
+  DS.setBillAmount(MONTH, rent.id, 1000);
 
   w.setStatsCatView('pie');
+  w.localStorage.setItem('budgetStatsHierarchy', '1');
   tick(true);
-  ok('明细表带说明：这些不计入本月总支出', tableText().indexOf('不计入本月总支出') !== -1, tableText().slice(-120));
-  ok('明细表里有「水电（未付）」', tableText().indexOf('水电（未付）') !== -1);
+  ok('明细表带说明：设了金额没记流水的部分和计划应还不计入本月总支出', tableText().indexOf('不计入本月总支出') !== -1, tableText().slice(-140));
+  ok('说明里的金额 = 水电 200 + 计划 200 = RM 400.00', tableText().indexOf('RM 400.00') !== -1, tableText().slice(-140));
+  ok('明细表里有「月账单」', tableText().indexOf('月账单') !== -1);
 
   setToggle(false);
   rows = w.buildPieSliceRows(1, 'pieChart', null, null);
-  ok('取消勾选：这些块全部消失', !rows.some(r => /未付|本月应还/.test(r.cat.name)) && near(sum(rows), 100), names(rows));
+  ok('取消勾选：「月账单」和计划应还全部消失，只剩餐饮', !rowOf(rows, '月账单') && !rows.some(r => /本月应还/.test(r.cat.name)) && near(sum(rows), 100), names(rows));
   tree = w.buildCategoryTreeNodes(1, null, null);
-  ok('取消勾选：矩形图里也没有', !tree.some(n => /未付|本月应还/.test(n.name)));
+  ok('取消勾选：矩形图里也没有', !tree.some(n => /月账单|本月应还/.test(n.name)));
 
   setToggle(true);
   w.localStorage.setItem('budgetStatsRange', 'rolling30');
   rows = w.buildPieSliceRows(1, 'pieChart', null, null);
-  ok('近 30 天范围：不显示（计划金额是按月的，「未付」没有意义）', !rows.some(r => /未付|本月应还/.test(r.cat.name)), names(rows));
+  ok('近 30 天：月账单只算已记流水 = 1000（设的金额按月，不套用），没有计划应还', near((rowOf(rows, '月账单') || {}).total, 1000) && !rows.some(r => /本月应还/.test(r.cat.name)), names(rows));
   w.localStorage.setItem('budgetStatsRange', 'month');
+  rows = w.buildPieSliceRows(1, 'pieChart', MONTH + '-01', MONTH + '-30');
+  ok('自定义日期范围：同样只算已记流水', near((rowOf(rows, '月账单') || {}).total, 1000) && !rows.some(r => /本月应还/.test(r.cat.name)), names(rows));
 
+  w.showCategoryRecords('bill-group');
+  const modal = w.document.getElementById('modalContent').textContent;
+  ok('点「月账单」弹出它名下所有账单的流水', modal.indexOf('月账单') !== -1 && modal.indexOf('rent') !== -1, modal.slice(0, 80));
+  w.closeModal();
+  w.showCategoryRecords(rent.id);
+  ok('点子项「房租」弹出房租的流水', w.document.getElementById('modalContent').textContent.indexOf('rent') !== -1);
+  w.closeModal();
   let threw = false;
-  try { w.showCategoryRecords('unpaid-bill:' + util.id); w.drillIntoCategory('plan-due:x'); } catch (e) { threw = true; }
-  ok('点这些块不会报错（没有流水可看，什么都不弹）', !threw);
+  try { w.showCategoryRecords('plan-due:x'); w.drillIntoCategory('bill-group'); } catch (e) { threw = true; }
+  ok('点计划应还块 / 试图下钻「月账单」不会报错', !threw);
 
   console.log('\n===== RESULT: ' + pass + ' PASS / ' + fail + ' FAIL =====');
   process.exit(fail > 0 ? 1 : 0);

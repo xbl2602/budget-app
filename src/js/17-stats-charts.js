@@ -490,40 +490,68 @@ function getHierarchyRecords(month, startDate, endDate) {
   return isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(month);
 }
 
-/* Build flat slice rows honoring drill state + hierarchy level.
-   level 1: summary rows (descendant totals) — current behavior
-   level 2: + direct children (own direct spend)
-   level 3: recursive to all leaves (own direct spend)
-   Rows are mutually exclusive: sum(rows) === total spend. */
-/* Fixed money that is owed this month but has no record yet: the unpaid part of
-   each monthly bill, and what the save / borrow plans must set aside. None of it
-   is spending — nothing has left the wallet and no record is created for it — so
-   it appears ONLY as extra blocks in the category charts and their detail table
-   while 含固定账单 is ticked, and never in 本月总支出, the daily average or the
-   budget ring.
-   Calendar-month view of the current month only: planned amounts are per month,
-   so against a custom range, a rolling 30 days or a past month "unpaid" means
-   nothing. Credit instalments are not repeated here — they have real records. */
-function getPlannedFixedExtras(startDate, endDate) {
-  if (startDate && endDate) return [];
-  if (typeof useCustomRange === 'function' && useCustomRange()) return [];
-  const month = statsMonth;
-  if (!month || month !== getMonthKey(new Date().toISOString())) return [];
-  if (getStatsRange() === 'rolling30') return [];
-  const extras = [];
-  const planned = DataStore.getBillAmounts(month) || {};
-  const recs = StatsEngine.getRecordsInMonth(month);
-  (DataStore.getBillCategories() || []).forEach(function (b) {
+/* ---- 月账单 as one parent block --------------------------------------------
+   Fixed bills live in their own list (billCategories) that getCategory /
+   getRootAncestorId cannot see, so they used to be missing from the category
+   charts altogether. With 含固定账单 ticked they now appear as ONE independent
+   top-level block, 月账单, with each bill (房租, 水电, …) as its child — so the
+   1层 / 2层 / 全部 control expands it exactly like a normal parent.
+
+   Every bill in 月账单 counts as PAID: a child is worth what was recorded on it
+   or what 月账单中心 sets for the month, whichever is larger. (Taking the larger
+   is what keeps a recorded payment from being counted twice on top of the
+   planned amount.) The part that has no record is only picture — see
+   getPlannedFixedExtras. */
+const BILL_GROUP_ID = 'bill-group';
+
+function getMonthlyBillGroupCat() {
+  return { id: BILL_GROUP_ID, name: __('stats.billGroup'), icon: '📋', color: '#0EA5E9' };
+}
+
+/* The planned amounts only mean something for one calendar month, so a custom
+   range or a rolling 30 days falls back to what was actually recorded. */
+function isPlainMonthView(startDate, endDate) {
+  if (startDate && endDate) return false;
+  if (typeof useCustomRange === 'function' && useCustomRange()) return false;
+  if (!statsMonth) return false;
+  return !(getStatsRange() === 'rolling30' && statsMonth === getMonthKey(new Date().toISOString()));
+}
+
+function getMonthlyBillGroup(startDate, endDate) {
+  const bills = DataStore.getBillCategories() || [];
+  if (!bills.length) return null;
+  const records = getHierarchyRecords(statsMonth, startDate, endDate);
+  const planned = isPlainMonthView(startDate, endDate) ? (DataStore.getBillAmounts(statsMonth) || {}) : {};
+  const children = [];
+  bills.forEach(function (b) {
+    const recorded = records.filter(function (r) { return r.categoryId === b.id; })
+      .reduce(function (sum, r) { return sum + r.amount; }, 0);
     const amt = parseFloat(planned[b.id]) || 0;
-    if (amt <= 0) return;
-    const paid = recs.filter(function (r) { return r.categoryId === b.id; })
-      .reduce(function (s, r) { return s + r.amount; }, 0);
-    const left = Math.round((amt - paid) * 100) / 100;
-    if (left > 0.005) {
-      extras.push({ id: 'unpaid-bill:' + b.id, total: left,
-        cat: { id: 'unpaid-bill:' + b.id, name: b.name + __('stats.extra.unpaid'), icon: b.icon || '📄', color: b.color || '#6366F1' } });
-    }
+    const total = Math.round(Math.max(recorded, amt) * 100) / 100;
+    if (total <= 0.005) return;
+    children.push({ id: b.id, cat: b, total: total, gap: Math.round(Math.max(0, amt - recorded) * 100) / 100 });
   });
+  if (!children.length) return null;
+  children.sort(function (a, b) { return b.total - a.total; });
+  return {
+    cat: getMonthlyBillGroupCat(),
+    children: children,
+    total: children.reduce(function (sum, c) { return sum + c.total; }, 0),
+    gap: children.reduce(function (sum, c) { return sum + c.gap; }, 0)
+  };
+}
+
+/* What the save / borrow plans must set aside this month. Like the unrecorded
+   part of 月账单 it is not spending — nothing has left the wallet and no record
+   is created — so it is shown ONLY as extra blocks in the category charts and
+   their detail table while 含固定账单 is ticked, and never in 本月总支出, the
+   daily average or the budget ring. Credit instalments are not repeated here:
+   they have real records. Plain calendar-month view of the current month only. */
+function getPlannedFixedExtras(startDate, endDate) {
+  if (!isPlainMonthView(startDate, endDate)) return [];
+  const month = statsMonth;
+  if (month !== getMonthKey(new Date().toISOString())) return [];
+  const extras = [];
   if (typeof PlanMath !== 'undefined' && PlanMath.getVirtualDueByPlan) {
     PlanMath.getVirtualDueByPlan(month).forEach(function (x) {
       extras.push({ id: 'plan-due:' + x.plan.id, total: x.due,
@@ -534,17 +562,33 @@ function getPlannedFixedExtras(startDate, endDate) {
 }
 
 /* Rows for the pie / waffle / detail table: the real ones plus, when 含固定账单
-   is ticked and no category is drilled into, the not-yet-spent extras above. */
+   is ticked and no category is drilled into, the 月账单 parent (level 1) or its
+   children (level 2+), and the plan repayments due. */
 function buildPieSliceRows(level, canvasId, startDate, endDate) {
   const rows = buildPieSliceRowsCore(level, canvasId, startDate, endDate);
   if (getDrillCategory() || !isBillToggleChecked('pieChart')) return rows;
-  const extras = getPlannedFixedExtras(startDate, endDate);
-  if (!extras.length) return rows;
-  return rows
-    .concat(extras.map(function (e) { return { id: e.id, cat: e.cat, total: e.total, depth: 0, path: [], planned: true }; }))
-    .sort(function (a, b) { return b.total - a.total; });
+  const out = rows.slice();
+  const group = getMonthlyBillGroup(startDate, endDate);
+  if (group) {
+    if (level <= 1) {
+      out.push({ id: BILL_GROUP_ID, cat: group.cat, total: group.total, depth: 0, path: [], gap: group.gap });
+    } else {
+      group.children.forEach(function (c) {
+        out.push({ id: c.id, cat: c.cat, total: c.total, depth: 1, path: [group.cat.name, c.cat.name], gap: c.gap });
+      });
+    }
+  }
+  getPlannedFixedExtras(startDate, endDate).forEach(function (e) {
+    out.push({ id: e.id, cat: e.cat, total: e.total, depth: 0, path: [], gap: e.total });
+  });
+  return out.sort(function (a, b) { return b.total - a.total; });
 }
 
+/* Build flat slice rows honoring drill state + hierarchy level.
+   level 1: summary rows (descendant totals) — current behavior
+   level 2: + direct children (own direct spend)
+   level 3: recursive to all leaves (own direct spend)
+   Rows are mutually exclusive: sum(rows) === total spend. */
 function buildPieSliceRowsCore(level, canvasId, startDate, endDate) {
   // One checkbox ('pieChart') governs every view of this card — pie, waffle,
   // treemap and the tables. Keying the lookup on the canvas id made the waffle
@@ -590,7 +634,7 @@ function buildPieSliceRowsCore(level, canvasId, startDate, endDate) {
   }
 
   // Non-drill: start from root categories
-  const roots = getChartData(statsMonth, startDate, endDate, { excludeBills, includeBillCats: !excludeBills });
+  const roots = getChartData(statsMonth, startDate, endDate, { excludeBills });
   if (level <= 1) {
     return roots.map(function (d) { return { id: d.id, cat: d.cat, total: d.total, depth: 0, path: [] }; });
   }
@@ -651,7 +695,8 @@ function showCategoryRecords(catId) {
   if (!catId) return;
   const isDirect = String(catId).slice(-7) === '-direct';
   const realId = isDirect ? String(catId).slice(0, -7) : catId;
-  const cat = DataStore.getCategory(realId) || DataStore.getBillCategory(realId);
+  const isGroup = realId === BILL_GROUP_ID;
+  const cat = isGroup ? getMonthlyBillGroupCat() : (DataStore.getCategory(realId) || DataStore.getBillCategory(realId));
   if (!cat) return;
   const isCustom = useCustomRange();
   const sD = isCustom ? statsStartDate : null;
@@ -663,7 +708,7 @@ function showCategoryRecords(catId) {
   } else windowLabel = statsMonth || '';
   let ids;
   try {
-    ids = isDirect ? [realId] : DataStore.getDescendantIds(realId);
+    ids = isGroup ? (DataStore.getBillCategories() || []).map(c => c.id) : (isDirect ? [realId] : DataStore.getDescendantIds(realId));
   } catch (e) { ids = [realId]; }
   const idSet = new Set(ids);
   let recs = [];
@@ -696,7 +741,7 @@ function showCategoryRecords(catId) {
   }
   html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;
   if (canDrill) html += `<button class="btn btn-sm btn-outline" onclick="closeModal();drillIntoCategory('${realId}')">🔍 ${__('stats.drill.into')}</button>`;
-  html += `<button class="btn btn-sm btn-outline" onclick="closeModal();jumpToCategoryRecords('${realId}')">📋 ${__('stats.catRecords.viewInFlow')}</button>`;
+  if (!isGroup) html += `<button class="btn btn-sm btn-outline" onclick="closeModal();jumpToCategoryRecords('${realId}')">📋 ${__('stats.catRecords.viewInFlow')}</button>`;
   html += `<button class="btn btn-sm btn-ghost" onclick="closeModal()">${__('stats.cancel')}</button>`;
   html += `</div>`;
   showModal(html);
@@ -824,7 +869,7 @@ function renderPieTable(containerId) {
   html += '</div>';
   // The owed-but-unspent rows are in the total above; say so, or this total
   // would look like it disagrees with 本月总支出
-  const plannedSum = data.filter(d => d.planned).reduce((sum, d) => sum + d.total, 0);
+  const plannedSum = data.reduce((sum, d) => sum + (d.gap || 0), 0);
   if (plannedSum > 0.005) {
     html += '<div class="text-xs text-muted" style="padding:6px 4px">' + __('stats.extra.note', formatMoney(plannedSum)) + '</div>';
   }
@@ -1467,11 +1512,6 @@ function getStatsDailyTotals() {
 
 function getChartData(month, startDate, endDate, options = {}) {
   const excludeBills = options.excludeBills || false;
-  // Fixed-bill categories are a separate list that getCategory/getRootAncestorId
-  // cannot resolve, so by default they never reach a chart at all. The
-  // 含固定账单 charts opt in with includeBillCats so that ticking the box
-  // actually adds them (each bill is a flat, parent-less slice of its own).
-  const includeBillCats = !!options.includeBillCats && !excludeBills;
   let catTotals;
   if (startDate && endDate) {
     const range = StatsEngine.getCustomRangeTotals(startDate, endDate);
@@ -1497,13 +1537,15 @@ function getChartData(month, startDate, endDate, options = {}) {
   // Aggregate to root categories (split records already carry their real category)
   const rootTotals = {};
   Object.entries(catTotals).forEach(([id, total]) => {
-    const rootId = getRootAncestorId(id) || (includeBillCats && billCatIds.has(id) ? id : null);
+    // Fixed-bill categories are not in the category tree, so they have no root
+    // here; the category charts add them as the 月账单 block (buildPieSliceRows)
+    const rootId = getRootAncestorId(id);
     if (rootId) {
       rootTotals[rootId] = (rootTotals[rootId] || 0) + total;
     }
   });
   return Object.entries(rootTotals)
-    .map(([id, total]) => ({ id, total, cat: DataStore.getCategory(id) || (includeBillCats ? DataStore.getBillCategory(id) : null) }))
+    .map(([id, total]) => ({ id, total, cat: DataStore.getCategory(id) }))
     .filter(x => x.cat && x.total > 0)
     .sort((a,b) => b.total - a.total);
 }
@@ -2626,8 +2668,7 @@ function buildCategoryTreeNodes(level, startDate, endDate) {
 
   const maxDepth = level >= 3 ? 99 : Math.max(1, level);
   const build = (catId, depth, color) => {
-    // Fixed-bill categories are a separate list getCategory cannot see
-    const cat = DataStore.getCategory(catId) || DataStore.getBillCategory(catId);
+    const cat = DataStore.getCategory(catId);
     if (!cat) return null;
     const total = subtotal(catId);
     if (total <= 0.005) return null;
@@ -2666,20 +2707,32 @@ function buildCategoryTreeNodes(level, startDate, endDate) {
     return nodes.sort((a, b) => b.value - a.value);
   }
   rootIds = (DataStore.getExpenseRootCategories() || []).map(c => c.id);
-  // Ticking 含固定账单 adds each fixed bill as a flat top-level box of its own
-  if (!excludeBills) (DataStore.getBillCategories() || []).forEach(c => rootIds.push(c.id));
   // Colour by descending spend so the palette matches the pie and the waffle
   const ranked = rootIds.map(id => ({ id, v: subtotal(id) })).filter(r => r.v > 0.005);
-  // Owed-but-unspent extras (unpaid bills, plan repayments) get a flat box of
-  // their own — see getPlannedFixedExtras
   if (!excludeBills) {
+    // 月账单 is one parent box with the bills nested inside (see getMonthlyBillGroup)
+    const group = getMonthlyBillGroup(startDate, endDate);
+    if (group) ranked.push({ id: BILL_GROUP_ID, v: group.total, group });
+    // Plan repayments due this month: a flat box each (see getPlannedFixedExtras)
     getPlannedFixedExtras(startDate, endDate).forEach(e => ranked.push({ id: e.id, v: e.total, extra: e }));
   }
   ranked.sort((a, b) => b.v - a.v);
-  return ranked.map((r, i) => r.extra
-    ? { id: r.extra.id, name: r.extra.cat.name, icon: r.extra.cat.icon, value: r.extra.total,
-        color: COLORS[i % COLORS.length], children: [], leafOnly: true }
-    : build(r.id, 1, COLORS[i % COLORS.length])).filter(Boolean);
+  return ranked.map((r, i) => {
+    const color = COLORS[i % COLORS.length];
+    if (r.extra) {
+      return { id: r.extra.id, name: r.extra.cat.name, icon: r.extra.cat.icon, value: r.extra.total,
+        color, children: [], leafOnly: true };
+    }
+    if (r.group) {
+      const g = r.group;
+      const kidColor = lightenColor(color, 18);
+      return { id: BILL_GROUP_ID, name: g.cat.name, icon: g.cat.icon, value: g.total, color,
+        children: level >= 2
+          ? g.children.map(c => ({ id: c.id, name: c.cat.name, icon: c.cat.icon, value: c.total, color: kidColor, children: [] }))
+          : [] };
+    }
+    return build(r.id, 1, color);
+  }).filter(Boolean);
 }
 
 function drawCategoryTreemap(canvasId, startDate, endDate, height) {
@@ -3253,10 +3306,10 @@ addI18nEntries({
   'stats.thisMonth': { zh: '本月', en: 'This month' },
   'stats.lastMonth': { zh: '上月', en: 'Last month' },
   'stats.billToggle.includeBills': { zh: '含固定账单', en: 'Incl. fixed bills' },
-  'stats.billToggle.hint': { zh: '勾选=统计含房租水电等固定账单和信用卡分期，图表里另外列出还没付的月账单和大额计划本月应还（不计入总支出）；取消=只看日常消费', en: 'Checked = include fixed bills like rent & utilities and card instalments, and list unpaid monthly bills and plan repayments due this month as extra blocks in the charts (not counted in the total); unchecked = daily spending only' },
-  'stats.extra.unpaid': { zh: '（未付）', en: ' (unpaid)' },
+  'stats.billToggle.hint': { zh: '勾选=统计含房租水电等固定账单（图表里归在「月账单」大块下）和信用卡分期；图表另外把月账单里设了金额但没记流水的部分、大额计划本月应还也列出来（不计入总支出）；取消=只看日常消费', en: 'Checked = include fixed bills like rent & utilities (grouped under a Monthly bills block in the charts) and card instalments; the charts also list bill amounts set without a record and plan repayments due this month (not counted in the total); unchecked = daily spending only' },
+  'stats.billGroup': { zh: '月账单', en: 'Monthly bills' },
   'stats.extra.planDue': { zh: '（本月应还）', en: ' (due this month)' },
-  'stats.extra.note': { zh: '其中 {0} 是还没花出去的月账单 / 大额计划应还，只用来看全貌，不计入本月总支出', en: 'Of which {0} is monthly bills not yet paid and plan repayments due - shown for the full picture only, not counted in this month\'s total' },
+  'stats.extra.note': { zh: '其中 {0} 是月账单里设了金额但没记流水的部分（按已付算）和大额计划本月应还，只用来看全貌，不计入本月总支出', en: 'Of which {0} is monthly-bill amounts set without a record (counted as paid) and plan repayments due - shown for the full picture only, not counted in this month\'s total' },
   'stats.overspent': { zh: '超支', en: 'Overspent' },
   'stats.monthlyIncome': { zh: '月收入', en: 'Monthly income' },
   'stats.bills': { zh: '账单流水', en: 'Bill records' },
@@ -3388,6 +3441,7 @@ addI18nEntries({
   window.renderBillToggle = renderBillToggle;
   window.toggleBillFilter = toggleBillFilter;
   window.isBillToggleChecked = isBillToggleChecked;
+  window.getMonthlyBillGroupCat = getMonthlyBillGroupCat;
   window.refreshPieChart = refreshPieChart;
   window.renderStats = renderStats;
   window.changeStatsMonth = changeStatsMonth;

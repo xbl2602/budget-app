@@ -96,28 +96,26 @@ function renderOverview() {
   // Aggregate to root categories for top 5.
   // Fixed-bill categories live in their own list, which getRootAncestorId cannot
   // see — so they used to be silently dropped here even with 含固定账单 ticked.
-  // They are flat (no parent), so each one is simply its own row.
   const billCatIds = new Set((DataStore.getBillCategories() || []).map(c => c.id));
   // Card instalments sit in an ordinary category the user picked, so removing
   // them for the toggle has to happen per record, not per category.
   const topTotals = includeBills
     ? catTotals
     : StatsEngine.withoutInstalments(catTotals, isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(month));
+  // …and they are ranked as ONE 月账单 block, the same parent the stats charts use
+  const BILL_GROUP = 'bill-group';
   const rootCatTotals = {};
   Object.entries(topTotals).forEach(([id, total]) => {
-    const rootId = getRootAncestorId(id) || (billCatIds.has(id) ? id : null);
+    if (billCatIds.has(id)) {
+      if (includeBills) rootCatTotals[BILL_GROUP] = (rootCatTotals[BILL_GROUP] || 0) + total;
+      return;
+    }
+    const rootId = getRootAncestorId(id);
     if (rootId) rootCatTotals[rootId] = (rootCatTotals[rootId] || 0) + total;
   });
-  let topCatsSource = Object.keys(rootCatTotals).length > 0 ? rootCatTotals : topTotals;
-  if (!includeBills) {
-    const filtered = {};
-    Object.entries(topCatsSource).forEach(([id, total]) => {
-      if (!billCatIds.has(id)) filtered[id] = total;
-    });
-    topCatsSource = filtered;
-  }
+  const topCatsSource = rootCatTotals;
   const topCats = Object.entries(topCatsSource)
-    .map(([id, total]) => ({ cat: DataStore.getCategory(id) || DataStore.getBillCategory(id), total, isBill: billCatIds.has(id) }))
+    .map(([id, total]) => ({ cat: id === BILL_GROUP ? window.getMonthlyBillGroupCat() : DataStore.getCategory(id), total, isBill: id === BILL_GROUP }))
     .filter(x => x.cat)
     .sort((a,b) => b.total - a.total)
     .slice(0, 5);
