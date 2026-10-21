@@ -185,12 +185,21 @@ async function run() {
   assert('the canvas carries a click handler', !!opts && typeof opts.onItem === 'function');
   // Observe drill state through the exported reader, not the internal array
   while (window.getDrillCategory()) window.resetStatsDrill();
+  const modalOpen = () => $('modalOverlay').classList.contains('open');
+  const toastCount = () => $('toastContainer').children.length;
+  window.closeModal();
   opts.onItem({ id: 'catA', name: '🍜 餐饮', amount: 90 });
   assert('clicking a parent drills into it', window.getDrillCategory() === 'catA',
     String(window.getDrillCategory()));
+  assert('…and does NOT also pop the records popup (one click, one action)', !modalOpen());
+  const toastsBefore = toastCount();
   opts.onItem({ id: 'catB', name: '🚌 交通', amount: 10 });
   assert('clicking a leaf does not drill further', window.getDrillCategory() === 'catA',
     String(window.getDrillCategory()));
+  assert('clicking a leaf says there is nothing to drill (a toast, not silence)',
+    toastCount() === toastsBefore + 1 && $('toastContainer').lastChild.textContent.indexOf('没有子分类') !== -1,
+    $('toastContainer').lastChild ? $('toastContainer').lastChild.textContent : 'no toast');
+  assert('…and does not pop the records popup either', !modalOpen());
   while (window.getDrillCategory()) window.resetStatsDrill();
   assert('drill resets back to root', window.getDrillCategory() === null);
 
@@ -333,12 +342,21 @@ async function run() {
   assert('visibility is class-based, not inline display',
     $('expandPieChart').style.display === '' && $('expandCatWaffle').style.display === '');
 
-  const drillRows = $('expandPieTable').querySelectorAll('[onclick*="drillIntoCategory"]');
-  assert('expanded table offers a drill row', drillRows.length > 0);
+  const recordRows = $('expandPieTable').querySelectorAll('[onclick*="showCategoryRecords"]');
+  assert('expanded table rows open the records popup', recordRows.length > 0);
+  assert('table rows no longer drill (that moved to the chart blocks)',
+    $('expandPieTable').querySelectorAll('[onclick*="drillIntoCategory"]').length === 0);
   while (window.getDrillCategory()) window.resetStatsDrill();
-  drillRows[0].onclick();
+  window.closeModal();
+  recordRows[0].onclick();
   await new Promise(r => setTimeout(r, 80));
-  assert('drilling from the expanded table works', window.getDrillCategory() === 'catA',
+  assert('clicking a table row shows that category\'s records, without drilling',
+    modalOpen() && ($('modalContent').textContent || '').indexOf('餐饮') !== -1 && window.getDrillCategory() === null,
+    String(window.getDrillCategory()));
+  window.closeModal();
+  window.onChartBlockClick('catA', '餐饮');
+  await new Promise(r => setTimeout(r, 80));
+  assert('drilling via a chart block updates the expanded overlay', window.getDrillCategory() === 'catA',
     String(window.getDrillCategory()));
   const backBtn = $('expandPieTable').querySelector('[onclick*="backFromDrill"]');
   assert('expanded table gets a back button', !!backBtn);

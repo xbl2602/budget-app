@@ -689,8 +689,8 @@ function refreshExpandedCatChart() {
 /* Click a chart block -> show every expense record for that category in the
    current stats window (month / rolling30 / custom). Descendants included,
    so a root domain shows its whole subtree; a '-direct' pseudo-box shows
-   only records booked directly on the parent. Drill stays available via the
-   button in the popup and via the detail-table names. */
+   only records booked directly on the parent. Opened by a click on a
+   detail-table row; clicking a chart block drills instead (onChartBlockClick). */
 function showCategoryRecords(catId) {
   if (!catId) return;
   const isDirect = String(catId).slice(-7) === '-direct';
@@ -717,8 +717,6 @@ function showCategoryRecords(catId) {
   } catch (e) { recs = []; }
   recs = recs.slice().sort((a, b) => String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')));
   const total = recs.reduce((s, r) => s + (r.amount || 0), 0);
-  const children = DataStore.getChildren(realId) || [];
-  const canDrill = !isDirect && children.length > 0;
   let html = `<div class="modal-title">${escHtml(cat.icon || '')} ${escHtml(cat.name)}${isDirect ? ' ' + __('stats.direct') : ''}</div>`;
   html += `<div class="text-xs text-muted" style="margin-bottom:8px">${escHtml(windowLabel)} · ${__('stats.catRecords.count', recs.length)} · ${__('stats.total')} ${formatMoney(total)}</div>`;
   if (!recs.length) {
@@ -740,7 +738,6 @@ function showCategoryRecords(catId) {
     html += `</div>`;
   }
   html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;
-  if (canDrill) html += `<button class="btn btn-sm btn-outline" onclick="closeModal();drillIntoCategory('${realId}')">🔍 ${__('stats.drill.into')}</button>`;
   if (!isGroup) html += `<button class="btn btn-sm btn-outline" onclick="closeModal();jumpToCategoryRecords('${realId}')">📋 ${__('stats.catRecords.viewInFlow')}</button>`;
   html += `<button class="btn btn-sm btn-ghost" onclick="closeModal()">${__('stats.cancel')}</button>`;
   html += `</div>`;
@@ -772,8 +769,8 @@ function jumpToCategoryRecords(catId) {
   navigateTo('records');
 }
 
-/* Single entry point for "drill into this category", shared by the detail table,
-   the pie slices and the waffle blocks. */
+/* Single entry point for "drill into this category", shared by the pie slices,
+   the waffle blocks and the treemap boxes. */
 function drillIntoCategory(catId) {
   if (!catId) return;
   const children = DataStore.getChildren(catId);
@@ -783,6 +780,18 @@ function drillIntoCategory(catId) {
   refreshExpandedCatChart();
   renderPieTables();
   syncPieDrillBar();
+}
+
+/* A click on a chart block (pie slice / waffle block / treemap box) means
+   "drill in" and nothing else — the records popup is on the detail-table rows,
+   so the two actions no longer fire from the same click. A block with nothing
+   to drill into (a leaf, 「…（直接）」, 月账单, a plan row) says so instead of
+   staying silent, and points at the table. */
+function onChartBlockClick(catId, name) {
+  if (!catId) return;
+  const children = DataStore.getChildren(catId);
+  if (children && children.length) { drillIntoCategory(catId); return; }
+  showToast(__('stats.drill.leafHint', name || ''), 'info');
 }
 
 function backFromDrill() {
@@ -839,16 +848,17 @@ function renderPieTable(containerId) {
   data.forEach(d => {
     const pct = (d.total / total * 100).toFixed(1);
     const color = d.displayColor || d.cat.color;
-    const hasChildren = (DataStore.getChildren(d.id) || []).length > 0;
-    
-    html += '<div style="display:flex;align-items:center;padding:5px 4px;border-bottom:1px solid var(--border);font-size:0.82rem">';
-    
-    html += '<div style="flex:1;display:flex;align-items:center;gap:4px;min-width:0;cursor:' + (hasChildren ? 'pointer' : 'default') + '"';
-    if (hasChildren) {
-      html += ' onclick="drillIntoCategory(\'' + d.id + '\')"';
-      html += ' onmouseover="this.style.color=\'var(--primary)\'" onmouseout="this.style.color=\'\'"';
+
+    // Row click = this category's records. Plan rows have no records to list.
+    const rowClickable = String(d.id).indexOf('plan-due:') !== 0;
+    html += '<div style="display:flex;align-items:center;padding:5px 4px;border-bottom:1px solid var(--border);font-size:0.82rem;cursor:' + (rowClickable ? 'pointer' : 'default') + '"';
+    if (rowClickable) {
+      html += ' onclick="showCategoryRecords(\'' + d.id + '\')"';
+      html += ' onmouseover="this.style.background=\'var(--bg-hover)\'" onmouseout="this.style.background=\'\'"';
     }
     html += '>';
+
+    html += '<div style="flex:1;display:flex;align-items:center;gap:4px;min-width:0">';
     html += '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';flex-shrink:0"></span>';
     html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(d.cat.icon) + ' ' + escHtml(d.cat.name) + '</span>';
     if (d.path && d.path.length > 1) {
@@ -1886,7 +1896,7 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
       const my = (e.clientY - br.top);
       const hit = hitTestSlice(mx, my);
       const targetIdx = hit ? hit.index : -1;
-      // Every slice is clickable (records popup) — highlight on hover regardless
+      // Every slice is clickable (drill, or a hint when there is nothing below) — highlight on hover regardless
       let effectiveIdx = targetIdx >= 0 ? targetIdx : -1;
       if (canvas._hoverIndex !== effectiveIdx) {
         canvas._hoverIndex = effectiveIdx;
@@ -1914,10 +1924,8 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
       if (!hit) return;
       const d = slices[hit.index];
       if (!d) return;
-      // Click = records popup for this domain (this month/window) + drill
-      // when it has children (keeps the chart navigable; leaves no-op).
-      showCategoryRecords(d.id);
-      drillIntoCategory(d.id);
+      // Click = drill in (the records popup lives on the detail-table rows)
+      onChartBlockClick(d.id, d.cat && d.cat.name);
     };
 
     canvas.addEventListener('mousemove', onMouseMove);
@@ -2572,9 +2580,8 @@ function drawCategoryWaffle(canvasId, startDate, endDate, height) {
     density: catWaffleDensity,
     legendId: isExpand ? null : null,   // the detail table already lists every row
     emptyText: __('stats.noCategoryData'),
-    // Click = records popup for that domain (+ drill when it has children,
-    // so the chart still navigates like the pie slice does)
-    onItem: function (item) { showCategoryRecords(item.id); drillIntoCategory(item.id); }
+    // Click = drill in, like the pie slice (records popup lives on the table rows)
+    onItem: function (item) { onChartBlockClick(item.id, item.name); }
   });
 }
 
@@ -2857,8 +2864,7 @@ function bindTreemapHover(canvas) {
   canvas.onclick = function () {
     const hit = canvas._treemapHit;
     if (!hit) return;
-    showCategoryRecords(hit.id);
-    if (!hit.leafOnly) drillIntoCategory(hit.id);
+    onChartBlockClick(hit.id, hit.name);
   };
 }
 
@@ -3375,11 +3381,11 @@ addI18nEntries({
   'stats.lineChart.label': { zh: '折线图', en: 'Line chart' },
   'stats.pieChart.label': { zh: '饼图', en: 'Pie chart' },
   'stats.pieChart.expandTitle': { zh: '分类支出分析', en: 'Category spending analysis' },
-  'stats.drill.into': { zh: '下钻看子分类', en: 'Drill into subcategories' },
+  'stats.drill.leafHint': { zh: '「{0}」没有子分类，没法再下钻。要看明细，请展开「分类明细」，点表格里的这一行', en: '"{0}" has no subcategories to drill into. For its records, open "Category details" and click its row' },
   'stats.catRecords.count': { zh: '共 {0} 笔', en: '{0} records' },
   'stats.catRecords.more': { zh: '还有 {0} 笔未展开', en: '{0} more not shown' },
   'stats.catRecords.viewInFlow': { zh: '在流水页查看', en: 'View in Records' },
-  'stats.pieChart.drillHint': { zh: '点击色块查看本月明细 · 点击分类名下钻', en: 'Click a block for this-month records · Click a name to drill down' },
+  'stats.pieChart.drillHint': { zh: '点击图上色块下钻 · 点击表格行查看明细', en: 'Click a chart block to drill down · Click a row for its records' },
   'stats.pieChart.toggleChildren': { zh: '展开/收起子分类', en: 'Expand/collapse subcategories' },
   'stats.hierarchy.level1': { zh: '1 层', en: 'Top' },
   'stats.hierarchy.level2': { zh: '2 层', en: '2 Lv' },
@@ -3424,6 +3430,7 @@ addI18nEntries({
   window.showCategoryRecords = showCategoryRecords;
   window.jumpToCategoryRecords = jumpToCategoryRecords;
   window.drillIntoCategory = drillIntoCategory;
+  window.onChartBlockClick = onChartBlockClick;
   window.backFromDrill = backFromDrill;
   window.refreshExpandedCatChart = refreshExpandedCatChart;
   window.setStatsCatView = setStatsCatView;

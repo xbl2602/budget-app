@@ -39,6 +39,15 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
+    id: '2026-10-21',
+    version: '3.6.7',
+    date: '2026-10-21',
+    title: 'changelog.a9.title',
+    items: [
+      { icon: '👆', text: 'changelog.a9.item1' }
+    ]
+  },
+  {
     id: '2026-10-15',
     version: '3.6.3',
     date: '2026-10-15',
@@ -357,6 +366,12 @@ function close() {
     'changelog.settingsHint': { zh: '随时回看历次更新内容', en: 'Browse every past update' },
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
+
+    'changelog.a9.title': { zh: 'v3.6.7 点分类图：下钻和看明细不再打架', en: 'What\'s in v3.6.7: drilling down and viewing records no longer collide' },
+    'changelog.a9.item1': {
+      zh: '<strong>点图上的色块 = 下钻；看明细 = 点表格里的那一行</strong>：以前点饼图 / 格子图 / 矩形图的色块，会同时弹出明细和下钻，两件事挤在一次点击里。现在色块只管下钻；想看某个分类的流水，展开「分类明细」，点对应的那一行。点到没有子分类的块（比如叶子分类、「月账单」）会弹一条提示，不再没反应。',
+      en: '<strong>Click a chart block to drill down; click a table row to see its records</strong> - before, clicking a block on the pie / waffle / treemap did both at once, squeezing two actions into one click. Now a block only drills down; to see a category\'s records, open “Category details” and click its row. A block with nothing to drill into (a leaf category, “Monthly bills”) now shows a hint instead of doing nothing.'
+    },
 
     'changelog.a8.title': { zh: 'v3.6.3 「含固定账单」开关终于管用了', en: 'What\'s in v3.6.3: the “Include fixed bills” switch now actually works' },
     'changelog.a8.item1': {

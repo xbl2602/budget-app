@@ -301,6 +301,20 @@ setTimeout(async () => {
   let threw = false;
   try { w.showCategoryRecords('plan-due:x'); w.drillIntoCategory('bill-group'); } catch (e) { threw = true; }
   ok('点计划应还块 / 试图下钻「月账单」不会报错', !threw);
+  w.closeModal();
+  const toasts = w.document.getElementById('toastContainer').children.length;
+  w.onChartBlockClick('bill-group', '月账单');
+  ok('点图上的「月账单」块：没有可下钻的子分类 → 弹提示，不弹明细，不下钻',
+    w.document.getElementById('toastContainer').children.length === toasts + 1
+    && !w.document.getElementById('modalOverlay').classList.contains('open')
+    && !w.getDrillCategory());
+  w.renderPieTables();
+  const tableBox = w.document.getElementById('pieDetailTable');
+  ok('明细表：「月账单」行点一下弹出明细（行级 onclick）', !!tableBox.querySelector('[onclick="showCategoryRecords(\'bill-group\')"]'));
+  ok('明细表：计划预计金额行没有 onclick（没有流水可看）',
+    /预计/.test(tableBox.textContent)
+    && !Array.from(tableBox.querySelectorAll('[onclick]')).some(e => /plan-due:/.test(e.getAttribute('onclick'))));
+  ok('明细表：行里不再有下钻的 onclick', !tableBox.querySelector('[onclick*="drillIntoCategory"]'));
 
   console.log('\n===== RESULT: ' + pass + ' PASS / ' + fail + ' FAIL =====');
   process.exit(fail > 0 ? 1 : 0);

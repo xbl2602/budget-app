@@ -546,7 +546,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `renderCatViewToggle()` / `setStatsCatView(v)` | 卡片标题栏的「🥧 饼图 / ▦ 格子图」切换（展开弹窗里也有一份） |
 | `applyStatsCatView()` | 切换可见的 canvas 并重绘。**只换 canvas，不动页面布局**——格子图按 `cols = √(格数 × 宽高比)` 自适应，窄卡片只是行数变多，不像饼图那样要固定留出图例列 |
 | `buildCategoryWaffleData(canvasId, s, e)` | 把 `buildPieSliceRows` 的行转成 `{id, name, amount, color}` |
-| `drawCategoryWaffle(canvasId, s, e, h)` | 画分类格子图。点格子 = 下钻（与点饼图扇区一致），叶子分类不响应 |
+| `drawCategoryWaffle(canvasId, s, e, h)` | 画分类格子图。点格子 = `onChartBlockClick`（与点饼图扇区、矩形图方框一致） |
 | `setCatWaffleDensity(n)` | 分类格子图密度，独立于标签卡片（`budgetCatWaffleDensity` vs `budgetWaffleDensity`） |
 | `catViewClass(view)` | 三个 canvas 的可见性类。**markup 与 `applyStatsCatView()` 必须共用它**——之前 markup 里写死两路三元表达式，加第三种视图时饼图在矩形图模式下没被隐藏 |
 | `buildCategoryTreeNodes(level, s, e)` | 矩形图的嵌套树。层级即嵌套深度：1 = 只画根，2 = 子分类嵌进父框，全部 = 逐层嵌到叶子。父分类自己的流水会单独生成一个「(直接)」框，否则子框面积加不满父框 |
@@ -566,6 +566,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 |---|---|
 | 可见性必须用 class，不能用内联 `display` | `12-responsive.css` 里 `#expandPieChart` 曾有 `display: block !important`，**id 级 `!important` 会压过内联样式**，结果饼图和格子图在弹窗里上下叠着一起显示。现在三个 canvas 统一走 `catViewClass()` + `.cat-view-hidden` |
 | 下钻要走 `drillIntoCategory()` / `backFromDrill()` | 原先是内联 onclick 里写一串语句，只重画 `expandPieChart`；格子图模式下重画的是隐藏的 canvas，看起来就是「下钻失效」。两个函数内部用 `refreshExpandedCatChart()` 重画**当前可见的那个** |
+| 图上点击 = 下钻，表格行点击 = 看明细，别把两个动作绑回同一次点击 | 曾经色块点击同时调 `showCategoryRecords` + `drillIntoCategory`：弹窗盖在上面，背后的图已被换层。现在色块走 `onChartBlockClick`，表格行走 `showCategoryRecords` |
 | 图表高度只在 CSS 里定 | 三个渲染函数都用 `Math.round(rect.height) || 传入值` 读回布局后的高度。以前 CSS 写 `height:400px` 而 JS 按 360 画，canvas 的 backing store 和显示框对不上，整张图被拉伸糊掉。**别再往 JS 里写死高度** |
 | 表格与图表必须用同一个时间窗 | `renderPieTable` 原先固定传 `null, null`，自定义日期范围下表格退回整月、图表用范围，两个数对不上 |
 
@@ -639,7 +640,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `getDailySavingsTarget(month)` | 日均可支配预算 |
 | `renderCalendarHeatmap(month)` | 渲染热力图 HTML |
 | `showDayRecords(dateStr)` | 点击日期显示当日记录 |
-| `showCategoryRecords(catId)` | 点击饼图/格子图/矩形图色块，弹窗显示该领域在当前窗口的全部消费记录（有子则顺带下钻，`-direct` 只看直接记账） |
+| `onChartBlockClick(catId, name)` | 点击饼图/格子图/矩形图色块：有子分类 → `drillIntoCategory`；没有（叶子、`-direct`、月账单、计划预计金额）→ 弹提示 `stats.drill.leafHint`。**只下钻，不弹明细**——两件事曾挤在同一次点击里 |
+| `showCategoryRecords(catId)` | 点击**分类明细表的行**（`renderPieTable`，计划预计金额行除外），弹窗显示该领域在当前窗口的全部消费记录（`-direct` 只看直接记账）。弹窗里没有下钻按钮 |
 | `jumpToCategoryRecords(catId)` | 弹窗里的「在流水页查看」：按分类 + 窗口日期跳流水页 |
 
 **图表展开弹窗：**

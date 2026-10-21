@@ -177,17 +177,23 @@ async function run() {
   /* ---------- 6. Interaction ---------- */
   const cv = $('catTreemapChart');
   while (window.getDrillCategory()) window.resetStatsDrill();
+  window.closeModal();   // a startup announcement may be holding the overlay open
   cv._treemapHit = rootBoxes.find(r => r.id === 'catA');
   cv.onclick();
   await new Promise(r => setTimeout(r, 80));
   assert('clicking a box drills into it', window.getDrillCategory() === 'catA',
     String(window.getDrillCategory()));
+  assert('…and does NOT also pop the records popup (one click, one action)',
+    !$('modalOverlay').classList.contains('open'));
   const directBox = (cv._treemapRects || []).find(r => r.leafOnly);
   if (directBox) {
     const before = window.getDrillCategory();
+    const toasts = $('toastContainer').children.length;
     cv._treemapHit = directBox;
     cv.onclick();
     assert('the "(direct)" box is not drillable', window.getDrillCategory() === before);
+    assert('…it says so with a toast and opens no popup',
+      $('toastContainer').children.length === toasts + 1 && !$('modalOverlay').classList.contains('open'));
   } else {
     assert('the "(direct)" box is not drillable (none present)', true);
   }

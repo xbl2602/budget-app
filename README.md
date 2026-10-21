@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.6.6
+# 记账软件 · Budget App v3.6.7
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -123,6 +123,10 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
+
+### v3.6.7 分类图：下钻和看明细不再挤在同一次点击里
+
+- **👆 点色块 = 下钻，看明细 = 点表格行**：以前点饼图 / 格子图 / 矩形图（含展开弹窗）的色块，会同时弹出明细弹窗并下钻，背后的图在弹窗下面已经换了层级。现在色块只管下钻（`onChartBlockClick`）；想看某个分类的流水，展开「分类明细」点对应的一行（`showCategoryRecords`），弹窗里原来的「下钻」按钮随之去掉。点到没有子分类的块（叶子分类、「…（直接）」、「月账单」、计划预计金额）会弹一条提示，不再没有反应；计划预计金额行没有流水，整行不可点。表格上方的提示文案同步改为「点击图上色块下钻 · 点击表格行查看明细」。
 
 ### v3.6.6 大额计划块的标签（小版本，无公告）
 

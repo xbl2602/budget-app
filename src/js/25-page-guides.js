@@ -1293,7 +1293,7 @@ addI18nEntries({
   'guide.stats.detailed.item4_5': { zh: '【长期趋势】看近 6 个月的月度趋势，了解消费是在涨还是降', en: '【Long-term trends】Review the 6-month trend to understand whether spending is going up or down' },
   'guide.stats.detailed.row5_0_desc': { zh: '日历网格，每天一个格子。颜色越深表示当天消费越高。点击某天可查看当天的详细记录', en: 'Calendar grid, one cell per day. Darker color means higher spending. Click a day to view its detailed records' },
   'guide.stats.detailed.row5_0_label': { zh: '消费热力图', en: 'Spending Heatmap' },
-  'guide.stats.detailed.row5_1_desc': { zh: '各分类支出比例。点击饼图切片可下钻查看子分类。勾选"含固定账单"切换是否包含固定账单支出', en: 'Proportion of each category’s spending. Click a slice to drill into subcategories. Toggle “Include Bills” to include or exclude bill expenses' },
+  'guide.stats.detailed.row5_1_desc': { zh: '各分类支出比例。点击饼图切片可下钻查看子分类；展开「分类明细」，点表格里的一行可查看该分类的流水。勾选"含固定账单"切换是否包含固定账单支出', en: 'Proportion of each category’s spending. Click a slice to drill into subcategories; open “Category details” and click a row to see that category’s records. Toggle “Include Bills” to include or exclude bill expenses' },
   'guide.stats.detailed.row5_1_label': { zh: '分类饼图', en: 'Category Pie Chart' },
   'guide.stats.detailed.row5_2_desc': { zh: '每天支出折线图。虚线是"日均可支配"参考线（收入−账单−储蓄后÷天数）', en: 'Line chart of daily spending. The dashed line is the “daily disposable income” reference line (income − bills − savings ÷ days)' },
   'guide.stats.detailed.row5_2_label': { zh: '每日趋势', en: 'Daily Trend' },
