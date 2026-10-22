@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.6.7
+# 记账软件 · Budget App v3.6.8
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -123,6 +123,10 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
+
+### v3.6.8 更新测试（小版本，带公告）
+
+- **📢 更新公告演示**：没有功能变化，只是发一条标题「更新测试」的公告，演示以后更新时会视情况这样发公告（不是每次都发）。
 
 ### v3.6.7 分类图：下钻和看明细不再挤在同一次点击里
 

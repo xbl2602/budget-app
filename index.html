@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://sfwnpwchujslqfnmdyxo.supabase.co; base-uri 'none'; form-action 'none';">
-  <title>记账软件 v3.6.7</title>
+  <title>记账软件 v3.6.8</title>
   <style>
 /* ===== CSS DESIGN SYSTEM ===== */
 :root {
@@ -3446,7 +3446,7 @@ window.applyI18nToDOM = applyI18nToDOM;
 
 })();
 
-}catch(e){console.error('[00-i18n.js] failed:' , e)}
+}catch(e){console.error('[00-i18n.js] failed:', e)}
 try{
 // === 01-constants.js ===
 /* ============================================================
@@ -3465,7 +3465,7 @@ try{
 // docs/superpowers/specs/2026-09-28-changelog-announcement-design.md.
 // Do not confuse this with the cloud ledger's monotonic integer `version` in
 // 28-cloud-sync.js — that is a different concept in a different IIFE.
-const APP_VERSION = '3.6.7';
+const APP_VERSION = '3.6.8';
 
 const COLORS = [
   '#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6',
@@ -3610,7 +3610,7 @@ function getPeriodDateRange() {
   window.getPeriodDateRange = getPeriodDateRange;
 })();
 
-}catch(e){console.error('[01-constants.js] failed:' , e)}
+}catch(e){console.error('[01-constants.js] failed:', e)}
 try{
 // === 02-datastore.js ===
 /* ============================================================
@@ -5302,7 +5302,7 @@ const DataStore = {
   window.DataStore.getAllTagColors = DataStore.getAllTagColors.bind(DataStore);
 })();
 
-}catch(e){console.error('[02-datastore.js] failed:' , e)}
+}catch(e){console.error('[02-datastore.js] failed:', e)}
 try{
 // === 03-excel-export.js ===
 /* ============================================================
@@ -6104,7 +6104,7 @@ function exportToExcel() {
   });
 })();
 
-}catch(e){console.error('[03-excel-export.js] failed:' , e)}
+}catch(e){console.error('[03-excel-export.js] failed:', e)}
 try{
 // === 04-stats-engine.js ===
 /* ============================================================
@@ -7173,7 +7173,7 @@ const PlanMath = {
   window.PlanMath = PlanMath;
 })();
 
-}catch(e){console.error('[04-stats-engine.js] failed:' , e)}
+}catch(e){console.error('[04-stats-engine.js] failed:', e)}
 try{
 // === 05-simulation-engine.js ===
 /* ============================================================
@@ -7502,7 +7502,7 @@ const SimulationEngine = {
   window.SimulationEngine = SimulationEngine;
 })();
 
-}catch(e){console.error('[05-simulation-engine.js] failed:' , e)}
+}catch(e){console.error('[05-simulation-engine.js] failed:', e)}
 try{
 // === 06-router.js ===
 /* ============================================================
@@ -7606,7 +7606,7 @@ if (document.readyState === 'loading') {
   window.navigateTo = navigateTo;
 })();
 
-}catch(e){console.error('[06-router.js] failed:' , e)}
+}catch(e){console.error('[06-router.js] failed:', e)}
 try{
 // === 07-ui-core.js ===
 /* ============================================================
@@ -8558,7 +8558,7 @@ function bindActivityListeners() {
   window.confirmTagPick = confirmTagPick;
 })();
 
-}catch(e){console.error('[07-ui-core.js] failed:' , e)}
+}catch(e){console.error('[07-ui-core.js] failed:', e)}
 try{
 // === 08-money-input.js ===
 /* ============================================================
@@ -8740,7 +8740,7 @@ function toggleMoneySign(btn) {
   });
 })();
 
-}catch(e){console.error('[08-money-input.js] failed:' , e)}
+}catch(e){console.error('[08-money-input.js] failed:', e)}
 try{
 // === 09-category-picker.js ===
 /* ============================================================
@@ -9105,7 +9105,7 @@ setDisplay(displayAdd);
 })();
 
 
-}catch(e){console.error('[09-category-picker.js] failed:' , e)}
+}catch(e){console.error('[09-category-picker.js] failed:', e)}
 try{
 // === 10-render-overview.js ===
 /* ============================================================
@@ -9638,7 +9638,7 @@ function refreshOverviewBudget() {
   });
 })();
 
-}catch(e){console.error('[10-render-overview.js] failed:' , e)}
+}catch(e){console.error('[10-render-overview.js] failed:', e)}
 try{
 // === 11-theme-colors.js ===
 /* ===== THEME-AWARE COLORS ===== */
@@ -9661,7 +9661,7 @@ function getThemeColors() {
   window.getThemeColors = getThemeColors;
 })();
 
-}catch(e){console.error('[11-theme-colors.js] failed:' , e)}
+}catch(e){console.error('[11-theme-colors.js] failed:', e)}
 try{
 // === 12-budget-progress.js ===
 /* ===== BUDGET PROGRESS CARD ===== */
@@ -10064,7 +10064,7 @@ function renderBudgetProgressCardInner(month) {
   window.renderBudgetProgressCardInner = renderBudgetProgressCardInner;
 })();
 
-}catch(e){console.error('[12-budget-progress.js] failed:' , e)}
+}catch(e){console.error('[12-budget-progress.js] failed:', e)}
 try{
 // === 13-canvas-drawing.js ===
 /* ============================================================
@@ -10196,7 +10196,7 @@ function drawSparkline(canvasId, data) {
   window.drawSparkline = drawSparkline;
 })();
 
-}catch(e){console.error('[13-canvas-drawing.js] failed:' , e)}
+}catch(e){console.error('[13-canvas-drawing.js] failed:', e)}
 try{
 // === 14-render-add.js ===
 /* ============================================================
@@ -10573,7 +10573,7 @@ function removeAddTag(tag) {
 })();
 
 
-}catch(e){console.error('[14-render-add.js] failed:' , e)}
+}catch(e){console.error('[14-render-add.js] failed:', e)}
 try{
 // === 15-render-records.js ===
 /* ============================================================
@@ -11773,7 +11773,7 @@ function setRecordsTagFilter(tag) {
 })();
 
 
-}catch(e){console.error('[15-render-records.js] failed:' , e)}
+}catch(e){console.error('[15-render-records.js] failed:', e)}
 try{
 // === 16-render-categories.js ===
 /* ============================================================
@@ -12634,7 +12634,7 @@ function saveCategoryEdit(catId) {
   });
 })();
 
-}catch(e){console.error('[16-render-categories.js] failed:' , e)}
+}catch(e){console.error('[16-render-categories.js] failed:', e)}
 try{
 // === 17-stats-charts.js ===
 /* ============================================================
@@ -16119,7 +16119,7 @@ addI18nEntries({
   window.changeWaffleMonth = changeWaffleMonth;
 })();
 
-}catch(e){console.error('[17-stats-charts.js] failed:' , e)}
+}catch(e){console.error('[17-stats-charts.js] failed:', e)}
 try{
 // === 18-render-settings.js ===
 /* ============================================================
@@ -17033,7 +17033,7 @@ function deleteTag(tag) {
   window.deleteTag = deleteTag;
 })();
 
-}catch(e){console.error('[18-render-settings.js] failed:' , e)}
+}catch(e){console.error('[18-render-settings.js] failed:', e)}
 try{
 // === 19-render-report.js ===
 /* ============================================================
@@ -17393,7 +17393,7 @@ function printReport() {
   });
 })();
 
-}catch(e){console.error('[19-render-report.js] failed:' , e)}
+}catch(e){console.error('[19-render-report.js] failed:', e)}
 try{
 // === 20-what-if.js ===
 /* ============================================================
@@ -18289,7 +18289,7 @@ function attachWhatIfListeners(month) {
 
 })();
 
-}catch(e){console.error('[20-what-if.js] failed:' , e)}
+}catch(e){console.error('[20-what-if.js] failed:', e)}
 try{
 // === 21-month-rollover.js ===
 /* ============================================================
@@ -18366,7 +18366,7 @@ function showBillRolloverReminder(lastMonth, currentMonth) {
   window.showBillRolloverReminder = showBillRolloverReminder;
 })();
 
-}catch(e){console.error('[21-month-rollover.js] failed:' , e)}
+}catch(e){console.error('[21-month-rollover.js] failed:', e)}
 try{
 // === 22-init.js ===
 /* ============================================================
@@ -18470,7 +18470,7 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
   window.initApp = initApp;
 })();
 
-}catch(e){console.error('[22-init.js] failed:' , e)}
+}catch(e){console.error('[22-init.js] failed:', e)}
 try{
 // === 23-lan-sync.js ===
 /* ============================================================
@@ -19271,7 +19271,7 @@ try{
 
 })();
 
-}catch(e){console.error('[23-lan-sync.js] failed:' , e)}
+}catch(e){console.error('[23-lan-sync.js] failed:', e)}
 try{
 // === 24-diagnostics.js ===
 /* ============================================================
@@ -19604,7 +19604,7 @@ window.showRecordRaw = function showRecordRaw(id) {
   });
 })();
 
-}catch(e){console.error('[24-diagnostics.js] failed:' , e)}
+}catch(e){console.error('[24-diagnostics.js] failed:', e)}
 try{
 // === 25-page-guides.js ===
 /* ============================================================
@@ -20991,7 +20991,7 @@ addI18nEntries({
 });
 })();
 
-}catch(e){console.error('[25-page-guides.js] failed:' , e)}
+}catch(e){console.error('[25-page-guides.js] failed:', e)}
 try{
 // === 26-split-bills.js ===
 /* ============================================================
@@ -23332,7 +23332,7 @@ addI18nEntries({
   window.confirmDeleteContact = confirmDeleteContact;
   window.doDeleteContact = doDeleteContact;
 })();
-}catch(e){console.error('[26-split-bills.js] failed:' , e)}
+}catch(e){console.error('[26-split-bills.js] failed:', e)}
 try{
 // === 27-purchase-plans.js ===
 /* ============================================================
@@ -24346,7 +24346,7 @@ if (document.readyState === 'loading') {
   window.renderPlanOverviewCard = renderPlanOverviewCard;
 })();
 
-}catch(e){console.error('[27-purchase-plans.js] failed:' , e)}
+}catch(e){console.error('[27-purchase-plans.js] failed:', e)}
 try{
 // === 28-cloud-sync.js ===
 /* ============================================================
@@ -25932,7 +25932,7 @@ window.CloudSync = {
 try { boot(); } catch (e) { console.error('[CloudSync] boot failed', e); }
 })();
 
-}catch(e){console.error('[28-cloud-sync.js] failed:' , e)}
+}catch(e){console.error('[28-cloud-sync.js] failed:', e)}
 try{
 // === 29-changelog.js ===
 /* ============================================================
@@ -25975,6 +25975,15 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
 /* Items store i18n KEYS, resolved at render time (same convention as
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
+  {
+    id: '2026-10-22',
+    version: '3.6.8',
+    date: '2026-10-22',
+    title: 'changelog.a10.title',
+    items: [
+      { icon: '📢', text: 'changelog.a10.item1' }
+    ]
+  },
   {
     id: '2026-10-21',
     version: '3.6.7',
@@ -26304,6 +26313,12 @@ function close() {
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
 
+    'changelog.a10.title': { zh: '更新测试', en: 'Update test' },
+    'changelog.a10.item1': {
+      zh: '更新的时候看情况我就会这样发公告！当然也不是每一次就会发就是了',
+      en: 'When I ship an update, I may post an announcement like this, depending on the situation! Of course, not every update will have one.'
+    },
+
     'changelog.a9.title': { zh: 'v3.6.7 点分类图：下钻和看明细不再打架', en: 'What\'s in v3.6.7: drilling down and viewing records no longer collide' },
     'changelog.a9.item1': {
       zh: '<strong>点图上的色块 = 下钻；看明细 = 点表格里的那一行</strong>：以前点饼图 / 格子图 / 矩形图的色块，会同时弹出明细和下钻，两件事挤在一次点击里。现在色块只管下钻；想看某个分类的流水，展开「分类明细」，点对应的那一行。点到没有子分类的块（比如叶子分类、「月账单」）会弹一条提示，不再没反应。',
@@ -26428,7 +26443,7 @@ function close() {
   });
 })();
 
-}catch(e){console.error('[29-changelog.js] failed:' , e)}
+}catch(e){console.error('[29-changelog.js] failed:', e)}
 
 </script>
 </body>
