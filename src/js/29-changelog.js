@@ -39,6 +39,15 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
+    id: '2026-10-22',
+    version: '3.6.8',
+    date: '2026-10-22',
+    title: 'changelog.a10.title',
+    items: [
+      { icon: '📢', text: 'changelog.a10.item1' }
+    ]
+  },
+  {
     id: '2026-10-21',
     version: '3.6.7',
     date: '2026-10-21',
@@ -366,6 +375,12 @@ function close() {
     'changelog.settingsHint': { zh: '随时回看历次更新内容', en: 'Browse every past update' },
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
+
+    'changelog.a10.title': { zh: '更新测试', en: 'Update test' },
+    'changelog.a10.item1': {
+      zh: '更新的时候看情况我就会这样发公告！当然也不是每一次就会发就是了',
+      en: 'When I ship an update, I may post an announcement like this, depending on the situation! Of course, not every update will have one.'
+    },
 
     'changelog.a9.title': { zh: 'v3.6.7 点分类图：下钻和看明细不再打架', en: 'What\'s in v3.6.7: drilling down and viewing records no longer collide' },
     'changelog.a9.item1': {
