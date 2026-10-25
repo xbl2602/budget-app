@@ -488,6 +488,7 @@ function forecastSummaryHtml(month) {
         formatMoney(f.predictedSavings) +
         (f.targetAmount > 0 ? ' <em>/ ' + formatMoney(f.targetAmount) + '</em>' : '') + '</b></div>' +
     '</div>' +
+    '<div class="plan-hint" style="margin-top:6px">' + __('plan.fcLegend') + '</div>' +
     '<div class="plan-verdict plan-verdict-' + verdictClass + '">' + verdict + '</div>' +
   '</div>';
 }
@@ -912,9 +913,16 @@ function renderPlanOverviewCard(month) {
     'plan.keyForecast': { zh: '本月预计', en: 'Forecast' },
     'plan.forecastTitle': { zh: '📉 按当前消费速度预测（{0} 月末）', en: '📉 Forecast at your current pace (end of {0})' },
     'plan.forecastNoIncome': { zh: '设置本月收入后，这里会按你的消费速度预测月末能还多少、能存多少。', en: 'Set this month\'s income and this panel will project how much you can repay and save at your current pace.' },
-    'plan.fcSpend': { zh: '预计月末支出', en: 'Projected spend' },
-    'plan.fcSurplus': { zh: '预计结余', en: 'Projected surplus' },
-    'plan.fcRepay': { zh: '预计还款', en: 'Projected repayment' },
+    'plan.fcSpend': { zh: '月底预计总花费（含固定账单）', en: 'Expected total spending by month-end (incl. fixed bills)' },
+    'plan.fcLegend': {
+      zh: '月底预计剩余 = 月收入 − 月底预计总花费（已包含还没付的月账单）。预计储蓄 = 月底预计剩余 − 要存 / 要还的计划拿走的钱，总览、统计、报告里的「预计储蓄」就是这个数。信用卡分期已经算在花费里，不会重复扣。',
+      en: 'Money left = income − expected total spending (unpaid monthly bills already included). Projected savings = money left − what your saving / repaying plans take; the “projected savings” on the overview, stats and report pages is this same number. Card instalments are already counted as spending, so they are not deducted twice.'
+    },
+    'plan.afterPlansRow': { zh: '月底预计剩余 {0}，其中 {1} 要留给大额计划', en: 'Expected {0} left, of which {1} goes to your plans' },
+    'plan.afterPlansHint': { zh: '大额计划先拿走它那份，剩下的才算你能存下的钱', en: 'Your plans take their share first; what is left is what you can really save' },
+    'plan.predictionPlanNote': { zh: '（另有 {0} 要留给大额计划）', en: '(another {0} goes to your plans)' },
+    'plan.fcSurplus': { zh: '月底预计剩余', en: 'Expected money left by month-end' },
+    'plan.fcRepay': { zh: '本月计划预计付出', en: 'Plans expect to take this month' },
     'plan.fcSavings': { zh: '预计储蓄', en: 'Projected savings' },
     'plan.verdictTooEarly': { zh: '📅 本月才过 {0} 天，按日均推算还不作数。等几天数据多了再看这里。', en: '📅 Only {0} day(s) into the month — a daily-pace projection is not meaningful yet. Check back in a few days.' },
     'plan.verdictAllGood': { zh: '✅ 照这个花法，月供还得上，储蓄目标也够。', en: '✅ At this pace the instalment is covered and the savings target is met.' },

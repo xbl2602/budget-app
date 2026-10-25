@@ -115,43 +115,58 @@ const StatsEngine = {
   // What-If baseline, simulator — needs this version, or a checked "exclude from
   // daily avg" record makes the projected total dip below money already spent
   // and the savings forecast comes out systematically inflated (A-1).
+  //
+  // Only the everyday part is projected. Everything else is a known amount: large
+  // purchases and card instalments are already gone; a bill is a fixed amount,
+  // not a daily pace (scaling "rent paid on the 3rd" by days-in-month ÷ days-passed
+  // turned RM1000 into RM3100 on the 10th); and a bill that is planned but not yet
+  // paid is money that WILL leave this month. All of it is in here, so nothing
+  // that nets against income has to subtract unpaid bills a second time.
   getPredictedMonthEndTotal(month) {
-    const excludedActual = this.getRecordsInMonth(month)
-      .filter(r => r && r.excludeFromAvg)
-      .reduce((s, r) => s + (r.amount || 0), 0);
-    return round2(this.getPredictedTotal(month) + excludedActual);
+    return this.getPredictedBreakdown(month).predicted;
   },
 
-  // Breakdown of the cash-flow prediction into three disjoint parts that sum
-  // to getPredictedMonthEndTotal: bills (projected trend of bill-category
-  // records) + large (already-happened excludeFromAvg, not in daily avg) +
-  // normal (projected trend of everything else, net of split shares).
-  // Split repayments (others' shares) are stripped from the trend
-  // proportionally so the three parts stay non-negative and add up.
+  // Disjoint parts of the cash-flow prediction, always summing to `predicted`.
+  // They follow the 含固定账单 switch's own definition of "fixed" (a bill-category
+  // record, or a card-instalment record), so switching it off removes exactly
+  // bills + billsUnpaid + instalments:
+  //   bills       — records in the monthly-bill categories, at face value
+  //   billsUnpaid — planned monthly bills not yet paid (planned − paid, never < 0)
+  //   instalments — card-instalment records (planId), at face value
+  //   large       — 不计日均 records that are neither of the above, at face value
+  //   normal      — my share of everyday spending, projected at its daily pace
+  // Others' split shares come off the everyday spending (they are not mine).
+  _predictParts(records, daysPassed, daysInPeriod, splitOthers, unpaidBills) {
+    let bills = 0, inst = 0, large = 0, pace = 0;
+    (records || []).forEach(r => {
+      if (!r) return;
+      const a = r.amount || 0;
+      if (this.isBillCategory(r.categoryId)) bills += a;
+      else if (r.planId) inst += a;
+      else if (r.excludeFromAvg) large += a;
+      else pace += a;
+    });
+    const mine = Math.max(0, pace - Math.max(0, splitOthers || 0));
+    const trend = daysPassed > 0 ? (mine / daysPassed) * daysInPeriod : 0;
+    const b = round2(bills), u = round2(Math.max(0, unpaidBills || 0)), i = round2(inst), l = round2(large);
+    const predicted = round2(b + u + i + l + trend);
+    return { bills: b, billsUnpaid: u, instalments: i, large: l, normal: round2(predicted - b - u - i - l), predicted: predicted };
+  },
+
+  // Planned monthly bills not yet paid — the one definition every page uses.
+  getUnpaidPlannedBills(month) {
+    return Math.max(0, DataStore.getBillTotal(month) - this.getBillSpendingActual(month));
+  },
+  getPeriodUnpaidPlannedBills() {
+    return Math.max(0, DataStore.getBillTotal(getMonthKey(new Date().toISOString())) - this.getPeriodBillSpending());
+  },
+
   getPredictedBreakdown(month) {
-    const records = this.getRecordsInMonth(month);
-    const excludedActual = records.filter(r => r && r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0);
-    const billNonExcluded = records.filter(r => r && !r.excludeFromAvg && this.isFixedRecord(r)).reduce((s, r) => s + (r.amount || 0), 0);
-    const normalNonExcluded = records.filter(r => r && !r.excludeFromAvg && !this.isFixedRecord(r)).reduce((s, r) => s + (r.amount || 0), 0);
-    const totalNonExcluded = billNonExcluded + normalNonExcluded;
     const parts = String(month || '').split('-');
     const daysInMonth = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10), 0).getDate() || 30;
     const now = new Date();
-    const currentMonth = getMonthKey(now.toISOString());
-    const daysPassed = month === currentMonth ? now.getDate() : daysInMonth;
-    const predicted = this.getPredictedMonthEndTotal(month);
-    const large = round2(excludedActual);
-    if (!totalNonExcluded || !(daysPassed > 0)) {
-      const normal = round2(Math.max(0, predicted - large));
-      return { bills: 0, large: large, normal: normal, predicted: round2(predicted) };
-    }
-    const splitOthers = Math.max(0, this.getSplitOthers(month) || 0);
-    const splitRatio = Math.min(1, Math.max(0, splitOthers / totalNonExcluded));
-    const keep = 1 - splitRatio;
-    const bills = round2((billNonExcluded / daysPassed) * daysInMonth * keep);
-    let normal = round2(predicted - bills - large);
-    if (normal < 0) normal = 0;
-    return { bills: bills, large: large, normal: normal, predicted: round2(predicted) };
+    const daysPassed = month === getMonthKey(now.toISOString()) ? now.getDate() : daysInMonth;
+    return this._predictParts(this.getRecordsInMonth(month), daysPassed, daysInMonth, this.getSplitOthers(month), this.getUnpaidPlannedBills(month));
   },
 
   // Variable (ex-bills) twin: large (non-bill excludeFromAvg, already happened)
@@ -162,31 +177,13 @@ const StatsEngine = {
     const predictedTrend = round2(this.getDailyAverageVariable(month) * (new Date(parseInt(String(month).split('-')[0], 10), parseInt(String(month).split('-')[1], 10), 0).getDate() || 30));
     const predicted = round2(predictedTrend + large);
     let normal = round2(Math.max(0, predicted - large));
-    return { bills: 0, large: large, normal: normal, predicted: predicted };
+    return { bills: 0, billsUnpaid: 0, instalments: 0, large: large, normal: normal, predicted: predicted };
   },
 
   // Rolling-30-day twins (same split, period window).
   getPeriodPredictedBreakdown() {
-    const records = this.getPeriodRecords();
-    const excludedActual = records.filter(r => r && r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0);
-    const billNonExcluded = records.filter(r => r && !r.excludeFromAvg && this.isFixedRecord(r)).reduce((s, r) => s + (r.amount || 0), 0);
-    const normalNonExcluded = records.filter(r => r && !r.excludeFromAvg && !this.isFixedRecord(r)).reduce((s, r) => s + (r.amount || 0), 0);
-    const totalNonExcluded = billNonExcluded + normalNonExcluded;
     const range = getPeriodDateRange();
-    const daysInPeriod = range.daysInPeriod || 30;
-    const daysPassed = range.daysPassed || 0;
-    const predicted = this.getPeriodPredictedMonthEndTotal();
-    const large = round2(excludedActual);
-    if (!totalNonExcluded || !(daysPassed > 0)) {
-      return { bills: 0, large: large, normal: round2(Math.max(0, predicted - large)), predicted: round2(predicted) };
-    }
-    const splitOthers = Math.max(0, this.getPeriodSplitOthers() || 0);
-    const splitRatio = Math.min(1, Math.max(0, splitOthers / totalNonExcluded));
-    const keep = 1 - splitRatio;
-    const bills = round2((billNonExcluded / daysPassed) * daysInPeriod * keep);
-    let normal = round2(predicted - bills - large);
-    if (normal < 0) normal = 0;
-    return { bills: bills, large: large, normal: normal, predicted: round2(predicted) };
+    return this._predictParts(this.getPeriodRecords(), range.daysPassed || 0, range.daysInPeriod || 30, this.getPeriodSplitOthers(), this.getPeriodUnpaidPlannedBills());
   },
 
   getPeriodPredictedBreakdownVariable() {
@@ -195,7 +192,7 @@ const StatsEngine = {
     const range = getPeriodDateRange();
     const predictedTrend = round2(this.getPeriodVariablePredictedTrend());
     const predicted = round2(predictedTrend + large);
-    return { bills: 0, large: large, normal: round2(Math.max(0, predicted - large)), predicted: predicted };
+    return { bills: 0, billsUnpaid: 0, instalments: 0, large: large, normal: round2(Math.max(0, predicted - large)), predicted: predicted };
   },
 
   // Variable trend for rolling window (non-bill, non-excluded, net of splits).
@@ -214,6 +211,25 @@ const StatsEngine = {
     const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
     const predicted = this.getPredictedMonthEndTotal(month);
     return budget - predicted;
+  },
+
+  // THE savings forecast every page quotes (overview, stats, report, What-If) —
+  // two numbers that used to be conflated under the name 预计存 / 预计月末储蓄:
+  //   surplus 月底预计剩余 — income − projected month-end spend (which already
+  //                     holds the bills still unpaid). Money not spent; may be
+  //                     negative (overspend). Includes whatever the purchase
+  //                     plans will set aside.
+  //   free    预计储蓄 — surplus after the plans have taken their share. What
+  //                     counts toward the savings target, and the number the plan
+  //                     panel shows. Equal to surplus when there are no plans.
+  // unpaidBills is reported for display only — it is already inside the spend.
+  getSavingsForecast(month) {
+    const unpaidBills = this.getUnpaidPlannedBills(month);
+    const surplus = round2(this.getSavingsPrediction(month));
+    const net = (typeof PlanMath !== 'undefined')
+      ? PlanMath.afterPlans(month, surplus)
+      : { reserved: 0, free: surplus };
+    return { unpaidBills: unpaidBills, surplus: surplus, planReserved: net.reserved, free: net.free };
   },
 
   getRemainingDailyLimit(month) {
@@ -670,10 +686,7 @@ const StatsEngine = {
   // see that function for why the excluded amount has to be added back in for
   // anything netted against income (A-1, A-2).
   getPeriodPredictedMonthEndTotal() {
-    const excludedActual = this.getPeriodRecords()
-      .filter(r => r && r.excludeFromAvg)
-      .reduce((s, r) => s + (r.amount || 0), 0);
-    return round2(this.getPeriodPredictedTotal() + excludedActual);
+    return this.getPeriodPredictedBreakdown().predicted;
   },
   getPeriodCategoryTotals() {
     const records = this.getPeriodRecords();
@@ -941,6 +954,50 @@ const PlanMath = {
     });
   },
 
+  // The debt-before-savings waterfall on an arbitrary month-end surplus: earliest
+  // deadline first, each save / borrow plan takes min(due, what is left). Card
+  // instalments take their due in full but NOT out of the surplus — their record
+  // is already inside the projected spend. getForecast and afterPlans both run
+  // through here so the plan panel and every savings figure cannot disagree.
+  _allocate(month, surplus) {
+    let left = Math.max(0, surplus || 0);
+    const state = this.computeUpTo(month);
+    const active = this._byDeadline(
+      DataStore.getPurchasePlans().filter(p => p && p.status === 'active' && state[p.id] && state[p.id].byMonth[month])
+    );
+    const plans = {};
+    let totalDue = 0, totalPay = 0, savePay = 0;
+    active.forEach(p => {
+      const cur = state[p.id].byMonth[month];
+      let pay;
+      if (p.mode === 'credit') {
+        pay = cur.due;
+      } else {
+        pay = Math.max(0, Math.min(cur.due, left));
+        left -= pay;
+        savePay += pay;
+      }
+      totalDue += cur.due;
+      totalPay += pay;
+      plans[p.id] = {
+        due: round2(cur.due),
+        predictedPay: round2(pay),
+        shortfall: round2(Math.max(0, cur.due - pay))
+      };
+    });
+    return { plans: plans, totalDue: totalDue, totalPay: totalPay, savePay: savePay, left: left };
+  },
+
+  // A month-end surplus (signed: negative = overspent) split into what the
+  // plans take and what is genuinely free to count as savings. This is the figure
+  // to hold against the savings target: the target is carved out of income
+  // separately from the plans (getSpendablePlan), and the waterfall pays debt
+  // first, so money a plan swallows cannot also satisfy the target.
+  afterPlans(month, surplus) {
+    const a = this._allocate(month, surplus);
+    return { reserved: round2(a.savePay), free: round2((surplus || 0) - a.savePay) };
+  },
+
   /* --------------------------------------------------------
      FORECAST — "at your current pace, how does this month end?"
 
@@ -961,16 +1018,14 @@ const PlanMath = {
 
     const income = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month) || 0;
     const billPlanned = DataStore.getBillTotal(month);
-    const billActual = StatsEngine.getBillSpendingActual(month);
-    const unpaidPlannedBills = Math.max(0, billPlanned - billActual);
 
-    // Cash-flow projection: getPredictedTotal excludes one-off large purchases
-    // (incl. credit-mode instalment records) from the daily-pace trend, but that
-    // money really did leave — getPredictedMonthEndTotal adds the committed
-    // amounts back in. This used to be reimplemented here; now it's the same
-    // shared function every other "predicted month-end spend" consumer uses (A-1).
+    // Cash-flow projection: the daily pace is only projected for everyday spending;
+    // large purchases, card instalments, paid bills AND bills still unpaid are
+    // known amounts and are all inside getPredictedMonthEndTotal — the same shared
+    // function every other "predicted month-end spend" consumer uses (A-1), so no
+    // unpaid-bills term is subtracted here.
     const predictedSpend = StatsEngine.getPredictedMonthEndTotal(month);
-    let surplus = Math.max(0, income - (predictedSpend + unpaidPlannedBills));
+    let surplus = Math.max(0, income - predictedSpend);
     const predictedSurplus = round2(surplus);
 
     const t = DataStore.getSavingsTarget() || {};
@@ -981,42 +1036,20 @@ const PlanMath = {
     if (t.type === 'fixed') targetAmount = t.fixedAmount || 0;
     else if (t.type === 'percent') targetAmount = baseAmount * (t.percent || 0) / 100;
 
-    const state = this.computeUpTo(month);
-    const active = this._byDeadline(
-      DataStore.getPurchasePlans().filter(p => p && p.status === 'active' && state[p.id] && state[p.id].byMonth[month])
-    );
-
-    const plans = {};
-    let totalDue = 0, totalPay = 0;
-    active.forEach(p => {
-      const cur = state[p.id].byMonth[month];
-      let pay;
-      if (p.mode === 'credit') {
-        // Fixed and non-negotiable; its record is already inside predictedSpend
-        pay = cur.due;
-      } else {
-        pay = Math.max(0, Math.min(cur.due, surplus));
-        surplus -= pay;
-      }
-      totalDue += cur.due;
-      totalPay += pay;
-      plans[p.id] = {
-        due: round2(cur.due),
-        predictedPay: round2(pay),
-        shortfall: round2(Math.max(0, cur.due - pay))
-      };
-    });
-
-    const predictedSavings = round2(Math.max(0, surplus));
+    const alloc = this._allocate(month, surplus);
+    const predictedSavings = round2(Math.max(0, alloc.left));
     return {
       month: month,
       income: income,
       predictedSpend: predictedSpend,
       predictedSurplus: predictedSurplus,
-      plans: plans,
-      totalDue: round2(totalDue),
-      totalPredictedPay: round2(totalPay),
-      totalShortfall: round2(Math.max(0, totalDue - totalPay)),
+      plans: alloc.plans,
+      totalDue: round2(alloc.totalDue),
+      totalPredictedPay: round2(alloc.totalPay),
+      // The part of totalPredictedPay that actually comes OUT of the surplus
+      // (card instalments are already inside predictedSpend)
+      reservedPay: round2(alloc.savePay),
+      totalShortfall: round2(Math.max(0, alloc.totalDue - alloc.totalPay)),
       targetAmount: round2(targetAmount),
       predictedSavings: predictedSavings,
       targetMet: predictedSavings >= targetAmount - 0.005,

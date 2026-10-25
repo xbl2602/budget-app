@@ -131,3 +131,46 @@
 .percent-base-group.visible {
   display: block;
 }
+
+/* ===== PREDICTED-CARD SWITCH (overview): the whole card is the button; the chip shows the current state ===== */
+
+.pred-card-switch {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pred-card-switch:active {
+  transform: scale(0.98);
+}
+
+.pred-switch-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pred-switch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.pred-switch-chip.on {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.pred-switch-tip {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}

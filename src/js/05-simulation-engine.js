@@ -254,8 +254,12 @@ const SimulationEngine = {
     // trend total (A-1). trendDailyAvg stays a pure pace reading on purpose.
     const trendTotal = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
     const trendDailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month);
-    const unpaidBills = Math.max(0, DataStore.getBillTotal(month) - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month)));
-    const trendSavings = isRolling ? (income - trendTotal - unpaidBills) : (StatsEngine.getSavingsPrediction(month) - unpaidBills);
+    // trendTotal already holds the bills still unpaid (see getPredictedMonthEndTotal)
+    const trendSurplus = isRolling ? (income - trendTotal) : StatsEngine.getSavingsPrediction(month);
+    // Savings for the target are what is left AFTER the purchase plans took their
+    // share (the plan panel's 预计储蓄) — so the target comparison here agrees
+    // with the overview instead of counting plan money as free savings.
+    const trendSavings = (typeof PlanMath !== 'undefined') ? PlanMath.afterPlans(month, trendSurplus).free : trendSurplus;
 
     console.log('[SimEngine] result:', {
       month,
@@ -278,8 +282,11 @@ const SimulationEngine = {
       spendable: spendable,
       // Self-imposed instalments reserved out of `spendable`. Deliberately NOT
       // added to totalProjected: for save/borrow the money is retained, not
-      // spent, so projectedSavings must keep counting it as saved. credit-mode
-      // plans are already in actualSpent via their real records.
+      // spent, so projectedSavings (the surplus) keeps counting it. It is the
+      // savings figures held against the target (trendSavings, and the What-If
+      // page's adjustedSavings) that take the plans' share off, via
+      // PlanMath.afterPlans. credit-mode plans are already in actualSpent via
+      // their real records.
       planDueVirtual: planDueVirtual,
 
       // Actuals

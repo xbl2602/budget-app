@@ -1056,7 +1056,10 @@ function toggleBillFilter(chartId) {
   const checked = document.getElementById('toggle-' + chartId).checked;
   localStorage.setItem(key, checked ? '1' : '0');
   if (chartId === 'overviewBudget') {
-    if (typeof refreshOverviewBudget === 'function') refreshOverviewBudget();
+    // One switch for the whole overview (the forecast card flips the same setting),
+    // so redraw all of it — redrawing only the ring left 本月总支出 and the
+    // forecast card above showing the old state.
+    if (typeof renderOverview === 'function') renderOverview();
   } else if (chartId === 'pieChart') {
     if (typeof refreshPieChart === 'function') refreshPieChart();
   } else if (typeof renderStats === 'function') {
@@ -1115,7 +1118,12 @@ function renderStats() {
   const paidBillsStats = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth);
   const unpaidPlannedBillsStats = Math.max(0, totalBillsStats - paidBillsStats);
   const effectiveTotalStats = monthTotal + unpaidPlannedBillsStats;
-  const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(statsMonth) - unpaidPlannedBillsStats);
+  // Savings forecast is always the calendar month's, like the overview and the
+  // rings (rule #11) — "budget − last-30-days spend" was not a forecast at all.
+  // 预计储蓄 is after the purchase plans took their share; 预计结余 is before.
+  const savingsFc = StatsEngine.getSavingsForecast(statsMonth);
+  const savingsPred = savingsFc.free;
+  const planReservedStats = savingsFc.planReserved;
   const netDisposableStats = spStats.netDisposable;
   const targetAmountStats = spStats.targetAmount;
   const spendableBudgetStats = spStats.spendableBudget;
@@ -1130,7 +1138,9 @@ function renderStats() {
 
   const isCustom = useCustomRange();
   const rangeTotal = isCustom ? StatsEngine.getCustomRangeTotals(statsStartDate, statsEndDate) : null;
-  const actualSavings = Math.max(0, budget - monthTotal);
+  // Bills still unpaid are not savings: same definition as the overview's 累计已存
+  // (commit 596e6ca: "所有储蓄预测/当前已存均扣除未付计划账单")
+  const actualSavings = Math.max(0, budget - effectiveTotalStats);
 
   // Compute extra stats
   let records = isCustom
@@ -1190,8 +1200,8 @@ function renderStats() {
         if (isCustom) return '';
         try {
           const bd = isRolling ? StatsEngine.getPeriodPredictedBreakdown() : StatsEngine.getPredictedBreakdown(statsMonth);
-          if (!bd) return '';
-          return `<div class="text-xs text-muted mt-4" title="${__('stats.predictedHint')}">${__('stats.predictedBreakdown', formatMoney(bd.bills || 0), formatMoney(bd.large || 0), formatMoney(bd.normal || 0))}</div>`;
+          const line = formatPredictedBreakdown(bd);
+          return line ? `<div class="text-xs text-muted mt-4" title="${__('stats.predictedHint')}">${line}</div>` : '';
         } catch (e) { return ''; }
       })()}</div>
       <div class="card"><div class="card-title">${__('stats.savingsPrediction')}</div><div class="text-xl font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div></div>
@@ -1313,6 +1323,7 @@ function renderStats() {
               <div class="text-xs text-secondary">${__('stats.dailyAvailablePerDay')}</div>
               <div class="font-bold" style="font-size:1rem;color:${remainingDailyPerDay > 0 ? 'var(--primary)' : 'var(--text-muted)'}">${formatMoney(remainingDailyPerDay)}/${__('stats.dayUnit')}</div>
               <div class="text-xs text-muted" style="margin-top:2px">${formatMoney(remainingDaily)} ÷ ${remainingDays}${__('stats.days')}</div>
+            ${planReservedStats > 0 ? `<div class="text-xs text-muted" style="margin-top:2px" title="${__('plan.afterPlansHint')}">${__('plan.afterPlansRow', formatMoney(savingsFc.surplus), formatMoney(planReservedStats))}</div>` : ''}
               <div class="text-xs text-muted" style="margin-top:2px;opacity:0.85">${__('stats.dailyAvailableFormula')}</div>
             </div>
           </div>`;
@@ -3339,8 +3350,7 @@ addI18nEntries({
   'stats.dailyAvg': { zh: '日均支出', en: 'Daily avg' },
   'stats.dailyAvgDaily': { zh: '日常净日均（不含账单）', en: 'Daily net avg (ex-bills)' },
   'stats.predictedRolling': { zh: '预测30天总支出', en: 'Predicted 30-day total' },
-  'stats.predictedBreakdown': { zh: '账单≈{0} ＋ 大额{1} ＋ 日常{2}', en: 'Bills~{0} + large {1} + daily {2}' },
-  'stats.predictedHint': { zh: '预测 = 账单趋势 ＋ 大额已发生（不计入日均） ＋ 日常趋势', en: 'Forecast = bill trend + large actual (excluded from daily avg) + daily trend' },
+  'stats.predictedHint': { zh: '预测 = 月账单（已付的，加上还没付的计划金额）＋ 信用卡分期 ＋ 已经花掉的大额消费 ＋ 按目前每天花的钱估算到月底的日常消费。', en: 'Forecast = monthly bills (paid, plus the planned amount not yet paid) + card instalments + big purchases already made + everyday spending estimated to month-end at your current daily pace.' },
   'stats.predicted': { zh: '预测月总支出', en: 'Predicted monthly total' },
   'stats.savingsPrediction': { zh: '储蓄预测', en: 'Savings prediction' },
   'stats.transactionCount': { zh: '交易笔数', en: 'Transactions' },
@@ -3355,7 +3365,7 @@ addI18nEntries({
   'stats.savingsEstimate': { zh: '当月储蓄预估', en: 'Savings estimate' },
   'stats.notSet': { zh: '未设置', en: 'Not set' },
   'stats.netIncome': { zh: '净收入', en: 'Net income' },
-  'stats.currentSavings': { zh: '当前已存', en: 'Saved so far' },
+  'stats.currentSavings': { zh: '累计已存', en: 'Cumulative Saved' },
   'stats.estimatedMonthEnd': { zh: '预计月末储蓄', en: 'Est. month-end savings' },
   'stats.balance': { zh: '预算结余', en: 'Budget balance' },
   'stats.balanceHint': { zh: '月收入设定 − 已花 − 未付账单；与下方实际结余口径不同', en: 'Income setting − spent − unpaid bills; different from recorded net below' },

@@ -62,7 +62,13 @@ function renderOverview() {
   const paidBills = StatsEngine.getBillSpendingActual(month);
   const unpaidPlannedBills = Math.max(0, totalBills - paidBills);
   const effectiveTotal = monthTotal + unpaidPlannedBills;
-  const savingsPred = StatsEngine.getSavingsPrediction(month) - unpaidPlannedBills;
+  // 预计储蓄 = what is left AFTER the purchase plans took their share — the same
+  // figure the plan panel shows, and the one the savings target is held against.
+  // 预计结余 (before plans) is kept alongside so the gap is explained, not hidden.
+  const savingsFc = StatsEngine.getSavingsForecast(month);
+  const savingsPred = savingsFc.free;
+  const surplusPred = savingsFc.surplus;
+  const planReservedPred = savingsFc.planReserved;
   const netDisposable = sp.netDisposable;
   const targetAmount = sp.targetAmount;
   const planDueVirtual = sp.planDueVirtual;
@@ -91,7 +97,7 @@ function renderOverview() {
 
   // Savings progress: how close to savings target based on predicted savings
   const actualSavings = Math.max(0, budget - effectiveTotal);
-  const savingsPct = targetAmount > 0 ? Math.min(savingsPred / targetAmount, 1) : 0;
+  const savingsPct = targetAmount > 0 ? Math.max(0, Math.min(savingsPred / targetAmount, 1)) : 0;
 
   // Aggregate to root categories for top 5.
   // Fixed-bill categories live in their own list, which getRootAncestorId cannot
@@ -141,8 +147,10 @@ function renderOverview() {
         <div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(monthTotal)}</div>
         ${(() => {
           const billActual = isRolling ? StatsEngine.getPeriodFixedSpending() : StatsEngine.getFixedSpendingActual(month);
+          // With the switch off monthTotal has no bills in it, so "daily + bills = total" no longer holds
+          // (it printed a negative daily figure) — the split line only makes sense with bills included.
           const varSpending = monthTotal - billActual;
-          if (billActual > 0) {
+          if (includeBills && billActual > 0) {
             return `<div class="text-xs text-muted mt-4" title="${__('overview.dailyBillsHint')}">${__('overview.dailyBillsBreakdown', formatMoney(varSpending), formatMoney(billActual))}</div>`;
           }
           return '';
@@ -157,17 +165,21 @@ function renderOverview() {
         <div class="card-title">${__('overview.dailyAvg')}</div>
         <div class="text-xl font-bold">${formatMoney(dailyAvg)}</div>
       </div>
-      <div class="card">
-        <div class="card-title">${isRolling ? __('overview.predicted.rolling') : __('overview.predicted.monthly')}</div>
+      <div class="card pred-card-switch" id="predictedCard" role="button" tabindex="0"
+           title="${__('overview.predSwitchTitle')}"
+           onclick="toggleOverviewBills()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleOverviewBills();}">
+        <div class="card-title">${includeBills
+          ? (isRolling ? __('overview.predicted.rolling') : __('overview.predicted.monthly'))
+          : (isRolling ? __('overview.predicted.rollingDaily') : __('overview.predicted.monthlyDaily'))}</div>
         <div class="text-xl font-bold">${formatMoney(predicted)}</div>
         ${(() => {
-          const bd = (typeof predictedBreakdown !== 'undefined' && predictedBreakdown) ? predictedBreakdown : null;
-          if (!bd) return '';
-          if (includeBills) {
-            return `<div class="text-xs text-muted mt-4" title="${__('overview.predictedHint')}">${__('overview.predictedBreakdown', formatMoney(bd.bills || 0), formatMoney(bd.large || 0), formatMoney(bd.normal || 0))}</div>`;
-          }
-          return `<div class="text-xs text-muted mt-4" title="${__('overview.predictedHint')}">${__('overview.predictedBreakdownNoBills', formatMoney(bd.large || 0), formatMoney(bd.normal || 0))}</div>`;
+          const line = formatPredictedBreakdown(predictedBreakdown);
+          return line ? `<div class="text-xs text-muted mt-4" title="${__('overview.predictedHint')}">${line}</div>` : '';
         })()}
+        <div class="pred-switch-row">
+          <span class="pred-switch-chip ${includeBills ? 'on' : ''}">${includeBills ? '✅ ' + __('overview.predSwitchOn') : '⬜ ' + __('overview.predSwitchOff')}</span>
+          <span class="pred-switch-tip">${includeBills ? __('overview.predSwitchTipOn') : __('overview.predSwitchTipOff')}</span>
+        </div>
       </div>
     </div>
 
@@ -289,10 +301,11 @@ function renderOverview() {
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('overview.estimatedMonthEndSavings')}</div>
           <div class="text-lg font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div>
+          ${planReservedPred > 0 ? `<div class="text-xs text-muted" style="margin-top:2px" title="${__('plan.afterPlansHint')}">${__('plan.afterPlansRow', formatMoney(surplusPred), formatMoney(planReservedPred))}</div>` : ''}
         </div>
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('overview.targetAchievement')}</div>
-          <div class="text-lg font-bold">${targetAmount > 0 ? Math.min(100, (savingsPred/targetAmount)*100).toFixed(0) + '%' : '—'}</div>
+          <div class="text-lg font-bold">${targetAmount > 0 ? (savingsPct * 100).toFixed(0) + '%' : '—'}</div>
         </div>
         ${planOccupied > 0 ? `
         <div style="padding:4px">
@@ -304,6 +317,7 @@ function renderOverview() {
         ${savingsPred >= 0
           ? __('overview.predictionPositive', formatMoney(savingsPred))
           : __('overview.predictionNegative', formatMoney(Math.abs(savingsPred)))}
+        ${planReservedPred > 0 && savingsPred >= 0 ? ' ' + __('plan.predictionPlanNote', formatMoney(planReservedPred)) : ''}
       </div>
       ${budget > 0 ? `
         ${(() => {
@@ -408,6 +422,32 @@ function renderOverview() {
     drawSparkline('sparklineChart', last7);
   }, 50);
 }
+// The forecast broken into the pieces that add up to it, e.g. "月账单 X ＋ 信用卡分期 Y ＋ 日常消费预估 Z".
+// Only parts that are not zero are shown (a RM0.00 part says nothing, and read like
+// something was wrong). With fewer than two parts left the line would just repeat
+// the total above it, so it is dropped. 月账单 = paid + still-unpaid planned bills;
+// switching 含固定账单 off removes exactly 月账单 and 信用卡分期, so the line shows
+// the user what the switch did.
+function formatPredictedBreakdown(bd) {
+  if (!bd) return '';
+  const parts = [];
+  const bills = (bd.bills || 0) + (bd.billsUnpaid || 0);
+  if (bills > 0.004) parts.push(__('predicted.part.bills', formatMoney(bills)));
+  if (bd.instalments > 0.004) parts.push(__('predicted.part.instalments', formatMoney(bd.instalments)));
+  if (bd.large > 0.004) parts.push(__('predicted.part.large', formatMoney(bd.large)));
+  if (bd.normal > 0.004) parts.push(__('predicted.part.daily', formatMoney(bd.normal)));
+  return parts.length >= 2 ? parts.join(' ＋ ') : '';
+}
+
+// The forecast card is a switch for 含固定账单 — the same switch as the one on the
+// budget-progress card (one setting, one place it is stored), so flipping it here
+// also moves 本月总支出 and the budget ring. Re-render everything: the old
+// checkbox only redrew the ring and left the cards above showing the old state.
+function toggleOverviewBills() {
+  try { localStorage.setItem('chartBillToggle_overviewBudget', isBillToggleChecked('overviewBudget') ? '0' : '1'); } catch (e) { /* storage blocked: nothing to remember */ }
+  renderOverview();
+}
+
 function refreshOverviewBudget() {
   const now = new Date();
   const month = getMonthKey(now.toISOString());
@@ -458,6 +498,8 @@ function refreshOverviewBudget() {
   // === EXPORTS ===
   window.renderOverview = renderOverview;
   window.refreshOverviewBudget = refreshOverviewBudget;
+  window.toggleOverviewBills = toggleOverviewBills;
+  window.formatPredictedBreakdown = formatPredictedBreakdown;
 
   // === I18N ENTRIES ===
   addI18nEntries({
@@ -481,10 +523,19 @@ function refreshOverviewBudget() {
     'overview.netIncome': { zh: '净收入', en: 'Net Income' },
     'overview.dailyAvg': { zh: '日均支出', en: 'Daily Avg' },
     'overview.predicted.rolling': { zh: '预测30天总支出', en: 'Predicted 30-Day Total' },
-    'overview.predictedBreakdown': { zh: '账单≈{0} ＋ 大额{1} ＋ 日常{2}', en: 'Bills~{0} + large {1} + daily {2}' },
-    'overview.predictedBreakdownNoBills': { zh: '大额{0} ＋ 日常{1}（已剔账单）', en: 'Large {0} + daily {1} (ex-bills)' },
-    'overview.predictedHint': { zh: '预测 = 账单趋势 ＋ 大额已发生（不计入日均） ＋ 日常趋势；大额是已花的真实金额，不参与日均推算', en: 'Forecast = bill trend + large actual (excluded from daily avg) + daily trend; large is money already spent' },
+    'overview.predictedHint': { zh: '预测 = 月账单（已付的，加上还没付的计划金额）＋ 信用卡分期 ＋ 已经花掉的大额消费 ＋ 按目前每天花的钱估算到月底的日常消费。点卡片可以切换「含 / 不含固定账单」，不含时只剩后两项。', en: 'Forecast = monthly bills (paid, plus the planned amount not yet paid) + card instalments + big purchases already made + everyday spending estimated to month-end at your current daily pace. Tap the card to include or exclude fixed bills; without them only the last two remain.' },
     'overview.predicted.monthly': { zh: '预测月总支出', en: 'Predicted Monthly Total' },
+    'overview.predicted.monthlyDaily': { zh: '预测月日常支出', en: 'Predicted Monthly Daily Spend' },
+    'predicted.part.bills': { zh: '月账单 {0}', en: 'Monthly bills {0}' },
+    'predicted.part.instalments': { zh: '信用卡分期 {0}', en: 'Card instalments {0}' },
+    'predicted.part.large': { zh: '大额消费 {0}', en: 'Big purchases {0}' },
+    'predicted.part.daily': { zh: '日常消费预估 {0}', en: 'Everyday estimate {0}' },
+    'overview.predSwitchOn': { zh: '含固定账单', en: 'Fixed bills included' },
+    'overview.predSwitchOff': { zh: '不含固定账单', en: 'Fixed bills excluded' },
+    'overview.predSwitchTipOn': { zh: '点一下改成不含', en: 'Tap to exclude' },
+    'overview.predSwitchTipOff': { zh: '点一下改成包含', en: 'Tap to include' },
+    'overview.predSwitchTitle': { zh: '点击切换：要不要把房租、水电等固定账单算进来。这是总览共用的开关，「本月总支出」和「预算进度」也会一起变', en: 'Tap to switch whether fixed bills like rent and utilities are counted. This is one shared switch on the overview: “This month’s spending” and “Budget progress” change with it' },
+    'overview.predicted.rollingDaily': { zh: '预测30天日常支出', en: 'Predicted 30-Day Daily Spend' },
     'overview.yesterdaySpending': { zh: '昨日消费 ({0})', en: 'Yesterday ({0})' },
     'overview.todaySpending': { zh: '今日消费 ({0})', en: 'Today ({0})' },
     'overview.none': { zh: '暂无', en: 'None' },
@@ -499,8 +550,8 @@ function refreshOverviewBudget() {
     'overview.savingsLabel': { zh: '储蓄', en: 'Savings' },
     'overview.dailySpendable': { zh: '日常可用', en: 'Spendable' },
     'overview.savingsTarget': { zh: '储蓄目标', en: 'Savings Target' },
-    'overview.targetAchieved': { zh: '✅ 已达成目标', en: '✅ Target Met' },
-    'overview.estimatedSave': { zh: '预计存', en: 'Est. save' },
+    'overview.targetAchieved': { zh: '✅ 预计可达成目标', en: '✅ On track to meet target' },
+    'overview.estimatedSave': { zh: '预计储蓄', en: 'Est. savings' },
     'overview.savingsPrediction': { zh: '💵 储蓄预测', en: '💵 Savings Forecast' },
     'overview.currentSaved': { zh: '累计已存', en: 'Cumulative Saved' },
     'overview.estimatedMonthEndSavings': { zh: '预计月末储蓄', en: 'Est. Month-End Savings' },

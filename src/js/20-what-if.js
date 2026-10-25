@@ -303,16 +303,22 @@ function renderWhatIfResults(result) {
   // Baseline uses actualSpent (my real share only — same scope as totalProjected),
   // NOT getVariableSpending which still includes uncollected split amounts; otherwise
   // all-trend would shift the adjusted total by the unpaid portion.
-  const unpaidBillsAdj = Math.max(0, DataStore.getBillTotal(getMonthKey(new Date().toISOString())) - StatsEngine.getBillSpendingActual(getMonthKey(new Date().toISOString())));
   const varTrendTotal = daysPassed > 0 ? actualSpent / daysPassed * daysInMonth : 0;
   const varAdjustment = totalProjected - varTrendTotal;
   const adjustedTotal = trendTotal + varAdjustment;
   const adjustedDailyAvg = adjustedTotal / daysInMonth;
-  const adjustedSavings = income - adjustedTotal - unpaidBillsAdj;
+  // Same basis as trendSavings: what is left after the purchase plans took their
+  // share (re-run on THIS scenario's surplus, since a tighter month lets the
+  // plans take less).
+  // trendTotal (and so adjustedTotal) already holds the bills still unpaid
+  const adjustedSurplus = income - adjustedTotal;
+  const adjustedSavings = (typeof PlanMath !== 'undefined')
+    ? PlanMath.afterPlans(getMonthKey(new Date().toISOString()), adjustedSurplus).free
+    : adjustedSurplus;
   console.log('[WhatIfResults] adjusted values:', {
     totalProjected, varTrendTotal, varAdjustment,
     trendTotal, adjustedTotal, adjustedDailyAvg,
-    adjustedSavings, trendSavings, unpaidBillsAdj
+    adjustedSavings, trendSavings
   });
   // Recompute attainment
   const savingsDiffForDisplay = adjustedSavings - targetAmount;
@@ -326,7 +332,7 @@ function renderWhatIfResults(result) {
   // === 对比摘要：收入（流入 +） vs 支出（流出 −），储蓄为轧差 ===
   html += `<div class="card mb-16 whatif-summary-card">
     <div class="card-title">📊 ${__('whatif.totalPrediction')}</div>
-    <div class="text-xs text-muted" style="margin-bottom:8px">💰 ${__('whatif.incomeInflow', '+' + formatMoney(income))} · 💸 ${__('whatif.spendingOutflow')} · ${__('whatif.savingsFormula')}</div>
+    <div class="text-xs text-muted" style="margin-bottom:8px">💰 ${__('whatif.incomeInflow', '+' + formatMoney(income))} · 💸 ${__('whatif.spendingOutflow')} · ${result.planDueVirtual > 0 ? __('whatif.savingsFormulaPlans') : __('whatif.savingsFormula')}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center">
       <div>
         <div class="text-xs text-muted">${__('whatif.trendTotal')}</div>
@@ -838,7 +844,8 @@ function attachWhatIfListeners(month) {
     'whatif.billsExcludedNote': { zh: '固定账单不参与趋势预测，已在总额中单独计算。', en: 'Fixed bills are excluded from trend projection and counted separately in the total.' },
     'whatif.incomeInflow': { zh: '收入（流入）{0}', en: 'Income (inflow) {0}' },
     'whatif.spendingOutflow': { zh: '支出（流出）', en: 'Spending (outflow)' },
-    'whatif.savingsFormula': { zh: '储蓄 = 收入 − 总支出 − 未付账单', en: 'Savings = income − spending − unpaid bills' },
+    'whatif.savingsFormula': { zh: '储蓄 = 收入 − 总支出（已包含还没付的账单）', en: 'Savings = income − spending (unpaid bills already included)' },
+    'whatif.savingsFormulaPlans': { zh: '储蓄 = 收入 − 总支出（已包含还没付的账单）− 大额计划要存 / 还的钱', en: 'Savings = income − spending (unpaid bills already included) − what your plans take' },
     'whatif.categoryDetailsNote': { zh: '仅支出分类；收入为流入不在此列，固定账单另计。', en: 'Expense categories only; income (inflow) and fixed bills are counted elsewhere.' },
     'whatif.categoryAdjustments': { zh: '分类支出调整', en: 'Category Adjustments' },
     'whatif.categoryDesc': { zh: '调整每个分类在剩余天数的支出方式。点击名称展开子分类。<br>「固定剩余总额」= 剩余天数总共花指定金额；「比趋势± %/天」= 在日均基础上增减。', en: 'Adjust how each category spends in remaining days. Click a name to expand subcategories.<br>"Fixed Remaining Total" = spend a fixed amount in remaining days; "± % vs Trend" = adjust from daily average.' },
@@ -870,7 +877,7 @@ function attachWhatIfListeners(month) {
     'whatif.vsTrend': { zh: '较趋势差额', en: 'vs Trend' },
     'whatif.dailyTrend': { zh: '日均支出（趋势）', en: 'Daily Avg (Trend)' },
     'whatif.savingsGoal': { zh: '储蓄目标', en: 'Savings Target' },
-    'whatif.planReserved': { zh: '🎯 大额计划已从日常可用额度中预留 {0}（这笔钱是存下的，不算消费，所以不影响上面的储蓄预测）', en: '🎯 Purchase plans reserve {0} out of the daily allowance. That money is retained rather than spent, so it does not reduce the savings projection above.' },
+    'whatif.planReserved': { zh: '🎯 大额计划本月要存 / 还 {0}，已从日常可用额度里留出来。这笔钱不算花掉，所以不在「总支出」里；但上面的「可储蓄」已经先扣掉了它——先满足计划，剩下的才算储蓄。', en: '🎯 Your plans take {0} this month, set aside from your daily allowance. It is not spent, so it is not in “spending”; but “Savable” above already has it taken off — plans come first, what is left counts as savings.' },
     'whatif.dailyHypo': { zh: '日均支出（假设）', en: 'Daily Avg (Adjusted)' },
     'whatif.trend': { zh: '趋势', en: 'Trend' },
     'whatif.hypothetical': { zh: '假设', en: 'Hypothetical' },

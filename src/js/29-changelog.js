@@ -15,6 +15,23 @@
    "pending" is simply the slice of the registry above it. Adding an
    announcement means inserting one entry — nothing else, and no version bump.
 
+   WRITING AN ANNOUNCEMENT (read this before adding one)
+   -----------------------------------------------------
+   The reader is an ordinary person who has never kept a budget before. If a
+   sentence only makes sense to someone who already knows what a term means,
+   the announcement has failed. So:
+     - One entry = at most 3-4 items; one item = one or two short sentences.
+     - Say what the user can now DO, or what was wrong and is now right.
+       Not how it works inside, not which module changed.
+     - No jargon: 下钻 / 口径 / 流水 / 外推 / 叶子分类 / 同步冲突 / 加密算法 ...
+       Use 展开下一层 / 算法 / 记录 / 估算 / 没有下一层 ... instead. If a
+       label the user sees is itself a hard word, explain it in the same
+       sentence ("固定账单 = 每月固定要付的房租、水电等").
+     - Give one tiny example when a number is involved.
+     - Skip anything only a developer would care about (version plumbing,
+       refactors, test fixes) - it does not belong in front of users.
+     - The title does not repeat the version; the line under it shows it.
+
    ADDING AN ANNOUNCEMENT (the whole release ritual)
    --------------------------------------------------
      1. Add an entry at the TOP of CHANGELOG with a fresh `id` (a date works
@@ -39,12 +56,15 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
-    id: '2026-10-22',
-    version: '3.6.8',
-    date: '2026-10-22',
+    id: '2026-10-25',
+    version: '3.7.0',
+    date: '2026-10-25',
     title: 'changelog.a10.title',
     items: [
-      { icon: '📢', text: 'changelog.a10.item1' }
+      { icon: '👆', text: 'changelog.a10.item1' },
+      { icon: '🧾', text: 'changelog.a10.item2' },
+      { icon: '🎯', text: 'changelog.a10.item3' },
+      { icon: '📝', text: 'changelog.a10.item4' }
     ]
   },
   {
@@ -75,8 +95,7 @@ const CHANGELOG = [
       { icon: '📅', text: 'changelog.a7.item1' },
       { icon: '💰', text: 'changelog.a7.item2' },
       { icon: '🤝', text: 'changelog.a7.item3' },
-      { icon: '🔮', text: 'changelog.a7.item4' },
-      { icon: '📊', text: 'changelog.a7.item5' }
+      { icon: '🔮', text: 'changelog.a7.item4' }
     ]
   },
   {
@@ -127,9 +146,7 @@ const CHANGELOG = [
     date: '2026-10-05',
     title: 'changelog.a1.title',
     items: [
-      { icon: '📣', text: 'changelog.a1.item1' },
-      { icon: '🔧', text: 'changelog.a1.item2' },
-      { icon: '🔧', text: 'changelog.a1.item3' }
+      { icon: '📣', text: 'changelog.a1.item1' }
     ]
   },
   {
@@ -376,132 +393,132 @@ function close() {
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
 
-    'changelog.a10.title': { zh: '更新测试', en: 'Update test' },
+    'changelog.a10.title': { zh: 'v3.7.0 预测更准了，总览的数字对得上了', en: 'v3.7.0: better forecasts, and the overview numbers add up' },
     'changelog.a10.item1': {
-      zh: '更新的时候看情况我就会这样发公告！当然也不是每一次就会发就是了',
-      en: 'When I ship an update, I may post an announcement like this, depending on the situation! Of course, not every update will have one.'
+      zh: '<strong>点「预测月总支出」那张卡片，就能切换算不算固定账单</strong>（房租、水电这类）。卡片上会写着现在是哪种状态，以及点一下会变成什么。',
+      en: '<strong>Tap the “Predicted monthly total” card to switch fixed bills (rent, utilities…) on or off</strong>. The card shows which state it is in now, and what a tap will do.'
+    },
+    'changelog.a10.item2': {
+      zh: '<strong>预测现在会把月账单算进来</strong>：包括你设了金额、但还没付的那部分。信用卡分期也单独列出来，点开关时是哪几项在变，一眼就能看明白。已经付掉的房租也不会再被越估越多。',
+      en: '<strong>The forecast now counts your monthly bills</strong>, including the amounts you set but have not paid yet. Card instalments get their own line, so you can see exactly what changes when you flip the switch. Rent you have already paid is no longer inflated.'
+    },
+    'changelog.a10.item3': {
+      zh: '<strong>各个页面的「预计储蓄」现在是同一个数</strong>：大额计划先拿走它那份，剩下的才算你能存下的钱。以前总览写 98，大额计划里却是 0，现在不会了。',
+      en: '<strong>“Projected savings” is now the same number on every page</strong>: your purchase plans take their share first, and what is left is what you can save. The overview used to say 98 while the plans page said 0 — no more.'
+    },
+    'changelog.a10.item4': {
+      zh: '<strong>几处小改进</strong>：数额是 0 的部分不再显示；统计页的「当前已存」改叫「累计已存」；预计还能达成目标时，不再写成「已达成」。',
+      en: '<strong>A few small fixes</strong>: parts that are zero are no longer shown; “Saved so far” on the stats page is now “Cumulative Saved”; a target you are only on track for is no longer called “met”.'
     },
 
-    'changelog.a9.title': { zh: 'v3.6.7 点分类图：下钻和看明细不再打架', en: 'What\'s in v3.6.7: drilling down and viewing records no longer collide' },
+    'changelog.a9.title': { zh: '点图表的方式调整了', en: 'Tapping a chart works differently' },
     'changelog.a9.item1': {
-      zh: '<strong>点图上的色块 = 下钻；看明细 = 点表格里的那一行</strong>：以前点饼图 / 格子图 / 矩形图的色块，会同时弹出明细和下钻，两件事挤在一次点击里。现在色块只管下钻；想看某个分类的流水，展开「分类明细」，点对应的那一行。点到没有子分类的块（比如叶子分类、「月账单」）会弹一条提示，不再没反应。',
-      en: '<strong>Click a chart block to drill down; click a table row to see its records</strong> - before, clicking a block on the pie / waffle / treemap did both at once, squeezing two actions into one click. Now a block only drills down; to see a category\'s records, open “Category details” and click its row. A block with nothing to drill into (a leaf category, “Monthly bills”) now shows a hint instead of doing nothing.'
+      zh: '<strong>点图上的色块 = 展开下一层；想看具体的记录，点下面表格里的那一行。</strong>点到没有下一层的色块会提示你，不会没反应。',
+      en: '<strong>Tap a block in the chart to open the next level; to see the actual records, tap its row in the table below.</strong> A block with nothing below it now tells you so instead of doing nothing.'
     },
 
-    'changelog.a8.title': { zh: 'v3.6.3 「含固定账单」开关终于管用了', en: 'What\'s in v3.6.3: the “Include fixed bills” switch now actually works' },
+    'changelog.a8.title': { zh: '「含固定账单」开关现在真的有用了', en: 'The “Include fixed bills” switch now works' },
     'changelog.a8.item1': {
-      zh: '<strong>「含固定账单」勾不勾，图表现在真的会变</strong>：以前统计页的饼图 / 格子图 / 矩形图，不管勾不勾，房租水电这些固定账单<strong>从来没出现过</strong>。现在勾选时每个账单是图里单独的一块（点一下能看该账单的流水），取消勾选就去掉；总览的「支出前五分类」同理。',
-      en: '<strong>Ticking “Include fixed bills” now really changes the charts</strong> - before, the pie / waffle / treemap on Stats <strong>never showed</strong> fixed bills like rent and utilities, ticked or not. Now each bill is its own block while the box is ticked (tap it to see that bill\'s records) and disappears when unticked; the Overview top-5 categories follow the same rule.'
+      zh: '<strong>勾选「含固定账单」，每月固定要付的房租、水电等就会出现在统计图里</strong>，取消勾选就消失。点一下还能看到这笔账单的记录。',
+      en: '<strong>Tick “Include fixed bills” and your monthly rent, utilities and the like show up in the charts</strong>; untick and they go away. Tap one to see its records.'
     },
     'changelog.a8.item2': {
-      zh: '<strong>信用卡分期跟着这个开关走</strong>：分期的每月还款和房租一样是固定支出，取消勾选「含固定账单」时，它不再算进日常消费、日均、预测和图表，日常可花预算也会先把它扣掉。「剩余日常」的数字和以前一致；报告页、假设分析没有这个开关，口径不变。',
-      en: '<strong>Card instalments follow the switch</strong> - a monthly instalment is a fixed expense just like rent, so with “Include fixed bills” unticked it is left out of daily spending, the daily average, the forecast and the charts, and the daily budget has it taken out first. “Remaining daily” is unchanged; the Report and What-If pages have no such switch and are unchanged.'
+      zh: '<strong>信用卡分期也跟着这个开关走</strong>：和房租一样算固定支出，取消勾选就不算进日常花销。',
+      en: '<strong>Card instalments follow the switch too</strong> - they count as fixed spending like rent, so unticking leaves them out of everyday spending.'
     },
 
-    'changelog.a7.title': { zh: 'v3.6.2 记账更顺手 + 几处数字改对了', en: 'What\'s in v3.6.2: smoother entry, a few numbers corrected' },
+    'changelog.a7.title': { zh: '记账更顺手，几处数字改对了', en: 'Smoother entry, a few numbers fixed' },
     'changelog.a7.item1': {
-      zh: '<strong>记账日期可以一键换天</strong>：日期栏左右两侧多了 ‹ › 按钮，按一下就切到前一天 / 后一天；记完一笔后<strong>日期不再被重置</strong>，连着补记同一天的账不用每笔重新选日期。',
-      en: '<strong>Step the date with one tap</strong> - the date field now has ‹ and › buttons on either side to jump to the previous or next day. The date is <strong>no longer reset after saving</strong>, so you can log several entries for the same day without re-picking it.'
+      zh: '<strong>记账日期可以一键换天</strong>：日期两边多了 ‹ › 按钮。记完一笔后日期不会被重置，连着补记同一天很方便。',
+      en: '<strong>Change the date in one tap</strong> - the date has ‹ › buttons on each side, and it is no longer reset after saving, so adding several entries for one day is quick.'
     },
     'changelog.a7.item2': {
-      zh: '<strong>金额从「分」开始填</strong>（类似 Touch \'n Go）：只按数字键，输入 23642 就是 RM 236.42，不用再找小数点，按退格删掉最后一位。记账、预算、假设分析、分摊、购物计划等<strong>全应用的金额框</strong>都是这样；可正可负的框旁边多了 ± 按钮。',
-      en: '<strong>Amounts fill in from the cents</strong> (like Touch \'n Go) - just press digits: typing 23642 gives RM 236.42, no decimal point needed, and Backspace removes the last digit. <strong>Every amount field in the app</strong> works this way (add record, budgets, what-if, split bills, purchase plans…); fields that can be negative get a ± button.'
+      zh: '<strong>输入金额更简单</strong>：只按数字键，输入 23642 就是 236.42，不用再找小数点。',
+      en: '<strong>Typing amounts is simpler</strong> - just press digits: 23642 becomes 236.42, no decimal point needed.'
     },
     'changelog.a7.item3': {
-      zh: '<strong>追账中心只列还没收齐的</strong>：已归档的账单不再出现在「按人」里，已经还清的人也不再显示，「按账单」同理。已结清 / 已归档的账单集中放在第三个标签里，恢复和删除入口都还在。',
-      en: '<strong>The split center lists only what is still owed</strong> - archived bills no longer show up under "By person", people who have fully repaid are hidden, and "By bill" works the same way. Settled and archived bills live in the third tab, where restore and delete are still available.'
+      zh: '<strong>分摊账单只显示还没收回的钱</strong>：已还清的人和已归档的账单，收进了单独的标签页。',
+      en: '<strong>Split bills only show what is still owed to you</strong> - people who have paid you back and archived bills moved to their own tab.'
     },
     'changelog.a7.item4': {
-      zh: '<strong>修正假设分析的重复计算</strong>：对父分类设置调整（比如餐饮每天少花 RM 2）时，旧版把这个调整给每个子分类各算了一遍，省下的钱被成倍放大。现在整组只算一次，再按各子分类过往的花销比例分摊。',
-      en: '<strong>What-if no longer double-counts</strong> - an adjustment on a parent category (say, spend RM 2 less per day on Food) used to be applied once to every subcategory, multiplying the savings. It is now applied once to the whole group and split by each subcategory\'s past spending.'
-    },
-    'changelog.a7.item5': {
-      zh: '<strong>「日均」数字统一了</strong>：报告页底部那句「本月至今已消费…日均…」以前是用总支出除以「有消费的天数」，和总览对不上；现在全应用都是「已过天数内我自己的支出 ÷ 已过天数」。滚动 30 天的日均也不再把勾了「不计日均」的大额算进去。',
-      en: '<strong>One definition of daily average</strong> - the sentence at the bottom of the report page ("spent so far this month… average per day…") used to divide by the number of days that had spending, so it disagreed with the overview. Everywhere now uses "my own spending so far ÷ days elapsed", and the rolling 30-day average also leaves out records marked "exclude from daily average".'
+      zh: '<strong>改对了两处算错的数字</strong>：「假设分析」里调整一个大类时，省下的钱不再被重复计算；「日均」在所有页面算法一致了。',
+      en: '<strong>Two wrong numbers fixed</strong> - in What-If, adjusting a main category no longer counts the savings several times, and the daily average is now worked out the same way on every page.'
     },
 
-    'changelog.a6.title': { zh: 'v3.6.1 手机上的分类页不再挤字', en: 'What\'s in v3.6.1: the categories page fits on a phone' },
+    'changelog.a6.title': { zh: '手机上的分类页不再挤字', en: 'The categories page fits on a phone' },
     'changelog.a6.item1': {
-      zh: '<strong>手机上的分类页重新排版</strong>：以前分类名会被 ⬆️ ⬇️ ➕ ⚙️ 和预算框挤得一个字都看不到。现在每个分类占两行——上面是图标和完整的名字（太长最多折成两行），下面是预算框和操作按钮；子分类的缩进也收窄了，嵌套再深名字也不会被挤没；操作图标的点击区放大，更好按。电脑端不变。',
-      en: '<strong>Categories page re-laid out for phones</strong> - category names used to be squeezed to nothing by the ⬆️ ⬇️ ➕ ⚙️ icons and the budget box. Each category is now two lines: the icon and the full name on top (long names wrap to two lines), the budget box and actions below. Nesting indent is narrower so a name survives however deep it sits, and the action icons are bigger to tap. Desktop is unchanged.'
+      zh: '<strong>手机上能看到完整的分类名字了</strong>：每个分类分成两行，名字在上，按钮在下。电脑上没有变化。',
+      en: '<strong>Full category names on a phone</strong> - each category now takes two lines, name on top and buttons below. Nothing changes on a computer.'
     },
 
-    'changelog.a5.title': { zh: 'v3.6.0 口径说清楚 + 预测有明细 + 点图看记录', en: 'What\'s in v3.6.0: clearer labels, forecast breakdown, tap-to-inspect charts' },
+    'changelog.a5.title': { zh: '难懂的词改直白了，图表可以点', en: 'Plainer wording, tappable charts' },
     'changelog.a5.item1': {
-      zh: '<strong>以前云里雾里的几个词改名了</strong>：「含账单」→「含固定账单」；「收支结余」拆成「预算结余」（月收入设定 − 已花 − 未付账单）和「实际结余」（流水收入 − 流水支出）；「剩余总额/天」→「剩余可花/天（未扣储蓄目标）」，旁边那格是「日常可花/天（已扣账单+储蓄）」，公式都写进小字和悬停说明。本月总支出下方注明「其中日常净支出 ＋ 账单流水」「你的实际承担 ＋ 待收回 ＝ 上方合计」。',
-      en: '<strong>Confusing labels renamed</strong> - "Include bills" is now "Incl. fixed bills"; "Balance" is split into "Budget balance" (income setting − spent − unpaid bills) and "Net (recorded)" (ledger income − ledger spending); the two per-day boxes now read "Left to spend/day (pre-savings)" and "Daily spendable/day (ex-bills & savings)" with their formulas in the fine print and tooltips. The monthly total notes its daily/bill split and your-share vs to-collect breakdown.'
+      zh: '<strong>难懂的词改成了更直白的说法</strong>，旁边还用小字写明了是怎么算出来的。',
+      en: '<strong>Hard-to-read terms now use plainer words</strong>, with a short note beside each saying how it is worked out.'
     },
     'changelog.a5.item2': {
-      zh: '<strong>预测月总支出下方有了明细</strong>：账单趋势 ＋ 大额已发生（不计入日均） ＋ 日常趋势，三项加起来正好等于预测数，不用再猜预测是怎么算出来的。',
-      en: '<strong>The forecast total shows its math</strong> - under the predicted monthly total: bill trend + large one-offs already spent (excluded from the daily average) + daily trend. The three parts always add up to the predicted number.'
+      zh: '<strong>预测的本月支出能看到明细</strong>：由哪几部分加起来的，一目了然。',
+      en: '<strong>The forecast of this month’s spending shows what it is made of</strong>, so you can see where the number comes from.'
     },
     'changelog.a5.item3': {
-      zh: '<strong>分类三张图支持点色块看记录</strong>：饼图 / 格子图 / 矩形图点任意色块，就弹该领域在本月的全部消费记录，还能一键跳到流水页看；原来的下钻不受影响。',
-      en: '<strong>Tap any chart block to inspect records</strong> - pie, waffle and treemap blocks now pop up every record of that category this month, with a jump to the ledger. Drilling into subcategories still works as before.'
+      zh: '<strong>点图上的色块，可以看这个分类本月的所有记录</strong>，还能一键跳到记录页。',
+      en: '<strong>Tap a block in the chart to see this category’s records for the month</strong>, with a shortcut to the records page.'
     },
     'changelog.a5.item4': {
-      zh: '<strong>假设分析分清收入和支出</strong>：参数面板只列支出分类——收入按设定锁定、固定账单另计，不再混在一起；结果页用徽标区分流入 / 流出，并写明「储蓄 = 收入 − 总支出 − 未付账单」。',
-      en: '<strong>What-if separates income from spending</strong> - the parameters list expense categories only: income is locked to its setting and fixed bills are counted separately. Results badge inflows vs outflows and state the formula "savings = income − spending − unpaid bills".'
+      zh: '<strong>「假设分析」把收入和支出分开了</strong>：只能调整支出，结果页会写明储蓄是怎么算出来的。',
+      en: '<strong>What-If keeps income and spending apart</strong> - you can only adjust spending, and the result page explains how savings are worked out.'
     },
 
-    'changelog.a4.title': { zh: 'v3.5.0 分类可排序 + 选分类不再刷屏', en: 'What\'s in v3.5.0: sorting and a picker you can search' },
+    'changelog.a4.title': { zh: '分类可以自己排序，选分类更方便', en: 'Sort your categories, pick them more easily' },
     'changelog.a4.item1': {
-      zh: '<strong>分类顺序可以自己排了</strong>:分类页每一行左边多了 ⬆️ / ⬇️,子分类和根分类都能排,首尾会自动置灰。顺序存在分类本身上,云端同步会一起带走——另一台设备拉下来就是你排好的顺序。',
-      en: '<strong>Reorder categories</strong> - every row on the categories page now has ⬆️ / ⬇️, for roots and subcategories alike, greyed out at the ends of the list. The order lives on the category itself, so cloud sync carries it: the other device pulls it already in the order you set.'
+      zh: '<strong>分类的顺序可以自己排</strong>：每个分类旁边有 ⬆️ ⬇️ 按钮，换设备同步后顺序也一样。',
+      en: '<strong>Put your categories in the order you like</strong> - each one has ⬆️ ⬇️ buttons, and the order follows you to other devices.'
     },
     'changelog.a4.item2': {
-      zh: '<strong>选分类不再一次铺满</strong>:记账、编辑、流水筛选、批量改分类这几个弹窗原本默认把整棵树展开,分类一多就得一路划到底。现在默认收起、点箭头逐层展开,还加了搜索框——输入分类名或 emoji,命中的结果会自动展开到看得见的位置,祖先行上还会标出有几个命中。',
-      en: '<strong>Pickers that do not flood you</strong> - the add, edit, records-filter and batch-recategorise pickers used to open with the whole tree expanded, so with any depth you scrolled to the bottom just to reach 餐饮. They now start collapsed, open one branch at a time, and have a search box: type a name or an emoji and the matches are expanded into view, with each ancestor row showing how many hits it contains.'
+      zh: '<strong>选分类不再一长串</strong>：默认收起，点开才展开，还能直接搜名字。',
+      en: '<strong>Picking a category is no longer a long list</strong> - groups start folded, open when tapped, and you can search by name.'
     },
 
-    'changelog.a3.title': { zh: 'v3.4.0 新增：收入记账', en: 'What\'s in v3.4.0: income' },
+    'changelog.a3.title': { zh: '新增：可以记收入了', en: 'New: you can record income' },
     'changelog.a3.item1': {
-      zh: '<strong>可以记收入了</strong>:新增记录页顶部有「支出 / 收入」切换,收入默认带工资、副业、报销/退款、理财收益、其他收入五棵分类树。流水里收入显示为绿色带 + 号。',
-      en: '<strong>Income entries</strong> - the new-record page has an expense / income switch, with five ready-made income categories (salary, side work, reimbursements, returns, investments). Income rows show green with a leading + in the ledger.'
+      zh: '<strong>可以记收入了</strong>：记账页顶部切换「支出 / 收入」，已备好工资、副业、报销等分类。',
+      en: '<strong>You can record income</strong> - switch between spending and income at the top of the add page; salary, side work, refunds and more are ready to use.'
     },
     'changelog.a3.item2': {
-      zh: '<strong>收入有自己的分类树</strong>:分类页分成「支出分类」和「收入分类」两块,收入分类右侧显示本月实际到账金额而不是预算框 —— 工资没有「超支」这回事。',
-      en: '<strong>Income has its own tree</strong> - the categories page is split into expenses and income. Income rows show what actually arrived this month instead of a budget box, because there is no such thing as overspending your salary.'
+      zh: '<strong>收入有自己的分类</strong>：分类页分成「支出」和「收入」两块。',
+      en: '<strong>Income has its own categories</strong> - the categories page is split into spending and income.'
     },
     'changelog.a3.item3': {
-      zh: '<strong>收支结余</strong>:总览、统计、报表多了「收入 / 支出 / 结余」,近半年趋势图多了一条绿色收入线,Excel 与 CSV 导出也带上了类型和收入列。',
-      en: '<strong>Net cash flow</strong> - the overview, stats and report gained income / spending / net, the six-month trend chart gained a green income line, and the Excel and CSV exports carry a type column and income totals.'
+      zh: '<strong>能看到赚了多少、还剩多少</strong>：总览、统计、报告里多了收入和「收入 − 支出」，Excel 导出也带上了。',
+      en: '<strong>See what came in and what is left</strong> - the overview, stats and report now show income and income minus spending, and the Excel export includes them.'
     },
 
-    'changelog.a1.title': { zh: '版本公告', en: 'Version Announcements' },
+    'changelog.a1.title': { zh: '新增「版本公告」', en: 'New: “What’s new” notes' },
     'changelog.a1.item1': {
-      zh: '<strong>版本公告功能</strong>：每次打开应用，若检测到你还没看过本版本的更新，就会弹出说明。跳过了多个版本也能用左右箭头翻看；设置页里随时可以回看完整更新日志。',
-      en: '<strong>Version announcements</strong> — whenever you open the app and haven\'t seen what changed yet, a summary pops up. Missed several versions? Use the left/right arrows. The full history is always browsable from Settings.'
-    },
-    'changelog.a1.item2': {
-      zh: '<strong>版本号收敛为单一来源</strong>：设置页、诊断报告、页面标题原先各自硬编码一份 <code>v3.3.0</code>，现在统一读 <code>APP_VERSION</code>。',
-      en: '<strong>One source of truth for the version</strong> — the settings footer, the diagnostics export and the page title each hardcoded their own <code>v3.3.0</code>. They all read <code>APP_VERSION</code> now.'
-    },
-    'changelog.a1.item3': {
-      zh: '<strong>修页面标题的版本号不显示</strong>：标题里的版本号一直被 i18n 覆盖掉，浏览器标签页实际只显示「记账软件」。',
-      en: '<strong>Fixed the version never showing in the page title</strong> — the version in <code>&lt;title&gt;</code> was being overwritten by i18n, so the tab only ever read "Budget Tracker".'
+      zh: '<strong>应用更新后，打开时会弹出这样的说明</strong>。错过了好几次更新，可以用左右箭头翻看；设置页里随时能回看。',
+      en: '<strong>After an update, a note like this appears when you open the app.</strong> Missed a few? Use the arrows to flip through; Settings keeps the full history.'
     },
 
-    'changelog.a2.title': { zh: 'v3.3.0 更新内容', en: 'What\'s in v3.3.0' },
+    'changelog.a2.title': { zh: '新增云端同步，修复两个数据问题', en: 'Cloud sync, plus two data fixes' },
     'changelog.a2.item1': {
-      zh: '<strong>可选云端同步（端到端加密）</strong>：多设备自动同步，服务端只见密文。支持 PIN 解锁后同步、gzip 压缩、冲突时三方合并。',
-      en: '<strong>Optional cloud sync (end-to-end encrypted)</strong> — your ledger syncs across devices and the server only ever holds ciphertext. Works after PIN unlock, gzipped, with a three-way merge on conflict.'
+      zh: '<strong>可以在多台设备之间自动同步了</strong>（可选）：数据加密后再上传，服务器看不到你的内容。',
+      en: '<strong>Your data can sync between devices automatically</strong> (optional) - it is encrypted before upload, so the server cannot read it.'
     },
     'changelog.a2.item2': {
-      zh: '<strong>修 PIN 锁定期间丢数据</strong>：锁定 / 解锁流程会清空内存数据，期间的新改动此前会丢。',
-      en: '<strong>Fixed data loss while PIN-locked</strong> — locking clears the in-memory store, and edits made around that moment were previously dropped.'
+      zh: '<strong>修复：设置了 PIN 锁后，新记的账可能丢失</strong>。',
+      en: '<strong>Fixed: new entries could be lost when a PIN lock was on.</strong>'
     },
     'changelog.a2.item3': {
-      zh: '<strong>修数据指纹漏字段</strong>：冲突检测此前漏掉若干字段，两台设备上的改动可能察觉不到。',
-      en: '<strong>Fixed gaps in the data fingerprint</strong> — some fields were excluded, so changes made on two devices could go unnoticed.'
+      zh: '<strong>修复：两台设备同时改数据时，有些改动可能被漏掉</strong>。',
+      en: '<strong>Fixed: when two devices changed data at once, some changes could be missed.</strong>'
     },
     'changelog.a2.item4': {
-      zh: '<strong>分类支出矩形图</strong>：面积正比于金额，子分类嵌套在父分类的框里，一眼看出大数字是被哪一支拉高的。',
-      en: '<strong>Category treemap</strong> — area is proportional to spend and child boxes nest inside their parent, so it\'s obvious which branch inflated the total.'
+      zh: '<strong>新增「矩形图」</strong>：方块越大花得越多，一眼看出钱主要花在哪。',
+      en: '<strong>New “treemap” chart</strong> - the bigger the box, the more you spent, so you can see where the money goes.'
     },
     'changelog.a2.item5': {
-      zh: '<strong>展开视图修复</strong>：放大到接近全屏，并修掉多张图叠在一起显示、明细表下钻失效、canvas 分辨率导致的整体模糊。',
-      en: '<strong>Expanded-view fixes</strong> — now nearly full-screen, and fixed charts stacking on top of each other, the detail table failing to drill down, and overall blurriness from a mismatched canvas resolution.'
+      zh: '<strong>放大查看图表时不再重叠、不再模糊</strong>。',
+      en: '<strong>Enlarged charts no longer overlap or look blurry.</strong>'
     }
   });
 })();

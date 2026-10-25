@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://sfwnpwchujslqfnmdyxo.supabase.co; base-uri 'none'; form-action 'none';">
-  <title>记账软件 v3.6.8</title>
+  <title>记账软件 v3.7.0</title>
   <style>
 /* ===== CSS DESIGN SYSTEM ===== */
 :root {
@@ -1684,6 +1684,49 @@ body.modal-open {
 
 .percent-base-group.visible {
   display: block;
+}
+
+/* ===== PREDICTED-CARD SWITCH (overview): the whole card is the button; the chip shows the current state ===== */
+
+.pred-card-switch {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pred-card-switch:active {
+  transform: scale(0.98);
+}
+
+.pred-switch-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pred-switch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.pred-switch-chip.on {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.pred-switch-tip {
+  font-size: 0.7rem;
+  color: var(--text-muted);
 }
 /* ===== PRINT STYLES ===== */
 @media print {
@@ -3465,7 +3508,7 @@ try{
 // docs/superpowers/specs/2026-09-28-changelog-announcement-design.md.
 // Do not confuse this with the cloud ledger's monotonic integer `version` in
 // 28-cloud-sync.js — that is a different concept in a different IIFE.
-const APP_VERSION = '3.6.8';
+const APP_VERSION = '3.7.0';
 
 const COLORS = [
   '#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6',
@@ -6224,43 +6267,58 @@ const StatsEngine = {
   // What-If baseline, simulator — needs this version, or a checked "exclude from
   // daily avg" record makes the projected total dip below money already spent
   // and the savings forecast comes out systematically inflated (A-1).
+  //
+  // Only the everyday part is projected. Everything else is a known amount: large
+  // purchases and card instalments are already gone; a bill is a fixed amount,
+  // not a daily pace (scaling "rent paid on the 3rd" by days-in-month ÷ days-passed
+  // turned RM1000 into RM3100 on the 10th); and a bill that is planned but not yet
+  // paid is money that WILL leave this month. All of it is in here, so nothing
+  // that nets against income has to subtract unpaid bills a second time.
   getPredictedMonthEndTotal(month) {
-    const excludedActual = this.getRecordsInMonth(month)
-      .filter(r => r && r.excludeFromAvg)
-      .reduce((s, r) => s + (r.amount || 0), 0);
-    return round2(this.getPredictedTotal(month) + excludedActual);
+    return this.getPredictedBreakdown(month).predicted;
   },
 
-  // Breakdown of the cash-flow prediction into three disjoint parts that sum
-  // to getPredictedMonthEndTotal: bills (projected trend of bill-category
-  // records) + large (already-happened excludeFromAvg, not in daily avg) +
-  // normal (projected trend of everything else, net of split shares).
-  // Split repayments (others' shares) are stripped from the trend
-  // proportionally so the three parts stay non-negative and add up.
+  // Disjoint parts of the cash-flow prediction, always summing to `predicted`.
+  // They follow the 含固定账单 switch's own definition of "fixed" (a bill-category
+  // record, or a card-instalment record), so switching it off removes exactly
+  // bills + billsUnpaid + instalments:
+  //   bills       — records in the monthly-bill categories, at face value
+  //   billsUnpaid — planned monthly bills not yet paid (planned − paid, never < 0)
+  //   instalments — card-instalment records (planId), at face value
+  //   large       — 不计日均 records that are neither of the above, at face value
+  //   normal      — my share of everyday spending, projected at its daily pace
+  // Others' split shares come off the everyday spending (they are not mine).
+  _predictParts(records, daysPassed, daysInPeriod, splitOthers, unpaidBills) {
+    let bills = 0, inst = 0, large = 0, pace = 0;
+    (records || []).forEach(r => {
+      if (!r) return;
+      const a = r.amount || 0;
+      if (this.isBillCategory(r.categoryId)) bills += a;
+      else if (r.planId) inst += a;
+      else if (r.excludeFromAvg) large += a;
+      else pace += a;
+    });
+    const mine = Math.max(0, pace - Math.max(0, splitOthers || 0));
+    const trend = daysPassed > 0 ? (mine / daysPassed) * daysInPeriod : 0;
+    const b = round2(bills), u = round2(Math.max(0, unpaidBills || 0)), i = round2(inst), l = round2(large);
+    const predicted = round2(b + u + i + l + trend);
+    return { bills: b, billsUnpaid: u, instalments: i, large: l, normal: round2(predicted - b - u - i - l), predicted: predicted };
+  },
+
+  // Planned monthly bills not yet paid — the one definition every page uses.
+  getUnpaidPlannedBills(month) {
+    return Math.max(0, DataStore.getBillTotal(month) - this.getBillSpendingActual(month));
+  },
+  getPeriodUnpaidPlannedBills() {
+    return Math.max(0, DataStore.getBillTotal(getMonthKey(new Date().toISOString())) - this.getPeriodBillSpending());
+  },
+
   getPredictedBreakdown(month) {
-    const records = this.getRecordsInMonth(month);
-    const excludedActual = records.filter(r => r && r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0);
-    const billNonExcluded = records.filter(r => r && !r.excludeFromAvg && this.isFixedRecord(r)).reduce((s, r) => s + (r.amount || 0), 0);
-    const normalNonExcluded = records.filter(r => r && !r.excludeFromAvg && !this.isFixedRecord(r)).reduce((s, r) => s + (r.amount || 0), 0);
-    const totalNonExcluded = billNonExcluded + normalNonExcluded;
     const parts = String(month || '').split('-');
     const daysInMonth = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10), 0).getDate() || 30;
     const now = new Date();
-    const currentMonth = getMonthKey(now.toISOString());
-    const daysPassed = month === currentMonth ? now.getDate() : daysInMonth;
-    const predicted = this.getPredictedMonthEndTotal(month);
-    const large = round2(excludedActual);
-    if (!totalNonExcluded || !(daysPassed > 0)) {
-      const normal = round2(Math.max(0, predicted - large));
-      return { bills: 0, large: large, normal: normal, predicted: round2(predicted) };
-    }
-    const splitOthers = Math.max(0, this.getSplitOthers(month) || 0);
-    const splitRatio = Math.min(1, Math.max(0, splitOthers / totalNonExcluded));
-    const keep = 1 - splitRatio;
-    const bills = round2((billNonExcluded / daysPassed) * daysInMonth * keep);
-    let normal = round2(predicted - bills - large);
-    if (normal < 0) normal = 0;
-    return { bills: bills, large: large, normal: normal, predicted: round2(predicted) };
+    const daysPassed = month === getMonthKey(now.toISOString()) ? now.getDate() : daysInMonth;
+    return this._predictParts(this.getRecordsInMonth(month), daysPassed, daysInMonth, this.getSplitOthers(month), this.getUnpaidPlannedBills(month));
   },
 
   // Variable (ex-bills) twin: large (non-bill excludeFromAvg, already happened)
@@ -6271,31 +6329,13 @@ const StatsEngine = {
     const predictedTrend = round2(this.getDailyAverageVariable(month) * (new Date(parseInt(String(month).split('-')[0], 10), parseInt(String(month).split('-')[1], 10), 0).getDate() || 30));
     const predicted = round2(predictedTrend + large);
     let normal = round2(Math.max(0, predicted - large));
-    return { bills: 0, large: large, normal: normal, predicted: predicted };
+    return { bills: 0, billsUnpaid: 0, instalments: 0, large: large, normal: normal, predicted: predicted };
   },
 
   // Rolling-30-day twins (same split, period window).
   getPeriodPredictedBreakdown() {
-    const records = this.getPeriodRecords();
-    const excludedActual = records.filter(r => r && r.excludeFromAvg).reduce((s, r) => s + (r.amount || 0), 0);
-    const billNonExcluded = records.filter(r => r && !r.excludeFromAvg && this.isFixedRecord(r)).reduce((s, r) => s + (r.amount || 0), 0);
-    const normalNonExcluded = records.filter(r => r && !r.excludeFromAvg && !this.isFixedRecord(r)).reduce((s, r) => s + (r.amount || 0), 0);
-    const totalNonExcluded = billNonExcluded + normalNonExcluded;
     const range = getPeriodDateRange();
-    const daysInPeriod = range.daysInPeriod || 30;
-    const daysPassed = range.daysPassed || 0;
-    const predicted = this.getPeriodPredictedMonthEndTotal();
-    const large = round2(excludedActual);
-    if (!totalNonExcluded || !(daysPassed > 0)) {
-      return { bills: 0, large: large, normal: round2(Math.max(0, predicted - large)), predicted: round2(predicted) };
-    }
-    const splitOthers = Math.max(0, this.getPeriodSplitOthers() || 0);
-    const splitRatio = Math.min(1, Math.max(0, splitOthers / totalNonExcluded));
-    const keep = 1 - splitRatio;
-    const bills = round2((billNonExcluded / daysPassed) * daysInPeriod * keep);
-    let normal = round2(predicted - bills - large);
-    if (normal < 0) normal = 0;
-    return { bills: bills, large: large, normal: normal, predicted: round2(predicted) };
+    return this._predictParts(this.getPeriodRecords(), range.daysPassed || 0, range.daysInPeriod || 30, this.getPeriodSplitOthers(), this.getPeriodUnpaidPlannedBills());
   },
 
   getPeriodPredictedBreakdownVariable() {
@@ -6304,7 +6344,7 @@ const StatsEngine = {
     const range = getPeriodDateRange();
     const predictedTrend = round2(this.getPeriodVariablePredictedTrend());
     const predicted = round2(predictedTrend + large);
-    return { bills: 0, large: large, normal: round2(Math.max(0, predicted - large)), predicted: predicted };
+    return { bills: 0, billsUnpaid: 0, instalments: 0, large: large, normal: round2(Math.max(0, predicted - large)), predicted: predicted };
   },
 
   // Variable trend for rolling window (non-bill, non-excluded, net of splits).
@@ -6323,6 +6363,25 @@ const StatsEngine = {
     const budget = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month);
     const predicted = this.getPredictedMonthEndTotal(month);
     return budget - predicted;
+  },
+
+  // THE savings forecast every page quotes (overview, stats, report, What-If) —
+  // two numbers that used to be conflated under the name 预计存 / 预计月末储蓄:
+  //   surplus 月底预计剩余 — income − projected month-end spend (which already
+  //                     holds the bills still unpaid). Money not spent; may be
+  //                     negative (overspend). Includes whatever the purchase
+  //                     plans will set aside.
+  //   free    预计储蓄 — surplus after the plans have taken their share. What
+  //                     counts toward the savings target, and the number the plan
+  //                     panel shows. Equal to surplus when there are no plans.
+  // unpaidBills is reported for display only — it is already inside the spend.
+  getSavingsForecast(month) {
+    const unpaidBills = this.getUnpaidPlannedBills(month);
+    const surplus = round2(this.getSavingsPrediction(month));
+    const net = (typeof PlanMath !== 'undefined')
+      ? PlanMath.afterPlans(month, surplus)
+      : { reserved: 0, free: surplus };
+    return { unpaidBills: unpaidBills, surplus: surplus, planReserved: net.reserved, free: net.free };
   },
 
   getRemainingDailyLimit(month) {
@@ -6779,10 +6838,7 @@ const StatsEngine = {
   // see that function for why the excluded amount has to be added back in for
   // anything netted against income (A-1, A-2).
   getPeriodPredictedMonthEndTotal() {
-    const excludedActual = this.getPeriodRecords()
-      .filter(r => r && r.excludeFromAvg)
-      .reduce((s, r) => s + (r.amount || 0), 0);
-    return round2(this.getPeriodPredictedTotal() + excludedActual);
+    return this.getPeriodPredictedBreakdown().predicted;
   },
   getPeriodCategoryTotals() {
     const records = this.getPeriodRecords();
@@ -7050,6 +7106,50 @@ const PlanMath = {
     });
   },
 
+  // The debt-before-savings waterfall on an arbitrary month-end surplus: earliest
+  // deadline first, each save / borrow plan takes min(due, what is left). Card
+  // instalments take their due in full but NOT out of the surplus — their record
+  // is already inside the projected spend. getForecast and afterPlans both run
+  // through here so the plan panel and every savings figure cannot disagree.
+  _allocate(month, surplus) {
+    let left = Math.max(0, surplus || 0);
+    const state = this.computeUpTo(month);
+    const active = this._byDeadline(
+      DataStore.getPurchasePlans().filter(p => p && p.status === 'active' && state[p.id] && state[p.id].byMonth[month])
+    );
+    const plans = {};
+    let totalDue = 0, totalPay = 0, savePay = 0;
+    active.forEach(p => {
+      const cur = state[p.id].byMonth[month];
+      let pay;
+      if (p.mode === 'credit') {
+        pay = cur.due;
+      } else {
+        pay = Math.max(0, Math.min(cur.due, left));
+        left -= pay;
+        savePay += pay;
+      }
+      totalDue += cur.due;
+      totalPay += pay;
+      plans[p.id] = {
+        due: round2(cur.due),
+        predictedPay: round2(pay),
+        shortfall: round2(Math.max(0, cur.due - pay))
+      };
+    });
+    return { plans: plans, totalDue: totalDue, totalPay: totalPay, savePay: savePay, left: left };
+  },
+
+  // A month-end surplus (signed: negative = overspent) split into what the
+  // plans take and what is genuinely free to count as savings. This is the figure
+  // to hold against the savings target: the target is carved out of income
+  // separately from the plans (getSpendablePlan), and the waterfall pays debt
+  // first, so money a plan swallows cannot also satisfy the target.
+  afterPlans(month, surplus) {
+    const a = this._allocate(month, surplus);
+    return { reserved: round2(a.savePay), free: round2((surplus || 0) - a.savePay) };
+  },
+
   /* --------------------------------------------------------
      FORECAST — "at your current pace, how does this month end?"
 
@@ -7070,16 +7170,14 @@ const PlanMath = {
 
     const income = DataStore.getMonthlyIncome(month) || DataStore.getBudget(month) || 0;
     const billPlanned = DataStore.getBillTotal(month);
-    const billActual = StatsEngine.getBillSpendingActual(month);
-    const unpaidPlannedBills = Math.max(0, billPlanned - billActual);
 
-    // Cash-flow projection: getPredictedTotal excludes one-off large purchases
-    // (incl. credit-mode instalment records) from the daily-pace trend, but that
-    // money really did leave — getPredictedMonthEndTotal adds the committed
-    // amounts back in. This used to be reimplemented here; now it's the same
-    // shared function every other "predicted month-end spend" consumer uses (A-1).
+    // Cash-flow projection: the daily pace is only projected for everyday spending;
+    // large purchases, card instalments, paid bills AND bills still unpaid are
+    // known amounts and are all inside getPredictedMonthEndTotal — the same shared
+    // function every other "predicted month-end spend" consumer uses (A-1), so no
+    // unpaid-bills term is subtracted here.
     const predictedSpend = StatsEngine.getPredictedMonthEndTotal(month);
-    let surplus = Math.max(0, income - (predictedSpend + unpaidPlannedBills));
+    let surplus = Math.max(0, income - predictedSpend);
     const predictedSurplus = round2(surplus);
 
     const t = DataStore.getSavingsTarget() || {};
@@ -7090,42 +7188,20 @@ const PlanMath = {
     if (t.type === 'fixed') targetAmount = t.fixedAmount || 0;
     else if (t.type === 'percent') targetAmount = baseAmount * (t.percent || 0) / 100;
 
-    const state = this.computeUpTo(month);
-    const active = this._byDeadline(
-      DataStore.getPurchasePlans().filter(p => p && p.status === 'active' && state[p.id] && state[p.id].byMonth[month])
-    );
-
-    const plans = {};
-    let totalDue = 0, totalPay = 0;
-    active.forEach(p => {
-      const cur = state[p.id].byMonth[month];
-      let pay;
-      if (p.mode === 'credit') {
-        // Fixed and non-negotiable; its record is already inside predictedSpend
-        pay = cur.due;
-      } else {
-        pay = Math.max(0, Math.min(cur.due, surplus));
-        surplus -= pay;
-      }
-      totalDue += cur.due;
-      totalPay += pay;
-      plans[p.id] = {
-        due: round2(cur.due),
-        predictedPay: round2(pay),
-        shortfall: round2(Math.max(0, cur.due - pay))
-      };
-    });
-
-    const predictedSavings = round2(Math.max(0, surplus));
+    const alloc = this._allocate(month, surplus);
+    const predictedSavings = round2(Math.max(0, alloc.left));
     return {
       month: month,
       income: income,
       predictedSpend: predictedSpend,
       predictedSurplus: predictedSurplus,
-      plans: plans,
-      totalDue: round2(totalDue),
-      totalPredictedPay: round2(totalPay),
-      totalShortfall: round2(Math.max(0, totalDue - totalPay)),
+      plans: alloc.plans,
+      totalDue: round2(alloc.totalDue),
+      totalPredictedPay: round2(alloc.totalPay),
+      // The part of totalPredictedPay that actually comes OUT of the surplus
+      // (card instalments are already inside predictedSpend)
+      reservedPay: round2(alloc.savePay),
+      totalShortfall: round2(Math.max(0, alloc.totalDue - alloc.totalPay)),
       targetAmount: round2(targetAmount),
       predictedSavings: predictedSavings,
       targetMet: predictedSavings >= targetAmount - 0.005,
@@ -7432,8 +7508,12 @@ const SimulationEngine = {
     // trend total (A-1). trendDailyAvg stays a pure pace reading on purpose.
     const trendTotal = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
     const trendDailyAvg = isRolling ? StatsEngine.getPeriodDailyAverage() : StatsEngine.getDailyAverage(month);
-    const unpaidBills = Math.max(0, DataStore.getBillTotal(month) - (isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(month)));
-    const trendSavings = isRolling ? (income - trendTotal - unpaidBills) : (StatsEngine.getSavingsPrediction(month) - unpaidBills);
+    // trendTotal already holds the bills still unpaid (see getPredictedMonthEndTotal)
+    const trendSurplus = isRolling ? (income - trendTotal) : StatsEngine.getSavingsPrediction(month);
+    // Savings for the target are what is left AFTER the purchase plans took their
+    // share (the plan panel's 预计储蓄) — so the target comparison here agrees
+    // with the overview instead of counting plan money as free savings.
+    const trendSavings = (typeof PlanMath !== 'undefined') ? PlanMath.afterPlans(month, trendSurplus).free : trendSurplus;
 
     console.log('[SimEngine] result:', {
       month,
@@ -7456,8 +7536,11 @@ const SimulationEngine = {
       spendable: spendable,
       // Self-imposed instalments reserved out of `spendable`. Deliberately NOT
       // added to totalProjected: for save/borrow the money is retained, not
-      // spent, so projectedSavings must keep counting it as saved. credit-mode
-      // plans are already in actualSpent via their real records.
+      // spent, so projectedSavings (the surplus) keeps counting it. It is the
+      // savings figures held against the target (trendSavings, and the What-If
+      // page's adjustedSavings) that take the plans' share off, via
+      // PlanMath.afterPlans. credit-mode plans are already in actualSpent via
+      // their real records.
       planDueVirtual: planDueVirtual,
 
       // Actuals
@@ -9172,7 +9255,13 @@ function renderOverview() {
   const paidBills = StatsEngine.getBillSpendingActual(month);
   const unpaidPlannedBills = Math.max(0, totalBills - paidBills);
   const effectiveTotal = monthTotal + unpaidPlannedBills;
-  const savingsPred = StatsEngine.getSavingsPrediction(month) - unpaidPlannedBills;
+  // 预计储蓄 = what is left AFTER the purchase plans took their share — the same
+  // figure the plan panel shows, and the one the savings target is held against.
+  // 预计结余 (before plans) is kept alongside so the gap is explained, not hidden.
+  const savingsFc = StatsEngine.getSavingsForecast(month);
+  const savingsPred = savingsFc.free;
+  const surplusPred = savingsFc.surplus;
+  const planReservedPred = savingsFc.planReserved;
   const netDisposable = sp.netDisposable;
   const targetAmount = sp.targetAmount;
   const planDueVirtual = sp.planDueVirtual;
@@ -9201,7 +9290,7 @@ function renderOverview() {
 
   // Savings progress: how close to savings target based on predicted savings
   const actualSavings = Math.max(0, budget - effectiveTotal);
-  const savingsPct = targetAmount > 0 ? Math.min(savingsPred / targetAmount, 1) : 0;
+  const savingsPct = targetAmount > 0 ? Math.max(0, Math.min(savingsPred / targetAmount, 1)) : 0;
 
   // Aggregate to root categories for top 5.
   // Fixed-bill categories live in their own list, which getRootAncestorId cannot
@@ -9251,8 +9340,10 @@ function renderOverview() {
         <div class="text-xl font-bold" style="color:var(--primary)">${formatMoney(monthTotal)}</div>
         ${(() => {
           const billActual = isRolling ? StatsEngine.getPeriodFixedSpending() : StatsEngine.getFixedSpendingActual(month);
+          // With the switch off monthTotal has no bills in it, so "daily + bills = total" no longer holds
+          // (it printed a negative daily figure) — the split line only makes sense with bills included.
           const varSpending = monthTotal - billActual;
-          if (billActual > 0) {
+          if (includeBills && billActual > 0) {
             return `<div class="text-xs text-muted mt-4" title="${__('overview.dailyBillsHint')}">${__('overview.dailyBillsBreakdown', formatMoney(varSpending), formatMoney(billActual))}</div>`;
           }
           return '';
@@ -9267,17 +9358,21 @@ function renderOverview() {
         <div class="card-title">${__('overview.dailyAvg')}</div>
         <div class="text-xl font-bold">${formatMoney(dailyAvg)}</div>
       </div>
-      <div class="card">
-        <div class="card-title">${isRolling ? __('overview.predicted.rolling') : __('overview.predicted.monthly')}</div>
+      <div class="card pred-card-switch" id="predictedCard" role="button" tabindex="0"
+           title="${__('overview.predSwitchTitle')}"
+           onclick="toggleOverviewBills()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleOverviewBills();}">
+        <div class="card-title">${includeBills
+          ? (isRolling ? __('overview.predicted.rolling') : __('overview.predicted.monthly'))
+          : (isRolling ? __('overview.predicted.rollingDaily') : __('overview.predicted.monthlyDaily'))}</div>
         <div class="text-xl font-bold">${formatMoney(predicted)}</div>
         ${(() => {
-          const bd = (typeof predictedBreakdown !== 'undefined' && predictedBreakdown) ? predictedBreakdown : null;
-          if (!bd) return '';
-          if (includeBills) {
-            return `<div class="text-xs text-muted mt-4" title="${__('overview.predictedHint')}">${__('overview.predictedBreakdown', formatMoney(bd.bills || 0), formatMoney(bd.large || 0), formatMoney(bd.normal || 0))}</div>`;
-          }
-          return `<div class="text-xs text-muted mt-4" title="${__('overview.predictedHint')}">${__('overview.predictedBreakdownNoBills', formatMoney(bd.large || 0), formatMoney(bd.normal || 0))}</div>`;
+          const line = formatPredictedBreakdown(predictedBreakdown);
+          return line ? `<div class="text-xs text-muted mt-4" title="${__('overview.predictedHint')}">${line}</div>` : '';
         })()}
+        <div class="pred-switch-row">
+          <span class="pred-switch-chip ${includeBills ? 'on' : ''}">${includeBills ? '✅ ' + __('overview.predSwitchOn') : '⬜ ' + __('overview.predSwitchOff')}</span>
+          <span class="pred-switch-tip">${includeBills ? __('overview.predSwitchTipOn') : __('overview.predSwitchTipOff')}</span>
+        </div>
       </div>
     </div>
 
@@ -9399,10 +9494,11 @@ function renderOverview() {
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('overview.estimatedMonthEndSavings')}</div>
           <div class="text-lg font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div>
+          ${planReservedPred > 0 ? `<div class="text-xs text-muted" style="margin-top:2px" title="${__('plan.afterPlansHint')}">${__('plan.afterPlansRow', formatMoney(surplusPred), formatMoney(planReservedPred))}</div>` : ''}
         </div>
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('overview.targetAchievement')}</div>
-          <div class="text-lg font-bold">${targetAmount > 0 ? Math.min(100, (savingsPred/targetAmount)*100).toFixed(0) + '%' : '—'}</div>
+          <div class="text-lg font-bold">${targetAmount > 0 ? (savingsPct * 100).toFixed(0) + '%' : '—'}</div>
         </div>
         ${planOccupied > 0 ? `
         <div style="padding:4px">
@@ -9414,6 +9510,7 @@ function renderOverview() {
         ${savingsPred >= 0
           ? __('overview.predictionPositive', formatMoney(savingsPred))
           : __('overview.predictionNegative', formatMoney(Math.abs(savingsPred)))}
+        ${planReservedPred > 0 && savingsPred >= 0 ? ' ' + __('plan.predictionPlanNote', formatMoney(planReservedPred)) : ''}
       </div>
       ${budget > 0 ? `
         ${(() => {
@@ -9518,6 +9615,32 @@ function renderOverview() {
     drawSparkline('sparklineChart', last7);
   }, 50);
 }
+// The forecast broken into the pieces that add up to it, e.g. "月账单 X ＋ 信用卡分期 Y ＋ 日常消费预估 Z".
+// Only parts that are not zero are shown (a RM0.00 part says nothing, and read like
+// something was wrong). With fewer than two parts left the line would just repeat
+// the total above it, so it is dropped. 月账单 = paid + still-unpaid planned bills;
+// switching 含固定账单 off removes exactly 月账单 and 信用卡分期, so the line shows
+// the user what the switch did.
+function formatPredictedBreakdown(bd) {
+  if (!bd) return '';
+  const parts = [];
+  const bills = (bd.bills || 0) + (bd.billsUnpaid || 0);
+  if (bills > 0.004) parts.push(__('predicted.part.bills', formatMoney(bills)));
+  if (bd.instalments > 0.004) parts.push(__('predicted.part.instalments', formatMoney(bd.instalments)));
+  if (bd.large > 0.004) parts.push(__('predicted.part.large', formatMoney(bd.large)));
+  if (bd.normal > 0.004) parts.push(__('predicted.part.daily', formatMoney(bd.normal)));
+  return parts.length >= 2 ? parts.join(' ＋ ') : '';
+}
+
+// The forecast card is a switch for 含固定账单 — the same switch as the one on the
+// budget-progress card (one setting, one place it is stored), so flipping it here
+// also moves 本月总支出 and the budget ring. Re-render everything: the old
+// checkbox only redrew the ring and left the cards above showing the old state.
+function toggleOverviewBills() {
+  try { localStorage.setItem('chartBillToggle_overviewBudget', isBillToggleChecked('overviewBudget') ? '0' : '1'); } catch (e) { /* storage blocked: nothing to remember */ }
+  renderOverview();
+}
+
 function refreshOverviewBudget() {
   const now = new Date();
   const month = getMonthKey(now.toISOString());
@@ -9568,6 +9691,8 @@ function refreshOverviewBudget() {
   // === EXPORTS ===
   window.renderOverview = renderOverview;
   window.refreshOverviewBudget = refreshOverviewBudget;
+  window.toggleOverviewBills = toggleOverviewBills;
+  window.formatPredictedBreakdown = formatPredictedBreakdown;
 
   // === I18N ENTRIES ===
   addI18nEntries({
@@ -9591,10 +9716,19 @@ function refreshOverviewBudget() {
     'overview.netIncome': { zh: '净收入', en: 'Net Income' },
     'overview.dailyAvg': { zh: '日均支出', en: 'Daily Avg' },
     'overview.predicted.rolling': { zh: '预测30天总支出', en: 'Predicted 30-Day Total' },
-    'overview.predictedBreakdown': { zh: '账单≈{0} ＋ 大额{1} ＋ 日常{2}', en: 'Bills~{0} + large {1} + daily {2}' },
-    'overview.predictedBreakdownNoBills': { zh: '大额{0} ＋ 日常{1}（已剔账单）', en: 'Large {0} + daily {1} (ex-bills)' },
-    'overview.predictedHint': { zh: '预测 = 账单趋势 ＋ 大额已发生（不计入日均） ＋ 日常趋势；大额是已花的真实金额，不参与日均推算', en: 'Forecast = bill trend + large actual (excluded from daily avg) + daily trend; large is money already spent' },
+    'overview.predictedHint': { zh: '预测 = 月账单（已付的，加上还没付的计划金额）＋ 信用卡分期 ＋ 已经花掉的大额消费 ＋ 按目前每天花的钱估算到月底的日常消费。点卡片可以切换「含 / 不含固定账单」，不含时只剩后两项。', en: 'Forecast = monthly bills (paid, plus the planned amount not yet paid) + card instalments + big purchases already made + everyday spending estimated to month-end at your current daily pace. Tap the card to include or exclude fixed bills; without them only the last two remain.' },
     'overview.predicted.monthly': { zh: '预测月总支出', en: 'Predicted Monthly Total' },
+    'overview.predicted.monthlyDaily': { zh: '预测月日常支出', en: 'Predicted Monthly Daily Spend' },
+    'predicted.part.bills': { zh: '月账单 {0}', en: 'Monthly bills {0}' },
+    'predicted.part.instalments': { zh: '信用卡分期 {0}', en: 'Card instalments {0}' },
+    'predicted.part.large': { zh: '大额消费 {0}', en: 'Big purchases {0}' },
+    'predicted.part.daily': { zh: '日常消费预估 {0}', en: 'Everyday estimate {0}' },
+    'overview.predSwitchOn': { zh: '含固定账单', en: 'Fixed bills included' },
+    'overview.predSwitchOff': { zh: '不含固定账单', en: 'Fixed bills excluded' },
+    'overview.predSwitchTipOn': { zh: '点一下改成不含', en: 'Tap to exclude' },
+    'overview.predSwitchTipOff': { zh: '点一下改成包含', en: 'Tap to include' },
+    'overview.predSwitchTitle': { zh: '点击切换：要不要把房租、水电等固定账单算进来。这是总览共用的开关，「本月总支出」和「预算进度」也会一起变', en: 'Tap to switch whether fixed bills like rent and utilities are counted. This is one shared switch on the overview: “This month’s spending” and “Budget progress” change with it' },
+    'overview.predicted.rollingDaily': { zh: '预测30天日常支出', en: 'Predicted 30-Day Daily Spend' },
     'overview.yesterdaySpending': { zh: '昨日消费 ({0})', en: 'Yesterday ({0})' },
     'overview.todaySpending': { zh: '今日消费 ({0})', en: 'Today ({0})' },
     'overview.none': { zh: '暂无', en: 'None' },
@@ -9609,8 +9743,8 @@ function refreshOverviewBudget() {
     'overview.savingsLabel': { zh: '储蓄', en: 'Savings' },
     'overview.dailySpendable': { zh: '日常可用', en: 'Spendable' },
     'overview.savingsTarget': { zh: '储蓄目标', en: 'Savings Target' },
-    'overview.targetAchieved': { zh: '✅ 已达成目标', en: '✅ Target Met' },
-    'overview.estimatedSave': { zh: '预计存', en: 'Est. save' },
+    'overview.targetAchieved': { zh: '✅ 预计可达成目标', en: '✅ On track to meet target' },
+    'overview.estimatedSave': { zh: '预计储蓄', en: 'Est. savings' },
     'overview.savingsPrediction': { zh: '💵 储蓄预测', en: '💵 Savings Forecast' },
     'overview.currentSaved': { zh: '累计已存', en: 'Cumulative Saved' },
     'overview.estimatedMonthEndSavings': { zh: '预计月末储蓄', en: 'Est. Month-End Savings' },
@@ -13695,7 +13829,10 @@ function toggleBillFilter(chartId) {
   const checked = document.getElementById('toggle-' + chartId).checked;
   localStorage.setItem(key, checked ? '1' : '0');
   if (chartId === 'overviewBudget') {
-    if (typeof refreshOverviewBudget === 'function') refreshOverviewBudget();
+    // One switch for the whole overview (the forecast card flips the same setting),
+    // so redraw all of it — redrawing only the ring left 本月总支出 and the
+    // forecast card above showing the old state.
+    if (typeof renderOverview === 'function') renderOverview();
   } else if (chartId === 'pieChart') {
     if (typeof refreshPieChart === 'function') refreshPieChart();
   } else if (typeof renderStats === 'function') {
@@ -13754,7 +13891,12 @@ function renderStats() {
   const paidBillsStats = isRolling ? StatsEngine.getPeriodBillSpending() : StatsEngine.getBillSpendingActual(statsMonth);
   const unpaidPlannedBillsStats = Math.max(0, totalBillsStats - paidBillsStats);
   const effectiveTotalStats = monthTotal + unpaidPlannedBillsStats;
-  const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(statsMonth) - unpaidPlannedBillsStats);
+  // Savings forecast is always the calendar month's, like the overview and the
+  // rings (rule #11) — "budget − last-30-days spend" was not a forecast at all.
+  // 预计储蓄 is after the purchase plans took their share; 预计结余 is before.
+  const savingsFc = StatsEngine.getSavingsForecast(statsMonth);
+  const savingsPred = savingsFc.free;
+  const planReservedStats = savingsFc.planReserved;
   const netDisposableStats = spStats.netDisposable;
   const targetAmountStats = spStats.targetAmount;
   const spendableBudgetStats = spStats.spendableBudget;
@@ -13769,7 +13911,9 @@ function renderStats() {
 
   const isCustom = useCustomRange();
   const rangeTotal = isCustom ? StatsEngine.getCustomRangeTotals(statsStartDate, statsEndDate) : null;
-  const actualSavings = Math.max(0, budget - monthTotal);
+  // Bills still unpaid are not savings: same definition as the overview's 累计已存
+  // (commit 596e6ca: "所有储蓄预测/当前已存均扣除未付计划账单")
+  const actualSavings = Math.max(0, budget - effectiveTotalStats);
 
   // Compute extra stats
   let records = isCustom
@@ -13829,8 +13973,8 @@ function renderStats() {
         if (isCustom) return '';
         try {
           const bd = isRolling ? StatsEngine.getPeriodPredictedBreakdown() : StatsEngine.getPredictedBreakdown(statsMonth);
-          if (!bd) return '';
-          return `<div class="text-xs text-muted mt-4" title="${__('stats.predictedHint')}">${__('stats.predictedBreakdown', formatMoney(bd.bills || 0), formatMoney(bd.large || 0), formatMoney(bd.normal || 0))}</div>`;
+          const line = formatPredictedBreakdown(bd);
+          return line ? `<div class="text-xs text-muted mt-4" title="${__('stats.predictedHint')}">${line}</div>` : '';
         } catch (e) { return ''; }
       })()}</div>
       <div class="card"><div class="card-title">${__('stats.savingsPrediction')}</div><div class="text-xl font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div></div>
@@ -13952,6 +14096,7 @@ function renderStats() {
               <div class="text-xs text-secondary">${__('stats.dailyAvailablePerDay')}</div>
               <div class="font-bold" style="font-size:1rem;color:${remainingDailyPerDay > 0 ? 'var(--primary)' : 'var(--text-muted)'}">${formatMoney(remainingDailyPerDay)}/${__('stats.dayUnit')}</div>
               <div class="text-xs text-muted" style="margin-top:2px">${formatMoney(remainingDaily)} ÷ ${remainingDays}${__('stats.days')}</div>
+            ${planReservedStats > 0 ? `<div class="text-xs text-muted" style="margin-top:2px" title="${__('plan.afterPlansHint')}">${__('plan.afterPlansRow', formatMoney(savingsFc.surplus), formatMoney(planReservedStats))}</div>` : ''}
               <div class="text-xs text-muted" style="margin-top:2px;opacity:0.85">${__('stats.dailyAvailableFormula')}</div>
             </div>
           </div>`;
@@ -15978,8 +16123,7 @@ addI18nEntries({
   'stats.dailyAvg': { zh: '日均支出', en: 'Daily avg' },
   'stats.dailyAvgDaily': { zh: '日常净日均（不含账单）', en: 'Daily net avg (ex-bills)' },
   'stats.predictedRolling': { zh: '预测30天总支出', en: 'Predicted 30-day total' },
-  'stats.predictedBreakdown': { zh: '账单≈{0} ＋ 大额{1} ＋ 日常{2}', en: 'Bills~{0} + large {1} + daily {2}' },
-  'stats.predictedHint': { zh: '预测 = 账单趋势 ＋ 大额已发生（不计入日均） ＋ 日常趋势', en: 'Forecast = bill trend + large actual (excluded from daily avg) + daily trend' },
+  'stats.predictedHint': { zh: '预测 = 月账单（已付的，加上还没付的计划金额）＋ 信用卡分期 ＋ 已经花掉的大额消费 ＋ 按目前每天花的钱估算到月底的日常消费。', en: 'Forecast = monthly bills (paid, plus the planned amount not yet paid) + card instalments + big purchases already made + everyday spending estimated to month-end at your current daily pace.' },
   'stats.predicted': { zh: '预测月总支出', en: 'Predicted monthly total' },
   'stats.savingsPrediction': { zh: '储蓄预测', en: 'Savings prediction' },
   'stats.transactionCount': { zh: '交易笔数', en: 'Transactions' },
@@ -15994,7 +16138,7 @@ addI18nEntries({
   'stats.savingsEstimate': { zh: '当月储蓄预估', en: 'Savings estimate' },
   'stats.notSet': { zh: '未设置', en: 'Not set' },
   'stats.netIncome': { zh: '净收入', en: 'Net income' },
-  'stats.currentSavings': { zh: '当前已存', en: 'Saved so far' },
+  'stats.currentSavings': { zh: '累计已存', en: 'Cumulative Saved' },
   'stats.estimatedMonthEnd': { zh: '预计月末储蓄', en: 'Est. month-end savings' },
   'stats.balance': { zh: '预算结余', en: 'Budget balance' },
   'stats.balanceHint': { zh: '月收入设定 − 已花 − 未付账单；与下方实际结余口径不同', en: 'Income setting − spent − unpaid bills; different from recorded net below' },
@@ -17080,7 +17224,11 @@ function renderReport() {
   const savingsRate = budget > 0 ? (actualSavings / budget * 100) : 0;
   // Cash-flow projection, not the daily-average trend — matches the overview card (A-1).
   const predicted = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
-  const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(month) - unpaidPlannedBillsRep);
+  // The calendar month's forecast in both ranges, same as the overview (rule #11);
+  // 预计储蓄 is after purchase plans took their share, 预计结余 is before them.
+  const savingsFc = StatsEngine.getSavingsForecast(month);
+  const savingsPred = savingsFc.free;
+  const planReservedRep = savingsFc.planReserved;
   // The one definition of 日均 the overview, stats and what-if pages all use:
   // spend over the days that have PASSED, my own share only, 不计日均 records out.
   // This page used to divide the month total by the number of days that happened
@@ -17306,6 +17454,7 @@ function renderReport() {
             <p>${savingsPred >= 0
               ? __('report.predictionPositive', formatMoney(savingsPred))
               : __('report.predictionNegative', formatMoney(Math.abs(savingsPred)))}
+              ${planReservedRep > 0 && savingsPred >= 0 ? ' ' + __('plan.predictionPlanNote', formatMoney(planReservedRep)) : ''}
             </p>
           ` : '<p>' + __('report.predictionSetupHint') + '</p>'}
         </div>
@@ -17318,7 +17467,7 @@ function renderReport() {
     const budgetPct = spendableBudget > 0 ? (monthTotal / spendableBudget) : (budget > 0 ? monthTotal / budget : 0);
     drawRing('reportBudgetRing', Math.min(budgetPct, 1), budgetPct > 1 ? '#EF4444' : '#6366F1',
       (budgetPct * 100).toFixed(0) + '%', '#EF4444');
-    const savingsPct = targetAmount > 0 ? Math.min(savingsPred / targetAmount, 1) : 0;
+    const savingsPct = targetAmount > 0 ? Math.max(0, Math.min(savingsPred / targetAmount, 1)) : 0;
     drawRing('reportSavingsRing', savingsPct, savingsPct >= 1 ? '#10B981' : (savingsPct > 0 ? '#F59E0B' : '#94A3B8'),
       (savingsPct * 100).toFixed(0) + '%');
     drawSparkline('reportSparkline', dailyTotals.map(d => ({ total: d.total, day: d.day })));
@@ -17701,16 +17850,22 @@ function renderWhatIfResults(result) {
   // Baseline uses actualSpent (my real share only — same scope as totalProjected),
   // NOT getVariableSpending which still includes uncollected split amounts; otherwise
   // all-trend would shift the adjusted total by the unpaid portion.
-  const unpaidBillsAdj = Math.max(0, DataStore.getBillTotal(getMonthKey(new Date().toISOString())) - StatsEngine.getBillSpendingActual(getMonthKey(new Date().toISOString())));
   const varTrendTotal = daysPassed > 0 ? actualSpent / daysPassed * daysInMonth : 0;
   const varAdjustment = totalProjected - varTrendTotal;
   const adjustedTotal = trendTotal + varAdjustment;
   const adjustedDailyAvg = adjustedTotal / daysInMonth;
-  const adjustedSavings = income - adjustedTotal - unpaidBillsAdj;
+  // Same basis as trendSavings: what is left after the purchase plans took their
+  // share (re-run on THIS scenario's surplus, since a tighter month lets the
+  // plans take less).
+  // trendTotal (and so adjustedTotal) already holds the bills still unpaid
+  const adjustedSurplus = income - adjustedTotal;
+  const adjustedSavings = (typeof PlanMath !== 'undefined')
+    ? PlanMath.afterPlans(getMonthKey(new Date().toISOString()), adjustedSurplus).free
+    : adjustedSurplus;
   console.log('[WhatIfResults] adjusted values:', {
     totalProjected, varTrendTotal, varAdjustment,
     trendTotal, adjustedTotal, adjustedDailyAvg,
-    adjustedSavings, trendSavings, unpaidBillsAdj
+    adjustedSavings, trendSavings
   });
   // Recompute attainment
   const savingsDiffForDisplay = adjustedSavings - targetAmount;
@@ -17724,7 +17879,7 @@ function renderWhatIfResults(result) {
   // === 对比摘要：收入（流入 +） vs 支出（流出 −），储蓄为轧差 ===
   html += `<div class="card mb-16 whatif-summary-card">
     <div class="card-title">📊 ${__('whatif.totalPrediction')}</div>
-    <div class="text-xs text-muted" style="margin-bottom:8px">💰 ${__('whatif.incomeInflow', '+' + formatMoney(income))} · 💸 ${__('whatif.spendingOutflow')} · ${__('whatif.savingsFormula')}</div>
+    <div class="text-xs text-muted" style="margin-bottom:8px">💰 ${__('whatif.incomeInflow', '+' + formatMoney(income))} · 💸 ${__('whatif.spendingOutflow')} · ${result.planDueVirtual > 0 ? __('whatif.savingsFormulaPlans') : __('whatif.savingsFormula')}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center">
       <div>
         <div class="text-xs text-muted">${__('whatif.trendTotal')}</div>
@@ -18236,7 +18391,8 @@ function attachWhatIfListeners(month) {
     'whatif.billsExcludedNote': { zh: '固定账单不参与趋势预测，已在总额中单独计算。', en: 'Fixed bills are excluded from trend projection and counted separately in the total.' },
     'whatif.incomeInflow': { zh: '收入（流入）{0}', en: 'Income (inflow) {0}' },
     'whatif.spendingOutflow': { zh: '支出（流出）', en: 'Spending (outflow)' },
-    'whatif.savingsFormula': { zh: '储蓄 = 收入 − 总支出 − 未付账单', en: 'Savings = income − spending − unpaid bills' },
+    'whatif.savingsFormula': { zh: '储蓄 = 收入 − 总支出（已包含还没付的账单）', en: 'Savings = income − spending (unpaid bills already included)' },
+    'whatif.savingsFormulaPlans': { zh: '储蓄 = 收入 − 总支出（已包含还没付的账单）− 大额计划要存 / 还的钱', en: 'Savings = income − spending (unpaid bills already included) − what your plans take' },
     'whatif.categoryDetailsNote': { zh: '仅支出分类；收入为流入不在此列，固定账单另计。', en: 'Expense categories only; income (inflow) and fixed bills are counted elsewhere.' },
     'whatif.categoryAdjustments': { zh: '分类支出调整', en: 'Category Adjustments' },
     'whatif.categoryDesc': { zh: '调整每个分类在剩余天数的支出方式。点击名称展开子分类。<br>「固定剩余总额」= 剩余天数总共花指定金额；「比趋势± %/天」= 在日均基础上增减。', en: 'Adjust how each category spends in remaining days. Click a name to expand subcategories.<br>"Fixed Remaining Total" = spend a fixed amount in remaining days; "± % vs Trend" = adjust from daily average.' },
@@ -18268,7 +18424,7 @@ function attachWhatIfListeners(month) {
     'whatif.vsTrend': { zh: '较趋势差额', en: 'vs Trend' },
     'whatif.dailyTrend': { zh: '日均支出（趋势）', en: 'Daily Avg (Trend)' },
     'whatif.savingsGoal': { zh: '储蓄目标', en: 'Savings Target' },
-    'whatif.planReserved': { zh: '🎯 大额计划已从日常可用额度中预留 {0}（这笔钱是存下的，不算消费，所以不影响上面的储蓄预测）', en: '🎯 Purchase plans reserve {0} out of the daily allowance. That money is retained rather than spent, so it does not reduce the savings projection above.' },
+    'whatif.planReserved': { zh: '🎯 大额计划本月要存 / 还 {0}，已从日常可用额度里留出来。这笔钱不算花掉，所以不在「总支出」里；但上面的「可储蓄」已经先扣掉了它——先满足计划，剩下的才算储蓄。', en: '🎯 Your plans take {0} this month, set aside from your daily allowance. It is not spent, so it is not in “spending”; but “Savable” above already has it taken off — plans come first, what is left counts as savings.' },
     'whatif.dailyHypo': { zh: '日均支出（假设）', en: 'Daily Avg (Adjusted)' },
     'whatif.trend': { zh: '趋势', en: 'Trend' },
     'whatif.hypothetical': { zh: '假设', en: 'Hypothetical' },
@@ -20642,13 +20798,13 @@ addI18nEntries({
   'guide.overview.detailed.row5_0_label': { zh: '本月总支出', en: 'Monthly Total Expenses' },
   'guide.overview.detailed.row5_1_desc': { zh: '总支出 ÷ 已过天数。标注了"不计日均"的大额消费不会拉高这个数', en: 'Total expenses ÷ days elapsed. Large expenses flagged as “exclude from daily avg” won’t affect this number' },
   'guide.overview.detailed.row5_1_label': { zh: '日均支出', en: 'Daily Average' },
-  'guide.overview.detailed.row5_2_desc': { zh: '按日均支出速度外推到月底，再加回已发生的"不计日均"大额支出——这笔钱已经花出去了，预测里不能漏掉它', en: 'Extrapolated from your daily spending pace, then adds back any "exclude from daily avg" large purchases that already happened — that money is already spent and the projection can’t leave it out' },
+  'guide.overview.detailed.row5_2_desc': { zh: '只有日常消费是照目前每天花的钱估算到月底的；月账单（已付的，加上还没付的计划金额）、信用卡分期、已经花掉的大额消费都按实际金额算，不会被放大。点这张卡片可以切换「含 / 不含固定账单」，卡片上会写明当前状态', en: 'Only everyday spending is estimated to month-end from your current daily pace; monthly bills (paid, plus the planned amount not yet paid), card instalments and big purchases already made count at their real amounts. Tap this card to include or exclude fixed bills; the card shows the current state' },
   'guide.overview.detailed.row5_2_label': { zh: '预测月总支出', en: 'Projected Monthly Total' },
   'guide.overview.detailed.row5_3_desc': { zh: '月收入 − 账单总额，即扣除固定账单后真正能花的钱', en: 'Monthly income − total bills — what’s actually available to spend after fixed costs' },
   'guide.overview.detailed.row5_3_label': { zh: '可支配收入', en: 'Disposable Income' },
   'guide.overview.detailed.row5_4_desc': { zh: '月收入 − 账单总额，如果账单超过收入这个值会是 0', en: 'Monthly income − total bills. If bills exceed income, this is 0' },
   'guide.overview.detailed.row5_4_label': { zh: '净收入', en: 'Net Income' },
-  'guide.overview.detailed.row5_5_desc': { zh: '月收入 − 预测月总支出 − 未付账单。正数表示预计能存下钱（"预测月总支出"已把已发生的"不计日均"大额支出算进去）', en: 'Monthly income − Projected Monthly Total − unpaid bills. A positive number means you’re on track to save (the “Projected Monthly Total” already includes any “exclude from daily avg” large purchases that already happened)' },
+  'guide.overview.detailed.row5_5_desc': { zh: '月底预计剩余 = 月收入 − 预测月总支出（已包含还没付的月账单）；预计储蓄 = 月底预计剩余 − 大额计划本月要存 / 还的钱（计划先拿，剩下的才算储蓄）。储蓄目标和目标环用的都是预计储蓄，和大额计划中心里的数一样。没有大额计划时，两个数相等', en: 'Money left = income − predicted monthly total (unpaid monthly bills already included); projected savings = money left − what your purchase plans take this month (plans come first, what is left counts as savings). The savings target and its ring use projected savings, the same number as in the Purchase Plans centre. With no plans the two are equal' },
   'guide.overview.detailed.row5_5_label': { zh: '储蓄预测', en: 'Savings Forecast' },
   'guide.overview.detailed.text1': { zh: '总览是你的记账软件「首页」和「仪表盘」。打开软件第一眼看到的就是它。它的作用是让你在 <strong>10 秒内</strong>了解本月财务状况：花了多少、还剩多少、预算够不够、有没有超支危险。你不需要做任何操作，所有数字和图表自动从你的记账数据生成。\n\n<strong>💡 先了解两个概念：</strong><br>\n• <strong>账单</strong>：房租、水电、网费等每月固定支出。在总览页点击「📋 月账单中心」卡片可以设置月收入和账单金额。<br>\n• <strong>日常消费</strong>：餐饮、交通、购物等非固定支出。页面中的"含固定账单"复选框控制是否把账单算进统计数据里。', en: 'The overview is your budgeting app’s “homepage” and “dashboard.” It’s the first thing you see when you open the app. Its purpose is to let you understand your monthly finances <strong>within 10 seconds</strong>: how much you’ve spent, how much is left, whether your budget is on track, and whether there’s any risk of overspending. You don’t need to do anything — all numbers and charts are automatically generated from your data.\n\n<strong>💡 Two Key Concepts:</strong><br>\n• <strong>Bills</strong>: Fixed monthly expenses like rent, utilities, and internet. Tap the “📋 Bill Center” card on the overview page to set your monthly income and bill amounts.<br>\n• <strong>Daily Spending</strong>: Variable expenses such as dining, transport, and shopping. The “Include Bills” checkbox on the page controls whether bills are factored into the statistics.' },
   'guide.overview.detailed.text3': { zh: '• 月收入/预算：需在「月账单中心」设置<br>• 储蓄目标：需在「设置」页配置<br>• 分类预算：需在「分类」页面给每个分类设置金额<br>• 记账记录：至少有一笔消费记录，总览才会显示完整数据', en: '• Monthly income/budget: set it in “Bill Center”<br>• Savings goal: configure it on the “Settings” page<br>• Category budgets: set amounts for each category on the “Categories” page<br>• At least one expense record — the overview needs data to display' },
@@ -23825,6 +23981,7 @@ function forecastSummaryHtml(month) {
         formatMoney(f.predictedSavings) +
         (f.targetAmount > 0 ? ' <em>/ ' + formatMoney(f.targetAmount) + '</em>' : '') + '</b></div>' +
     '</div>' +
+    '<div class="plan-hint" style="margin-top:6px">' + __('plan.fcLegend') + '</div>' +
     '<div class="plan-verdict plan-verdict-' + verdictClass + '">' + verdict + '</div>' +
   '</div>';
 }
@@ -24249,9 +24406,16 @@ function renderPlanOverviewCard(month) {
     'plan.keyForecast': { zh: '本月预计', en: 'Forecast' },
     'plan.forecastTitle': { zh: '📉 按当前消费速度预测（{0} 月末）', en: '📉 Forecast at your current pace (end of {0})' },
     'plan.forecastNoIncome': { zh: '设置本月收入后，这里会按你的消费速度预测月末能还多少、能存多少。', en: 'Set this month\'s income and this panel will project how much you can repay and save at your current pace.' },
-    'plan.fcSpend': { zh: '预计月末支出', en: 'Projected spend' },
-    'plan.fcSurplus': { zh: '预计结余', en: 'Projected surplus' },
-    'plan.fcRepay': { zh: '预计还款', en: 'Projected repayment' },
+    'plan.fcSpend': { zh: '月底预计总花费（含固定账单）', en: 'Expected total spending by month-end (incl. fixed bills)' },
+    'plan.fcLegend': {
+      zh: '月底预计剩余 = 月收入 − 月底预计总花费（已包含还没付的月账单）。预计储蓄 = 月底预计剩余 − 要存 / 要还的计划拿走的钱，总览、统计、报告里的「预计储蓄」就是这个数。信用卡分期已经算在花费里，不会重复扣。',
+      en: 'Money left = income − expected total spending (unpaid monthly bills already included). Projected savings = money left − what your saving / repaying plans take; the “projected savings” on the overview, stats and report pages is this same number. Card instalments are already counted as spending, so they are not deducted twice.'
+    },
+    'plan.afterPlansRow': { zh: '月底预计剩余 {0}，其中 {1} 要留给大额计划', en: 'Expected {0} left, of which {1} goes to your plans' },
+    'plan.afterPlansHint': { zh: '大额计划先拿走它那份，剩下的才算你能存下的钱', en: 'Your plans take their share first; what is left is what you can really save' },
+    'plan.predictionPlanNote': { zh: '（另有 {0} 要留给大额计划）', en: '(another {0} goes to your plans)' },
+    'plan.fcSurplus': { zh: '月底预计剩余', en: 'Expected money left by month-end' },
+    'plan.fcRepay': { zh: '本月计划预计付出', en: 'Plans expect to take this month' },
     'plan.fcSavings': { zh: '预计储蓄', en: 'Projected savings' },
     'plan.verdictTooEarly': { zh: '📅 本月才过 {0} 天，按日均推算还不作数。等几天数据多了再看这里。', en: '📅 Only {0} day(s) into the month — a daily-pace projection is not meaningful yet. Check back in a few days.' },
     'plan.verdictAllGood': { zh: '✅ 照这个花法，月供还得上，储蓄目标也够。', en: '✅ At this pace the instalment is covered and the savings target is met.' },
@@ -25952,6 +26116,23 @@ try{
    "pending" is simply the slice of the registry above it. Adding an
    announcement means inserting one entry — nothing else, and no version bump.
 
+   WRITING AN ANNOUNCEMENT (read this before adding one)
+   -----------------------------------------------------
+   The reader is an ordinary person who has never kept a budget before. If a
+   sentence only makes sense to someone who already knows what a term means,
+   the announcement has failed. So:
+     - One entry = at most 3-4 items; one item = one or two short sentences.
+     - Say what the user can now DO, or what was wrong and is now right.
+       Not how it works inside, not which module changed.
+     - No jargon: 下钻 / 口径 / 流水 / 外推 / 叶子分类 / 同步冲突 / 加密算法 ...
+       Use 展开下一层 / 算法 / 记录 / 估算 / 没有下一层 ... instead. If a
+       label the user sees is itself a hard word, explain it in the same
+       sentence ("固定账单 = 每月固定要付的房租、水电等").
+     - Give one tiny example when a number is involved.
+     - Skip anything only a developer would care about (version plumbing,
+       refactors, test fixes) - it does not belong in front of users.
+     - The title does not repeat the version; the line under it shows it.
+
    ADDING AN ANNOUNCEMENT (the whole release ritual)
    --------------------------------------------------
      1. Add an entry at the TOP of CHANGELOG with a fresh `id` (a date works
@@ -25976,12 +26157,15 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
-    id: '2026-10-22',
-    version: '3.6.8',
-    date: '2026-10-22',
+    id: '2026-10-25',
+    version: '3.7.0',
+    date: '2026-10-25',
     title: 'changelog.a10.title',
     items: [
-      { icon: '📢', text: 'changelog.a10.item1' }
+      { icon: '👆', text: 'changelog.a10.item1' },
+      { icon: '🧾', text: 'changelog.a10.item2' },
+      { icon: '🎯', text: 'changelog.a10.item3' },
+      { icon: '📝', text: 'changelog.a10.item4' }
     ]
   },
   {
@@ -26012,8 +26196,7 @@ const CHANGELOG = [
       { icon: '📅', text: 'changelog.a7.item1' },
       { icon: '💰', text: 'changelog.a7.item2' },
       { icon: '🤝', text: 'changelog.a7.item3' },
-      { icon: '🔮', text: 'changelog.a7.item4' },
-      { icon: '📊', text: 'changelog.a7.item5' }
+      { icon: '🔮', text: 'changelog.a7.item4' }
     ]
   },
   {
@@ -26064,9 +26247,7 @@ const CHANGELOG = [
     date: '2026-10-05',
     title: 'changelog.a1.title',
     items: [
-      { icon: '📣', text: 'changelog.a1.item1' },
-      { icon: '🔧', text: 'changelog.a1.item2' },
-      { icon: '🔧', text: 'changelog.a1.item3' }
+      { icon: '📣', text: 'changelog.a1.item1' }
     ]
   },
   {
@@ -26313,132 +26494,132 @@ function close() {
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
 
-    'changelog.a10.title': { zh: '更新测试', en: 'Update test' },
+    'changelog.a10.title': { zh: 'v3.7.0 预测更准了，总览的数字对得上了', en: 'v3.7.0: better forecasts, and the overview numbers add up' },
     'changelog.a10.item1': {
-      zh: '更新的时候看情况我就会这样发公告！当然也不是每一次就会发就是了',
-      en: 'When I ship an update, I may post an announcement like this, depending on the situation! Of course, not every update will have one.'
+      zh: '<strong>点「预测月总支出」那张卡片，就能切换算不算固定账单</strong>（房租、水电这类）。卡片上会写着现在是哪种状态，以及点一下会变成什么。',
+      en: '<strong>Tap the “Predicted monthly total” card to switch fixed bills (rent, utilities…) on or off</strong>. The card shows which state it is in now, and what a tap will do.'
+    },
+    'changelog.a10.item2': {
+      zh: '<strong>预测现在会把月账单算进来</strong>：包括你设了金额、但还没付的那部分。信用卡分期也单独列出来，点开关时是哪几项在变，一眼就能看明白。已经付掉的房租也不会再被越估越多。',
+      en: '<strong>The forecast now counts your monthly bills</strong>, including the amounts you set but have not paid yet. Card instalments get their own line, so you can see exactly what changes when you flip the switch. Rent you have already paid is no longer inflated.'
+    },
+    'changelog.a10.item3': {
+      zh: '<strong>各个页面的「预计储蓄」现在是同一个数</strong>：大额计划先拿走它那份，剩下的才算你能存下的钱。以前总览写 98，大额计划里却是 0，现在不会了。',
+      en: '<strong>“Projected savings” is now the same number on every page</strong>: your purchase plans take their share first, and what is left is what you can save. The overview used to say 98 while the plans page said 0 — no more.'
+    },
+    'changelog.a10.item4': {
+      zh: '<strong>几处小改进</strong>：数额是 0 的部分不再显示；统计页的「当前已存」改叫「累计已存」；预计还能达成目标时，不再写成「已达成」。',
+      en: '<strong>A few small fixes</strong>: parts that are zero are no longer shown; “Saved so far” on the stats page is now “Cumulative Saved”; a target you are only on track for is no longer called “met”.'
     },
 
-    'changelog.a9.title': { zh: 'v3.6.7 点分类图：下钻和看明细不再打架', en: 'What\'s in v3.6.7: drilling down and viewing records no longer collide' },
+    'changelog.a9.title': { zh: '点图表的方式调整了', en: 'Tapping a chart works differently' },
     'changelog.a9.item1': {
-      zh: '<strong>点图上的色块 = 下钻；看明细 = 点表格里的那一行</strong>：以前点饼图 / 格子图 / 矩形图的色块，会同时弹出明细和下钻，两件事挤在一次点击里。现在色块只管下钻；想看某个分类的流水，展开「分类明细」，点对应的那一行。点到没有子分类的块（比如叶子分类、「月账单」）会弹一条提示，不再没反应。',
-      en: '<strong>Click a chart block to drill down; click a table row to see its records</strong> - before, clicking a block on the pie / waffle / treemap did both at once, squeezing two actions into one click. Now a block only drills down; to see a category\'s records, open “Category details” and click its row. A block with nothing to drill into (a leaf category, “Monthly bills”) now shows a hint instead of doing nothing.'
+      zh: '<strong>点图上的色块 = 展开下一层；想看具体的记录，点下面表格里的那一行。</strong>点到没有下一层的色块会提示你，不会没反应。',
+      en: '<strong>Tap a block in the chart to open the next level; to see the actual records, tap its row in the table below.</strong> A block with nothing below it now tells you so instead of doing nothing.'
     },
 
-    'changelog.a8.title': { zh: 'v3.6.3 「含固定账单」开关终于管用了', en: 'What\'s in v3.6.3: the “Include fixed bills” switch now actually works' },
+    'changelog.a8.title': { zh: '「含固定账单」开关现在真的有用了', en: 'The “Include fixed bills” switch now works' },
     'changelog.a8.item1': {
-      zh: '<strong>「含固定账单」勾不勾，图表现在真的会变</strong>：以前统计页的饼图 / 格子图 / 矩形图，不管勾不勾，房租水电这些固定账单<strong>从来没出现过</strong>。现在勾选时每个账单是图里单独的一块（点一下能看该账单的流水），取消勾选就去掉；总览的「支出前五分类」同理。',
-      en: '<strong>Ticking “Include fixed bills” now really changes the charts</strong> - before, the pie / waffle / treemap on Stats <strong>never showed</strong> fixed bills like rent and utilities, ticked or not. Now each bill is its own block while the box is ticked (tap it to see that bill\'s records) and disappears when unticked; the Overview top-5 categories follow the same rule.'
+      zh: '<strong>勾选「含固定账单」，每月固定要付的房租、水电等就会出现在统计图里</strong>，取消勾选就消失。点一下还能看到这笔账单的记录。',
+      en: '<strong>Tick “Include fixed bills” and your monthly rent, utilities and the like show up in the charts</strong>; untick and they go away. Tap one to see its records.'
     },
     'changelog.a8.item2': {
-      zh: '<strong>信用卡分期跟着这个开关走</strong>：分期的每月还款和房租一样是固定支出，取消勾选「含固定账单」时，它不再算进日常消费、日均、预测和图表，日常可花预算也会先把它扣掉。「剩余日常」的数字和以前一致；报告页、假设分析没有这个开关，口径不变。',
-      en: '<strong>Card instalments follow the switch</strong> - a monthly instalment is a fixed expense just like rent, so with “Include fixed bills” unticked it is left out of daily spending, the daily average, the forecast and the charts, and the daily budget has it taken out first. “Remaining daily” is unchanged; the Report and What-If pages have no such switch and are unchanged.'
+      zh: '<strong>信用卡分期也跟着这个开关走</strong>：和房租一样算固定支出，取消勾选就不算进日常花销。',
+      en: '<strong>Card instalments follow the switch too</strong> - they count as fixed spending like rent, so unticking leaves them out of everyday spending.'
     },
 
-    'changelog.a7.title': { zh: 'v3.6.2 记账更顺手 + 几处数字改对了', en: 'What\'s in v3.6.2: smoother entry, a few numbers corrected' },
+    'changelog.a7.title': { zh: '记账更顺手，几处数字改对了', en: 'Smoother entry, a few numbers fixed' },
     'changelog.a7.item1': {
-      zh: '<strong>记账日期可以一键换天</strong>：日期栏左右两侧多了 ‹ › 按钮，按一下就切到前一天 / 后一天；记完一笔后<strong>日期不再被重置</strong>，连着补记同一天的账不用每笔重新选日期。',
-      en: '<strong>Step the date with one tap</strong> - the date field now has ‹ and › buttons on either side to jump to the previous or next day. The date is <strong>no longer reset after saving</strong>, so you can log several entries for the same day without re-picking it.'
+      zh: '<strong>记账日期可以一键换天</strong>：日期两边多了 ‹ › 按钮。记完一笔后日期不会被重置，连着补记同一天很方便。',
+      en: '<strong>Change the date in one tap</strong> - the date has ‹ › buttons on each side, and it is no longer reset after saving, so adding several entries for one day is quick.'
     },
     'changelog.a7.item2': {
-      zh: '<strong>金额从「分」开始填</strong>（类似 Touch \'n Go）：只按数字键，输入 23642 就是 RM 236.42，不用再找小数点，按退格删掉最后一位。记账、预算、假设分析、分摊、购物计划等<strong>全应用的金额框</strong>都是这样；可正可负的框旁边多了 ± 按钮。',
-      en: '<strong>Amounts fill in from the cents</strong> (like Touch \'n Go) - just press digits: typing 23642 gives RM 236.42, no decimal point needed, and Backspace removes the last digit. <strong>Every amount field in the app</strong> works this way (add record, budgets, what-if, split bills, purchase plans…); fields that can be negative get a ± button.'
+      zh: '<strong>输入金额更简单</strong>：只按数字键，输入 23642 就是 236.42，不用再找小数点。',
+      en: '<strong>Typing amounts is simpler</strong> - just press digits: 23642 becomes 236.42, no decimal point needed.'
     },
     'changelog.a7.item3': {
-      zh: '<strong>追账中心只列还没收齐的</strong>：已归档的账单不再出现在「按人」里，已经还清的人也不再显示，「按账单」同理。已结清 / 已归档的账单集中放在第三个标签里，恢复和删除入口都还在。',
-      en: '<strong>The split center lists only what is still owed</strong> - archived bills no longer show up under "By person", people who have fully repaid are hidden, and "By bill" works the same way. Settled and archived bills live in the third tab, where restore and delete are still available.'
+      zh: '<strong>分摊账单只显示还没收回的钱</strong>：已还清的人和已归档的账单，收进了单独的标签页。',
+      en: '<strong>Split bills only show what is still owed to you</strong> - people who have paid you back and archived bills moved to their own tab.'
     },
     'changelog.a7.item4': {
-      zh: '<strong>修正假设分析的重复计算</strong>：对父分类设置调整（比如餐饮每天少花 RM 2）时，旧版把这个调整给每个子分类各算了一遍，省下的钱被成倍放大。现在整组只算一次，再按各子分类过往的花销比例分摊。',
-      en: '<strong>What-if no longer double-counts</strong> - an adjustment on a parent category (say, spend RM 2 less per day on Food) used to be applied once to every subcategory, multiplying the savings. It is now applied once to the whole group and split by each subcategory\'s past spending.'
-    },
-    'changelog.a7.item5': {
-      zh: '<strong>「日均」数字统一了</strong>：报告页底部那句「本月至今已消费…日均…」以前是用总支出除以「有消费的天数」，和总览对不上；现在全应用都是「已过天数内我自己的支出 ÷ 已过天数」。滚动 30 天的日均也不再把勾了「不计日均」的大额算进去。',
-      en: '<strong>One definition of daily average</strong> - the sentence at the bottom of the report page ("spent so far this month… average per day…") used to divide by the number of days that had spending, so it disagreed with the overview. Everywhere now uses "my own spending so far ÷ days elapsed", and the rolling 30-day average also leaves out records marked "exclude from daily average".'
+      zh: '<strong>改对了两处算错的数字</strong>：「假设分析」里调整一个大类时，省下的钱不再被重复计算；「日均」在所有页面算法一致了。',
+      en: '<strong>Two wrong numbers fixed</strong> - in What-If, adjusting a main category no longer counts the savings several times, and the daily average is now worked out the same way on every page.'
     },
 
-    'changelog.a6.title': { zh: 'v3.6.1 手机上的分类页不再挤字', en: 'What\'s in v3.6.1: the categories page fits on a phone' },
+    'changelog.a6.title': { zh: '手机上的分类页不再挤字', en: 'The categories page fits on a phone' },
     'changelog.a6.item1': {
-      zh: '<strong>手机上的分类页重新排版</strong>：以前分类名会被 ⬆️ ⬇️ ➕ ⚙️ 和预算框挤得一个字都看不到。现在每个分类占两行——上面是图标和完整的名字（太长最多折成两行），下面是预算框和操作按钮；子分类的缩进也收窄了，嵌套再深名字也不会被挤没；操作图标的点击区放大，更好按。电脑端不变。',
-      en: '<strong>Categories page re-laid out for phones</strong> - category names used to be squeezed to nothing by the ⬆️ ⬇️ ➕ ⚙️ icons and the budget box. Each category is now two lines: the icon and the full name on top (long names wrap to two lines), the budget box and actions below. Nesting indent is narrower so a name survives however deep it sits, and the action icons are bigger to tap. Desktop is unchanged.'
+      zh: '<strong>手机上能看到完整的分类名字了</strong>：每个分类分成两行，名字在上，按钮在下。电脑上没有变化。',
+      en: '<strong>Full category names on a phone</strong> - each category now takes two lines, name on top and buttons below. Nothing changes on a computer.'
     },
 
-    'changelog.a5.title': { zh: 'v3.6.0 口径说清楚 + 预测有明细 + 点图看记录', en: 'What\'s in v3.6.0: clearer labels, forecast breakdown, tap-to-inspect charts' },
+    'changelog.a5.title': { zh: '难懂的词改直白了，图表可以点', en: 'Plainer wording, tappable charts' },
     'changelog.a5.item1': {
-      zh: '<strong>以前云里雾里的几个词改名了</strong>：「含账单」→「含固定账单」；「收支结余」拆成「预算结余」（月收入设定 − 已花 − 未付账单）和「实际结余」（流水收入 − 流水支出）；「剩余总额/天」→「剩余可花/天（未扣储蓄目标）」，旁边那格是「日常可花/天（已扣账单+储蓄）」，公式都写进小字和悬停说明。本月总支出下方注明「其中日常净支出 ＋ 账单流水」「你的实际承担 ＋ 待收回 ＝ 上方合计」。',
-      en: '<strong>Confusing labels renamed</strong> - "Include bills" is now "Incl. fixed bills"; "Balance" is split into "Budget balance" (income setting − spent − unpaid bills) and "Net (recorded)" (ledger income − ledger spending); the two per-day boxes now read "Left to spend/day (pre-savings)" and "Daily spendable/day (ex-bills & savings)" with their formulas in the fine print and tooltips. The monthly total notes its daily/bill split and your-share vs to-collect breakdown.'
+      zh: '<strong>难懂的词改成了更直白的说法</strong>，旁边还用小字写明了是怎么算出来的。',
+      en: '<strong>Hard-to-read terms now use plainer words</strong>, with a short note beside each saying how it is worked out.'
     },
     'changelog.a5.item2': {
-      zh: '<strong>预测月总支出下方有了明细</strong>：账单趋势 ＋ 大额已发生（不计入日均） ＋ 日常趋势，三项加起来正好等于预测数，不用再猜预测是怎么算出来的。',
-      en: '<strong>The forecast total shows its math</strong> - under the predicted monthly total: bill trend + large one-offs already spent (excluded from the daily average) + daily trend. The three parts always add up to the predicted number.'
+      zh: '<strong>预测的本月支出能看到明细</strong>：由哪几部分加起来的，一目了然。',
+      en: '<strong>The forecast of this month’s spending shows what it is made of</strong>, so you can see where the number comes from.'
     },
     'changelog.a5.item3': {
-      zh: '<strong>分类三张图支持点色块看记录</strong>：饼图 / 格子图 / 矩形图点任意色块，就弹该领域在本月的全部消费记录，还能一键跳到流水页看；原来的下钻不受影响。',
-      en: '<strong>Tap any chart block to inspect records</strong> - pie, waffle and treemap blocks now pop up every record of that category this month, with a jump to the ledger. Drilling into subcategories still works as before.'
+      zh: '<strong>点图上的色块，可以看这个分类本月的所有记录</strong>，还能一键跳到记录页。',
+      en: '<strong>Tap a block in the chart to see this category’s records for the month</strong>, with a shortcut to the records page.'
     },
     'changelog.a5.item4': {
-      zh: '<strong>假设分析分清收入和支出</strong>：参数面板只列支出分类——收入按设定锁定、固定账单另计，不再混在一起；结果页用徽标区分流入 / 流出，并写明「储蓄 = 收入 − 总支出 − 未付账单」。',
-      en: '<strong>What-if separates income from spending</strong> - the parameters list expense categories only: income is locked to its setting and fixed bills are counted separately. Results badge inflows vs outflows and state the formula "savings = income − spending − unpaid bills".'
+      zh: '<strong>「假设分析」把收入和支出分开了</strong>：只能调整支出，结果页会写明储蓄是怎么算出来的。',
+      en: '<strong>What-If keeps income and spending apart</strong> - you can only adjust spending, and the result page explains how savings are worked out.'
     },
 
-    'changelog.a4.title': { zh: 'v3.5.0 分类可排序 + 选分类不再刷屏', en: 'What\'s in v3.5.0: sorting and a picker you can search' },
+    'changelog.a4.title': { zh: '分类可以自己排序，选分类更方便', en: 'Sort your categories, pick them more easily' },
     'changelog.a4.item1': {
-      zh: '<strong>分类顺序可以自己排了</strong>:分类页每一行左边多了 ⬆️ / ⬇️,子分类和根分类都能排,首尾会自动置灰。顺序存在分类本身上,云端同步会一起带走——另一台设备拉下来就是你排好的顺序。',
-      en: '<strong>Reorder categories</strong> - every row on the categories page now has ⬆️ / ⬇️, for roots and subcategories alike, greyed out at the ends of the list. The order lives on the category itself, so cloud sync carries it: the other device pulls it already in the order you set.'
+      zh: '<strong>分类的顺序可以自己排</strong>：每个分类旁边有 ⬆️ ⬇️ 按钮，换设备同步后顺序也一样。',
+      en: '<strong>Put your categories in the order you like</strong> - each one has ⬆️ ⬇️ buttons, and the order follows you to other devices.'
     },
     'changelog.a4.item2': {
-      zh: '<strong>选分类不再一次铺满</strong>:记账、编辑、流水筛选、批量改分类这几个弹窗原本默认把整棵树展开,分类一多就得一路划到底。现在默认收起、点箭头逐层展开,还加了搜索框——输入分类名或 emoji,命中的结果会自动展开到看得见的位置,祖先行上还会标出有几个命中。',
-      en: '<strong>Pickers that do not flood you</strong> - the add, edit, records-filter and batch-recategorise pickers used to open with the whole tree expanded, so with any depth you scrolled to the bottom just to reach 餐饮. They now start collapsed, open one branch at a time, and have a search box: type a name or an emoji and the matches are expanded into view, with each ancestor row showing how many hits it contains.'
+      zh: '<strong>选分类不再一长串</strong>：默认收起，点开才展开，还能直接搜名字。',
+      en: '<strong>Picking a category is no longer a long list</strong> - groups start folded, open when tapped, and you can search by name.'
     },
 
-    'changelog.a3.title': { zh: 'v3.4.0 新增：收入记账', en: 'What\'s in v3.4.0: income' },
+    'changelog.a3.title': { zh: '新增：可以记收入了', en: 'New: you can record income' },
     'changelog.a3.item1': {
-      zh: '<strong>可以记收入了</strong>:新增记录页顶部有「支出 / 收入」切换,收入默认带工资、副业、报销/退款、理财收益、其他收入五棵分类树。流水里收入显示为绿色带 + 号。',
-      en: '<strong>Income entries</strong> - the new-record page has an expense / income switch, with five ready-made income categories (salary, side work, reimbursements, returns, investments). Income rows show green with a leading + in the ledger.'
+      zh: '<strong>可以记收入了</strong>：记账页顶部切换「支出 / 收入」，已备好工资、副业、报销等分类。',
+      en: '<strong>You can record income</strong> - switch between spending and income at the top of the add page; salary, side work, refunds and more are ready to use.'
     },
     'changelog.a3.item2': {
-      zh: '<strong>收入有自己的分类树</strong>:分类页分成「支出分类」和「收入分类」两块,收入分类右侧显示本月实际到账金额而不是预算框 —— 工资没有「超支」这回事。',
-      en: '<strong>Income has its own tree</strong> - the categories page is split into expenses and income. Income rows show what actually arrived this month instead of a budget box, because there is no such thing as overspending your salary.'
+      zh: '<strong>收入有自己的分类</strong>：分类页分成「支出」和「收入」两块。',
+      en: '<strong>Income has its own categories</strong> - the categories page is split into spending and income.'
     },
     'changelog.a3.item3': {
-      zh: '<strong>收支结余</strong>:总览、统计、报表多了「收入 / 支出 / 结余」,近半年趋势图多了一条绿色收入线,Excel 与 CSV 导出也带上了类型和收入列。',
-      en: '<strong>Net cash flow</strong> - the overview, stats and report gained income / spending / net, the six-month trend chart gained a green income line, and the Excel and CSV exports carry a type column and income totals.'
+      zh: '<strong>能看到赚了多少、还剩多少</strong>：总览、统计、报告里多了收入和「收入 − 支出」，Excel 导出也带上了。',
+      en: '<strong>See what came in and what is left</strong> - the overview, stats and report now show income and income minus spending, and the Excel export includes them.'
     },
 
-    'changelog.a1.title': { zh: '版本公告', en: 'Version Announcements' },
+    'changelog.a1.title': { zh: '新增「版本公告」', en: 'New: “What’s new” notes' },
     'changelog.a1.item1': {
-      zh: '<strong>版本公告功能</strong>：每次打开应用，若检测到你还没看过本版本的更新，就会弹出说明。跳过了多个版本也能用左右箭头翻看；设置页里随时可以回看完整更新日志。',
-      en: '<strong>Version announcements</strong> — whenever you open the app and haven\'t seen what changed yet, a summary pops up. Missed several versions? Use the left/right arrows. The full history is always browsable from Settings.'
-    },
-    'changelog.a1.item2': {
-      zh: '<strong>版本号收敛为单一来源</strong>：设置页、诊断报告、页面标题原先各自硬编码一份 <code>v3.3.0</code>，现在统一读 <code>APP_VERSION</code>。',
-      en: '<strong>One source of truth for the version</strong> — the settings footer, the diagnostics export and the page title each hardcoded their own <code>v3.3.0</code>. They all read <code>APP_VERSION</code> now.'
-    },
-    'changelog.a1.item3': {
-      zh: '<strong>修页面标题的版本号不显示</strong>：标题里的版本号一直被 i18n 覆盖掉，浏览器标签页实际只显示「记账软件」。',
-      en: '<strong>Fixed the version never showing in the page title</strong> — the version in <code>&lt;title&gt;</code> was being overwritten by i18n, so the tab only ever read "Budget Tracker".'
+      zh: '<strong>应用更新后，打开时会弹出这样的说明</strong>。错过了好几次更新，可以用左右箭头翻看；设置页里随时能回看。',
+      en: '<strong>After an update, a note like this appears when you open the app.</strong> Missed a few? Use the arrows to flip through; Settings keeps the full history.'
     },
 
-    'changelog.a2.title': { zh: 'v3.3.0 更新内容', en: 'What\'s in v3.3.0' },
+    'changelog.a2.title': { zh: '新增云端同步，修复两个数据问题', en: 'Cloud sync, plus two data fixes' },
     'changelog.a2.item1': {
-      zh: '<strong>可选云端同步（端到端加密）</strong>：多设备自动同步，服务端只见密文。支持 PIN 解锁后同步、gzip 压缩、冲突时三方合并。',
-      en: '<strong>Optional cloud sync (end-to-end encrypted)</strong> — your ledger syncs across devices and the server only ever holds ciphertext. Works after PIN unlock, gzipped, with a three-way merge on conflict.'
+      zh: '<strong>可以在多台设备之间自动同步了</strong>（可选）：数据加密后再上传，服务器看不到你的内容。',
+      en: '<strong>Your data can sync between devices automatically</strong> (optional) - it is encrypted before upload, so the server cannot read it.'
     },
     'changelog.a2.item2': {
-      zh: '<strong>修 PIN 锁定期间丢数据</strong>：锁定 / 解锁流程会清空内存数据，期间的新改动此前会丢。',
-      en: '<strong>Fixed data loss while PIN-locked</strong> — locking clears the in-memory store, and edits made around that moment were previously dropped.'
+      zh: '<strong>修复：设置了 PIN 锁后，新记的账可能丢失</strong>。',
+      en: '<strong>Fixed: new entries could be lost when a PIN lock was on.</strong>'
     },
     'changelog.a2.item3': {
-      zh: '<strong>修数据指纹漏字段</strong>：冲突检测此前漏掉若干字段，两台设备上的改动可能察觉不到。',
-      en: '<strong>Fixed gaps in the data fingerprint</strong> — some fields were excluded, so changes made on two devices could go unnoticed.'
+      zh: '<strong>修复：两台设备同时改数据时，有些改动可能被漏掉</strong>。',
+      en: '<strong>Fixed: when two devices changed data at once, some changes could be missed.</strong>'
     },
     'changelog.a2.item4': {
-      zh: '<strong>分类支出矩形图</strong>：面积正比于金额，子分类嵌套在父分类的框里，一眼看出大数字是被哪一支拉高的。',
-      en: '<strong>Category treemap</strong> — area is proportional to spend and child boxes nest inside their parent, so it\'s obvious which branch inflated the total.'
+      zh: '<strong>新增「矩形图」</strong>：方块越大花得越多，一眼看出钱主要花在哪。',
+      en: '<strong>New “treemap” chart</strong> - the bigger the box, the more you spent, so you can see where the money goes.'
     },
     'changelog.a2.item5': {
-      zh: '<strong>展开视图修复</strong>：放大到接近全屏，并修掉多张图叠在一起显示、明细表下钻失效、canvas 分辨率导致的整体模糊。',
-      en: '<strong>Expanded-view fixes</strong> — now nearly full-screen, and fixed charts stacking on top of each other, the detail table failing to drill down, and overall blurriness from a mismatched canvas resolution.'
+      zh: '<strong>放大查看图表时不再重叠、不再模糊</strong>。',
+      en: '<strong>Enlarged charts no longer overlap or look blurry.</strong>'
     }
   });
 })();

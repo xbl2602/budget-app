@@ -42,7 +42,11 @@ function renderReport() {
   const savingsRate = budget > 0 ? (actualSavings / budget * 100) : 0;
   // Cash-flow projection, not the daily-average trend — matches the overview card (A-1).
   const predicted = isRolling ? StatsEngine.getPeriodPredictedMonthEndTotal() : StatsEngine.getPredictedMonthEndTotal(month);
-  const savingsPred = isRolling ? (budget - monthTotal) : (StatsEngine.getSavingsPrediction(month) - unpaidPlannedBillsRep);
+  // The calendar month's forecast in both ranges, same as the overview (rule #11);
+  // 预计储蓄 is after purchase plans took their share, 预计结余 is before them.
+  const savingsFc = StatsEngine.getSavingsForecast(month);
+  const savingsPred = savingsFc.free;
+  const planReservedRep = savingsFc.planReserved;
   // The one definition of 日均 the overview, stats and what-if pages all use:
   // spend over the days that have PASSED, my own share only, 不计日均 records out.
   // This page used to divide the month total by the number of days that happened
@@ -268,6 +272,7 @@ function renderReport() {
             <p>${savingsPred >= 0
               ? __('report.predictionPositive', formatMoney(savingsPred))
               : __('report.predictionNegative', formatMoney(Math.abs(savingsPred)))}
+              ${planReservedRep > 0 && savingsPred >= 0 ? ' ' + __('plan.predictionPlanNote', formatMoney(planReservedRep)) : ''}
             </p>
           ` : '<p>' + __('report.predictionSetupHint') + '</p>'}
         </div>
@@ -280,7 +285,7 @@ function renderReport() {
     const budgetPct = spendableBudget > 0 ? (monthTotal / spendableBudget) : (budget > 0 ? monthTotal / budget : 0);
     drawRing('reportBudgetRing', Math.min(budgetPct, 1), budgetPct > 1 ? '#EF4444' : '#6366F1',
       (budgetPct * 100).toFixed(0) + '%', '#EF4444');
-    const savingsPct = targetAmount > 0 ? Math.min(savingsPred / targetAmount, 1) : 0;
+    const savingsPct = targetAmount > 0 ? Math.max(0, Math.min(savingsPred / targetAmount, 1)) : 0;
     drawRing('reportSavingsRing', savingsPct, savingsPct >= 1 ? '#10B981' : (savingsPct > 0 ? '#F59E0B' : '#94A3B8'),
       (savingsPct * 100).toFixed(0) + '%');
     drawSparkline('reportSparkline', dailyTotals.map(d => ({ total: d.total, day: d.day })));

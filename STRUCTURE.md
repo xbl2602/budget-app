@@ -270,11 +270,12 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `getDailyTotals(month, options)` | 日支出数组 `[{day, total}]` |
 | `getDailyAverage(month)` | 日均（排除 `excludeFromAvg`） |
 | `getPredictedTotal(month)` | 预测月总 |
-| `getPredictedMonthEndTotal(month)` | 预测月末现金流（含大额加回） |
-| `getPredictedBreakdown(month)` | 预测拆分：账单趋势 + 大额已发生 + 日常趋势 = 预测 |
+| `getPredictedMonthEndTotal(month)` | 预测月末现金流 = `getPredictedBreakdown(month).predicted`：账单流水 + 没付的月账单 + 信用卡分期 + 大额，全按实际金额，只有日常消费按日均外推。**账单不外推**（固定金额不是日均习惯）；**没付的月账单已包含在内**，所以别再在它上面减「未付账单」 |
+| `getPredictedBreakdown(month)` / `_predictParts(records, daysPassed, daysInPeriod, splitOthers, unpaidBills)` | 预测拆分 `{bills, billsUnpaid, instalments, large, normal, predicted}`，互不重叠、和恒等于 `predicted`。划分与「含固定账单」开关对「固定」的定义一致（账单分类 或 带 `planId` 的分期），关掉开关少掉的恰是 `bills + billsUnpaid + instalments`。他人分摊份额从日常里扣。`getUnpaidPlannedBills(month)` / `getPeriodUnpaidPlannedBills()` 是「没付的月账单」的唯一定义 |
 | `getPredictedBreakdownVariable(month)` | 去账单口径的预测拆分（大额 + 日常） |
 | `getPeriodPredictedBreakdown()` / `getPeriodPredictedBreakdownVariable()` / `getPeriodVariablePredictedTrend()` | 近 30 天的同口径拆分 |
-| `getSavingsPrediction(month)` | 预算 - 预测 |
+| `getSavingsPrediction(month)` | 预算 - 预测（未扣未付账单、未扣大额计划，只给 `getSavingsForecast` 用） |
+| `getSavingsForecast(month)` | **各页储蓄预测的唯一出口**：`{unpaidBills, surplus 预计结余, planReserved, free 预计储蓄}`。`surplus` = 收入 − 预测月末支出 − 未付账单（可为负）；`free` = `surplus` − 存 / 还类计划拿走的部分（`PlanMath.afterPlans`），储蓄目标、目标环、目标达成率都拿 `free` 比，与计划中心的「预计储蓄」是同一个数。无大额计划时两者相等 |
 | `getRemainingDailyLimit(month)` | 剩余日限额 |
 | `getCategoryBreakdownDeep(month, catId)` | 递归分类分解 |
 | `getCustomRangeTotals(startDate, endDate)` | 自定义范围统计 |
@@ -407,6 +408,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `periodRange` | `object` | 当前统计范围信息 |
 | `StatsEngine.getPeriod*()` | 替代 `getMonth*` 用于滚动统计 |
 
+| `toggleOverviewBills()` | 总览「预测月总支出」卡片整张是开关：翻转 `chartBillToggle_overviewBudget`（与「预算进度」卡片上的勾选框是**同一个设置**）后重画整个总览。卡片上有状态胶囊（✅ 含固定账单 / ⬜ 不含固定账单）和「点一下改成…」引导，支持键盘 Enter / 空格。勾选框的 `toggleBillFilter('overviewBudget')` 也改成重画整个总览——以前只重画圆环，上面的卡片还停在旧状态 |
+| `formatPredictedBreakdown(bd)` | 预测明细行「月账单 X ＋ 信用卡分期 Y ＋ 大额消费 Z ＋ 日常消费预估 W」：数额为 0 的部分不显示，少于两项时整行不显示（只剩一项 = 重复上面的总数）。总览与统计页共用 |
 ---
 
 ### 11. `11-theme-colors.js` — Canvas 主题色
@@ -889,6 +892,8 @@ IIFE 自执行，暴露 `window.SyncUI` 和 `window.LANSync`。
 
 结算瀑布（**还债优先**）：`结余 = max(0, 收入 − (当月支出 + 未付计划账单))` → 按结束月升序还债，`本期应还 = 剩余 ÷ 剩余期数` → 余下的才算储蓄。欠款自动摊入剩余期数。
 
+| `PlanMath._allocate(month, surplus)` | 还债优先瀑布（按结束月升序）：save / borrow 取 `min(应付, 剩余)` 并从结余里扣；信用卡分期取全额但**不**从结余扣（流水已在预计支出里）。`getForecast` 与 `afterPlans` 共用，计划中心和各页的预计储蓄不会各算各的 |
+| `PlanMath.afterPlans(month, surplus)` | 一个（可为负的）月末结余拆成 `{reserved 计划拿走, free 真正算储蓄}`。储蓄目标要在计划之后才算（目标与计划在 `getSpendablePlan` 里是各自独立的预留，瀑布又是还债优先），所以目标环 / 目标达成率 / 假设分析都拿 `free`。`getForecast` 另返回 `reservedPay`（= 总预计还款里真正出自结余的部分） |
 ---
 
 ### 28. `28-cloud-sync.js` — 可选云端同步
@@ -1061,6 +1066,7 @@ for t in tests/*.js; do node "$t"; done
 | `tests/daily-average-test.js` | 「日均」只有一个定义：报告页与总览 / 统计同值、滚动 30 天尊重「不计日均」、月度 × 已过天数 = 滚动 × 30（固定时钟） |
 | `tests/structure-fixes-test.js` | 分类颜色继承与自定义图标、分摊编辑器字段、饼图标签几何 |
 | `tests/changelog-test.js` | 版本公告：已读标记切片、提示条、左右箭头（只有一条时也渲染但禁用）、**弹窗不抢占**（`107d6e8` 回归网）、**月初结转提醒不吞掉公告**、手动浏览不写标记、注册表不变量（id 唯一 / date 降序 / 无空 items / 无超前版本号） |
+| `tests/savings-forecast-test.js` | 储蓄 / 预测口径（固定时钟 10-13）：预计结余 vs 预计储蓄（计划吃光结余时总览目标环 = 计划中心 = 0；够付 / 超支 / 信用卡分期不重复扣 / 多计划按截止日先后）；预测里已付账单不外推（含过去月份、近 30 天孪生、三项之和 = 预测数）；统计页累计已存扣未付账单；近 30 天下统计 / 报告储蓄预测仍是当月口径；假设分析按各自结余重算瀑布；标题 / 公式措辞。7 个变异逐一验证会失败 |
 | `tests/category-waffle-test.js` | 分类格子图：视图切换与持久化、与饼图共用数据/配色、下钻、密度独立、展开弹窗、标签格子图回归 |
 | `tests/category-treemap-test.js` | 分类矩形图：squarify 布局（面积正比、铺满、长宽比、越界）、按层级嵌套、子框在父框内、下钻、展开弹窗、canvas 分辨率跟随渲染尺寸 |
 | `tests/pin-lock-test.js` | PIN 锁不丢数据：设 PIN → 继续记账 → 锁定 → 解锁 / 改 PIN / 关 PIN / 重新打开标签页，各路径一条不少；读回校验失败时明文原样保留（22 条，驱动真实界面函数） |
