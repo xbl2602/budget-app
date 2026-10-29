@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.7.1
+# 记账软件 · Budget App v3.7.2
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -123,6 +123,10 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
+
+### v3.7.2 合并分类的确认按钮（小版本，无公告）
+
+- **🔀 按钮写明合并到谁、不再莫名变灰**：选好目标后，确认按钮以前只写「合并到」，看不出选的是谁；选好后再点别的分类的展开箭头或在搜索框打字，按钮还会变回灰色的「请先选择目标分类」（内部其实还记着目标）。现在按钮写成「合并到 🛒 购物」，展开、搜索之后也保持可点。分类名从分类库里取，不再依赖选择器传来的参数（它传的是 `(id, arg, label)`，旧的 `selectMergeTarget(catId, displayName)` 把第二个参数当名字，所以名字一直是空的）；`openCatTreeModal` 新增可选的 `afterRender` 钩子，每次重画页脚后由合并框重新同步按钮。回归网：`tests/merge-category-test.js`。
 
 ### v3.7.1 全面查错后的一批修复（小版本，无公告）
 

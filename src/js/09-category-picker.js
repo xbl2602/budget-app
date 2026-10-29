@@ -204,6 +204,9 @@ function catTreeRender() {
   }
   if (_catTreeOpts.footer) html += _catTreeOpts.footer;
   host.innerHTML = html;
+  // The footer is drawn fresh each time, so a footer button that depends on what
+  // was picked has to be brought back in line (merge's confirm button).
+  if (typeof _catTreeOpts.afterRender === 'function') _catTreeOpts.afterRender();
 }
 
 function catTreeSearch(value) {

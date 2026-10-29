@@ -519,6 +519,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `function buildCategoryTreeHTML(cats, depth)` | 构建分类树 HTML |
 | `function saveCategoryBudget(catId, month, value, type)` | 保存分类预算（含父子验证） |
 | `function mergeCategory(sourceId)` | 打开合并弹窗 |
+| `function selectMergeTarget(catId)` / `function syncMergeButton()` | 选目标 / 按记住的目标重画确认按钮（灰的「请先选择目标分类」或「合并到 🛒 购物」，名字从分类库里取，不靠选择器传参）。选择器每次展开 / 搜索都会重画页脚，所以 `mergeCategory` 通过 `openCatTreeModal` 的 `afterRender` 钩子让它每次重画后重新同步；选自己的子分类会被拒绝。回归网：`tests/merge-category-test.js` |
 | `function confirmMergeCategory()` | 执行合并 |
 | `function toggleCatItem(arrowEl)` | 展开/折叠 |
 | `function addRootCategory()` / `confirmAddRootCategory()` | 添加根分类 |
@@ -1095,6 +1096,7 @@ for t in tests/*.js; do node "$t"; done
 | `tests/xlsx-formula-test.js` | Excel 导出的每个公式**重算一遍**，必须等于文件里写好的值（`fullCalcOnLoad` 让 Excel 一打开就重算，所以重算出来的才是用户看到的）。内置一个小公式求值器，直接算 SpreadsheetML 里的 R1C1 公式（SUM / AVERAGE / MIN / MAX / COUNT / COUNTIF / SUMIF / SUMPRODUCT / IF 和数组运算）。五个场景：默认分类带子分类 + 两个月 + 收入、储蓄目标大于预算、没设预算、空账本、只有收入；另有几个"独立期望值"断言防止缓存值和公式一起错。`xlsx-export-test.js` X5 只验证 R1C1→A1 的写法，不验证算得对不对 |
 | `tests/batch1-fixes-test.js` | 审计第一批修复的回归网（106 条）：分类合并 / 成环不卡死、外部数据里的文字不许变成页面元素或代码（对 14 个页面 / 弹窗扫描 `[id^="pwn_"]`，并对每个 `onclick` 逐个 `new Function()` 校验语法、点一遍带攻击者名字的按钮）、本地账本损坏不被覆盖、畸形文件不清库、导入记录校验、月收入 0 不被预算改回、删除根分类、连续删除后撤销只撤自己、多标签页同步、云端 `version` 必须是整数。用 `vm.runInContext(..., { timeout })` 跑可能死循环的调用，失败时是断言失败而不是整个测试卡住 |
 | `tests/pin-lock-test.js` | PIN 锁不丢数据：设 PIN → 继续记账 → 锁定 → 解锁 / 改 PIN / 关 PIN / 重新打开标签页，各路径一条不少；读回校验失败时明文原样保留（22 条，驱动真实界面函数） |
+| `tests/merge-category-test.js` | 合并分类弹窗（17 条）：选好目标后按钮写明合并到谁、改选跟着换；选好后点展开箭头 / 在搜索框输入，按钮不再变回灰色；重新打开不带旧目标；确认后记录改归到目标、原分类被删；合并到自己的子分类仍被拒绝 |
 | `tests/cloud-merge-test.js` | 三方合并 `_merge3`：一侧改 / 删、删 vs 改、还款累加与夹取、旧版布尔参与人、账单链修复、计划记录去重、`savingsTarget` 原子性、与合并顺序无关的收敛（52 条） |
 | `tests/cloud-sync-test.js` | 云端同步整体（233 条）：恢复码、加解密与 AAD、内存版服务器 `FakeCloud`（镜像 SQL 语义）上的多设备收敛、失败矩阵（断网 / 超时 / 5xx / 冲突 / 限流 / 超大 / 回退 / 篡改）、G1–G6 防护、触发器与单飞、与 PIN 互斥、向导界面、i18n 键齐全 |
 

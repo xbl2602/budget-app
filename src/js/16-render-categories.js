@@ -202,6 +202,9 @@ function mergeCategory(sourceId) {
     }],
     top,
     cancelFunc: 'closeModal',
+    // The picker redraws its footer on every expand / search, which would grey the
+    // confirm button out again while the chosen target is still remembered.
+    afterRender: syncMergeButton,
     // The confirm button is re-enabled by selectMergeTarget(); the cancel button
     // stays in the normal slot, so no separate action row is needed.
     footer: '<button class="btn btn-primary btn-block" onclick="confirmMergeCategory()" id="mergeConfirmBtn" disabled>' + __('categories.merge.selectFirst') + '</button>'
@@ -233,24 +236,33 @@ function buildMergeTargetTree(cats, depth, sourceId, excludeIds) {
 let _mergeSourceId = null;
 let _mergeTargetId = null;
 
-function selectMergeTarget(catId, displayName) {
+// Draws the confirm button from the remembered target: grey and "pick one first"
+// with none, "合并到 🛒 购物" with one. The name comes from the store, not from the
+// picker's arguments (it passes (id, arg, label), which the old two-argument
+// signature mistook for (id, name) — so the button never named its target).
+function syncMergeButton() {
+  const btn = document.getElementById('mergeConfirmBtn');
+  if (!btn) return;
+  const cat = _mergeTargetId ? DataStore.getCategory(_mergeTargetId) : null;
+  btn.disabled = !cat;
+  btn.textContent = cat
+    ? __('categories.merge.mergeInto', cat.icon + ' ' + cat.name)
+    : __('categories.merge.selectFirst');
+}
+
+function selectMergeTarget(catId) {
   // The picker only hides the source's subtree at the top level, so a deeper
   // descendant can still be clicked. Merging a category into something below it
   // would make that thing its own parent and freeze every page that walks up the
   // tree — refuse here, and again in confirmMergeCategory().
   if (_mergeSourceId && DataStore.getDescendantIds(_mergeSourceId).includes(catId)) {
     _mergeTargetId = null;
-    const blocked = document.getElementById('mergeConfirmBtn');
-    if (blocked) { blocked.disabled = true; blocked.textContent = __('categories.merge.selectFirst'); }
+    syncMergeButton();
     showToast(__('categories.merge.cannotDescendant'), 'error');
     return;
   }
   _mergeTargetId = catId;
-  const btn = document.getElementById('mergeConfirmBtn');
-  if (btn) {
-    btn.disabled = false;
-    btn.textContent = __('categories.merge.mergeInto', displayName);
-  }
+  syncMergeButton();
 }
 
 function confirmMergeCategory() {

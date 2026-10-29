@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://sfwnpwchujslqfnmdyxo.supabase.co; base-uri 'none'; form-action 'none';">
-  <title>记账软件 v3.7.1</title>
+  <title>记账软件 v3.7.2</title>
   <style>
 /* ===== CSS DESIGN SYSTEM ===== */
 :root {
@@ -3508,7 +3508,7 @@ try{
 // docs/superpowers/specs/2026-09-28-changelog-announcement-design.md.
 // Do not confuse this with the cloud ledger's monotonic integer `version` in
 // 28-cloud-sync.js — that is a different concept in a different IIFE.
-const APP_VERSION = '3.7.1';
+const APP_VERSION = '3.7.2';
 
 const COLORS = [
   '#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6',
@@ -9636,6 +9636,9 @@ function catTreeRender() {
   }
   if (_catTreeOpts.footer) html += _catTreeOpts.footer;
   host.innerHTML = html;
+  // The footer is drawn fresh each time, so a footer button that depends on what
+  // was picked has to be brought back in line (merge's confirm button).
+  if (typeof _catTreeOpts.afterRender === 'function') _catTreeOpts.afterRender();
 }
 
 function catTreeSearch(value) {
@@ -12771,6 +12774,9 @@ function mergeCategory(sourceId) {
     }],
     top,
     cancelFunc: 'closeModal',
+    // The picker redraws its footer on every expand / search, which would grey the
+    // confirm button out again while the chosen target is still remembered.
+    afterRender: syncMergeButton,
     // The confirm button is re-enabled by selectMergeTarget(); the cancel button
     // stays in the normal slot, so no separate action row is needed.
     footer: '<button class="btn btn-primary btn-block" onclick="confirmMergeCategory()" id="mergeConfirmBtn" disabled>' + __('categories.merge.selectFirst') + '</button>'
@@ -12802,24 +12808,33 @@ function buildMergeTargetTree(cats, depth, sourceId, excludeIds) {
 let _mergeSourceId = null;
 let _mergeTargetId = null;
 
-function selectMergeTarget(catId, displayName) {
+// Draws the confirm button from the remembered target: grey and "pick one first"
+// with none, "合并到 🛒 购物" with one. The name comes from the store, not from the
+// picker's arguments (it passes (id, arg, label), which the old two-argument
+// signature mistook for (id, name) — so the button never named its target).
+function syncMergeButton() {
+  const btn = document.getElementById('mergeConfirmBtn');
+  if (!btn) return;
+  const cat = _mergeTargetId ? DataStore.getCategory(_mergeTargetId) : null;
+  btn.disabled = !cat;
+  btn.textContent = cat
+    ? __('categories.merge.mergeInto', cat.icon + ' ' + cat.name)
+    : __('categories.merge.selectFirst');
+}
+
+function selectMergeTarget(catId) {
   // The picker only hides the source's subtree at the top level, so a deeper
   // descendant can still be clicked. Merging a category into something below it
   // would make that thing its own parent and freeze every page that walks up the
   // tree — refuse here, and again in confirmMergeCategory().
   if (_mergeSourceId && DataStore.getDescendantIds(_mergeSourceId).includes(catId)) {
     _mergeTargetId = null;
-    const blocked = document.getElementById('mergeConfirmBtn');
-    if (blocked) { blocked.disabled = true; blocked.textContent = __('categories.merge.selectFirst'); }
+    syncMergeButton();
     showToast(__('categories.merge.cannotDescendant'), 'error');
     return;
   }
   _mergeTargetId = catId;
-  const btn = document.getElementById('mergeConfirmBtn');
-  if (btn) {
-    btn.disabled = false;
-    btn.textContent = __('categories.merge.mergeInto', displayName);
-  }
+  syncMergeButton();
 }
 
 function confirmMergeCategory() {
