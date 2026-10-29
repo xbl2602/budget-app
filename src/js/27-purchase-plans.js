@@ -152,15 +152,21 @@ function emojiGridHtml() {
     .join('');
 }
 
+// Instalments are spending, so only expense categories are offered: an income one
+// would write every period into the ledger as money coming IN.
 function leafCategoryOptions(selectedId) {
   const cats = DataStore.getCategories() || [];
   const hasChild = new Set();
   cats.forEach(c => { if (c && c.parentId) hasChild.add(c.parentId); });
-  return cats
-    .filter(c => c && !hasChild.has(c.id))
+  const usable = cats.filter(c => c && !hasChild.has(c.id) && !DataStore.isIncomeCategory(c.id));
+  const options = usable
     .map(c => '<option value="' + escHtml(c.id) + '"' + (c.id === selectedId ? ' selected' : '') + '>' +
       escHtml(typeof getCategoryFullPath === 'function' ? getCategoryFullPath(c.id) : c.name) + '</option>')
     .join('');
+  // A plan saved earlier with an income category: do not quietly swap it for the
+  // first item in the list — leave the box empty so the person picks one.
+  const needsPick = !!selectedId && !usable.some(c => c.id === selectedId);
+  return (needsPick ? '<option value="" selected>' + __('plan.pickCategory') + '</option>' : '') + options;
 }
 
 /* ============================================================
@@ -171,40 +177,57 @@ function leafCategoryOptions(selectedId) {
    creating a plan that started in the past) still lands every period exactly
    once. Idempotent on planId + planMonth.
    ============================================================ */
+function backfillPlanRecords(p, nowMonth) {
+  const records = DataStore.getRecords(); // live reference — newly added rows are visible
+  const sIdx = PlanMath.monthToIndex(p.startMonth);
+  const nIdx = PlanMath.monthToIndex(nowMonth);
+  if (!isFinite(sIdx) || !isFinite(nIdx)) return 0;
+  const monthly = round2(p.totalAmount / p.months);
+  let created = 0;
+  for (let i = 0; i < p.months; i++) {
+    const idx = sIdx + i;
+    if (idx > nIdx) break;
+    const m = PlanMath.indexToMonth(idx);
+    if (records.some(r => r && r.planId === p.id && r.planMonth === m)) continue;
+    // Final period absorbs the rounding remainder so the sum is exact
+    const amt = (i === p.months - 1) ? round2(p.totalAmount - monthly * (p.months - 1)) : monthly;
+    DataStore.addRecord({
+      amount: amt,
+      categoryId: p.categoryId || 'uncategorized',
+      date: m + '-01T09:00',
+      note: __('plan.recordNote', p.name, i + 1, p.months),
+      tags: [],
+      excludeFromAvg: true, // a fixed obligation, not daily spending behaviour
+      planId: p.id,
+      planMonth: m,
+      createdAt: new Date().toISOString()
+    });
+    created++;
+  }
+  return created;
+}
+
 function syncPlanRecords() {
   const nowMonth = currentMonth();
   const plans = DataStore.getPurchasePlans().filter(p => p && p.mode === 'credit' && p.status === 'active');
   if (!plans.length) return 0;
-  const records = DataStore.getRecords(); // live reference — newly added rows are visible
   let created = 0;
-
-  plans.forEach(p => {
-    const sIdx = PlanMath.monthToIndex(p.startMonth);
-    const nIdx = PlanMath.monthToIndex(nowMonth);
-    if (!isFinite(sIdx) || !isFinite(nIdx)) return;
-    const monthly = round2(p.totalAmount / p.months);
-    for (let i = 0; i < p.months; i++) {
-      const idx = sIdx + i;
-      if (idx > nIdx) break;
-      const m = PlanMath.indexToMonth(idx);
-      if (records.some(r => r && r.planId === p.id && r.planMonth === m)) continue;
-      // Final period absorbs the rounding remainder so the sum is exact
-      const amt = (i === p.months - 1) ? round2(p.totalAmount - monthly * (p.months - 1)) : monthly;
-      DataStore.addRecord({
-        amount: amt,
-        categoryId: p.categoryId || 'uncategorized',
-        date: m + '-01T09:00',
-        note: __('plan.recordNote', p.name, i + 1, p.months),
-        tags: [],
-        excludeFromAvg: true, // a fixed obligation, not daily spending behaviour
-        planId: p.id,
-        planMonth: m,
-        createdAt: new Date().toISOString()
-      });
-      created++;
-    }
-  });
+  plans.forEach(p => { created += backfillPlanRecords(p, nowMonth); });
   if (created) logEvent('syncPlanRecords', 'created=' + created);
+  return created;
+}
+
+// The instalment rows already in the ledger carry the plan's old amount, period
+// count, start month, category and name. Sync only ever ADDS missing periods, so
+// after an edit they have to be thrown away and written again from the new plan —
+// otherwise the ledger, the progress bar and the plan total each tell a different story.
+function rebuildPlanRecords(planId) {
+  DataStore._data.records = DataStore.getRecords().filter(r => !r || r.planId !== planId);
+  const p = DataStore.getPurchasePlan(planId);
+  if (!p || p.mode !== 'credit' || p.status === 'cancelled') { DataStore.save(); return 0; }
+  const created = backfillPlanRecords(p, currentMonth());
+  if (!created) DataStore.save();
+  logEvent('rebuildPlanRecords', 'created=' + created);
   return created;
 }
 
@@ -290,14 +313,19 @@ function extendPlan(planId) {
   refreshCurrentPage();
 }
 
-// Writes a manual override for this month covering the whole outstanding balance
+// Writes a manual override for this month covering the whole outstanding balance.
+// st.remaining is what is left AFTER this month's own repayment was replayed, and
+// an override REPLACES that repayment, so the amount to write is everything still
+// owed before this month: what is left plus what this month had already taken.
 function payoffPlanNow(planId) {
   const m = currentMonth();
   const st = PlanMath.getState(planId, m);
   if (!st) return;
-  DataStore.setPlanOverride(planId, m, st.remaining);
+  const thisMonth = st.byMonth[m];
+  const owed = round2(st.remaining + (thisMonth ? thisMonth.actual : 0));
+  DataStore.setPlanOverride(planId, m, owed);
   DataStore.updatePurchasePlan(planId, { overdueAsked: false });
-  showToast(__('plan.paidOff', formatMoney(st.remaining)));
+  showToast(__('plan.paidOff', formatMoney(owed)));
   closeModal();
   refreshCurrentPage();
 }
@@ -717,6 +745,7 @@ function savePlanEditor(planId) {
   const startParsed = parsePlanMonth(startMonth);
   if (!startParsed) { showToast(__('plan.err.start'), 'error'); return; }
   if (mode === 'credit' && !categoryId) { showToast(__('plan.err.category'), 'error'); return; }
+  if (mode === 'credit' && DataStore.isIncomeCategory(categoryId)) { showToast(__('plan.err.categoryIncome'), 'error'); return; }
 
   const iconRaw = ((document.getElementById('planIcon') || {}).value || '').trim();
   const payload = {
@@ -736,7 +765,16 @@ function savePlanEditor(planId) {
     if (prev && prev.mode === 'credit' && mode !== 'credit') {
       DataStore._data.records = DataStore.getRecords().filter(r => !r || r.planId !== planId);
     }
+    // Still a card plan, but with something the written instalments depend on changed.
+    // Decided BEFORE the update: getPurchasePlan hands back the live object.
+    const restamp = !!prev && prev.mode === 'credit' && mode === 'credit' && (
+      Math.abs((prev.totalAmount || 0) - payload.totalAmount) > 0.004 ||
+      prev.months !== payload.months ||
+      prev.startMonth !== payload.startMonth ||
+      (prev.categoryId || '') !== payload.categoryId ||
+      prev.name !== payload.name);
     DataStore.updatePurchasePlan(planId, payload);
+    if (restamp) rebuildPlanRecords(planId);
     showToast(__('plan.updated'));
   } else {
     payload.status = 'active';
@@ -978,7 +1016,9 @@ function renderPlanOverviewCard(month) {
     'plan.err.extendMax': { zh: '延长后总期数不能超过 {0} 期', en: 'Total periods cannot exceed {0} after extending' },
     'plan.err.amountMax': { zh: '金额不能超过 {0}', en: 'Amount cannot exceed {0}' },
     'plan.err.start': { zh: '请选择起始月份', en: 'Please pick a start month' },
-    'plan.err.category': { zh: '信用卡分期需要选择记账分类', en: 'Card instalments need a category' }
+    'plan.err.category': { zh: '信用卡分期需要选择记账分类', en: 'Card instalments need a category' },
+    'plan.err.categoryIncome': { zh: '分期是花钱，要记在支出分类里，不能选收入分类', en: 'Instalments are spending — pick an expense category, not an income one' },
+    'plan.pickCategory': { zh: '请选择分类', en: 'Choose a category' }
   });
 
 /* ============================================================

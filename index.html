@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https://sfwnpwchujslqfnmdyxo.supabase.co; base-uri 'none'; form-action 'none';">
-  <title>记账软件 v3.7.0</title>
+  <title>记账软件 v3.7.1</title>
   <style>
 /* ===== CSS DESIGN SYSTEM ===== */
 :root {
@@ -3508,7 +3508,7 @@ try{
 // docs/superpowers/specs/2026-09-28-changelog-announcement-design.md.
 // Do not confuse this with the cloud ledger's monotonic integer `version` in
 // 28-cloud-sync.js — that is a different concept in a different IIFE.
-const APP_VERSION = '3.7.0';
+const APP_VERSION = '3.7.1';
 
 const COLORS = [
   '#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6',
@@ -3518,6 +3518,56 @@ const COLORS = [
 function escHtml(str) {
   var m = { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;' };
   return String(str).replace(/[&<>"'`]/g, function(c) { return m[c]; });
+}
+
+// For a value that goes INSIDE an inline handler:  onclick="fn(${jsArg(x)})".
+// escHtml() alone is not enough there. The browser decodes &#39; back into ' before
+// the handler runs, so a name like  a');evil();//  closes the string and runs, and
+// an ordinary name like  Mom's  is a syntax error that kills the button. JSON.stringify
+// writes a correct JS string literal (quotes, backslashes, newlines); escHtml then
+// makes that literal safe to sit inside the attribute. Do not wrap it in quotes.
+function jsArg(v) {
+  return escHtml(JSON.stringify(String(v == null ? '' : v)));
+}
+
+// ---- Dates: always the user's own calendar, never UTC -------------------------
+// toISOString().slice(0, 10) is the UTC date. In Kuala Lumpur (UTC+8) that is
+// YESTERDAY between 00:00 and 08:00; in the Americas it is TOMORROW in the evening.
+// A record's `date` is a local 'YYYY-MM-DDTHH:mm' string, so every day key, "today"
+// and date range has to be built from local fields too.
+
+// 'YYYY-MM-DD' of a Date, in local time.
+function localDateKey(d) {
+  d = d || new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// The calendar day a record belongs to. `date` is already local; the createdAt
+// fallback is a UTC timestamp and has to be converted.
+function recordDayKey(r) {
+  if (r && typeof r.date === 'string' && r.date.length >= 10) return r.date.slice(0, 10);
+  const d = new Date(r && r.createdAt);
+  return isNaN(d.getTime()) ? '' : localDateKey(d);
+}
+
+// Is the record's calendar day within [startDate, endDate] (both 'YYYY-MM-DD', inclusive)?
+// Compares day KEYS rather than timestamps, so no time zone enters into it — and a record
+// whose date has no time of day at all ('2026-10-28', which new Date() reads as UTC
+// midnight) still lands on the day it names.
+function inDayRange(r, startDate, endDate) {
+  const k = recordDayKey(r);
+  return k !== '' && k >= String(startDate).slice(0, 10) && k <= String(endDate).slice(0, 10);
+}
+
+// What <input type="date"> hands back ('YYYY-MM-DD') as the first or last moment of
+// that day in local time. new Date('2026-10-28') is UTC midnight = 08:00 in Kuala
+// Lumpur, which cut 'to 2026-10-28' off at 8 am and dropped the rest of the day.
+function parseLocalDay(s, endOfDay) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s));
+  if (!m) return new Date(s);   // not a bare date: leave it as given
+  return endOfDay
+    ? new Date(+m[1], +m[2] - 1, +m[3], 23, 59, 59, 999)
+    : new Date(+m[1], +m[2] - 1, +m[3], 0, 0, 0, 0);
 }
 
 const DEFAULT_CATEGORIES = [
@@ -3625,7 +3675,7 @@ function getPeriodDateRange() {
       start, end,
       daysInPeriod: 30,
       daysPassed: diffDays,
-      label: start.toISOString().substr(5,5) + ' → ' + end.toISOString().substr(5,5),
+      label: localDateKey(start).slice(5) + ' → ' + localDateKey(end).slice(5),
       key: 'rolling30'
     };
   }
@@ -3647,6 +3697,11 @@ function getPeriodDateRange() {
   window.expenseRecords = expenseRecords;
   window.incomeRecords = incomeRecords;
   window.escHtml = escHtml;
+  window.jsArg = jsArg;
+  window.localDateKey = localDateKey;
+  window.recordDayKey = recordDayKey;
+  window.parseLocalDay = parseLocalDay;
+  window.inDayRange = inDayRange;
   window.uuid = uuid;
   window.getMonthKey = getMonthKey;
   window.getStatsRange = getStatsRange;
@@ -3719,6 +3774,7 @@ const DataStore = {
   },
 
   init() {
+    window._dataLoadError = false;
     // Check if data is encrypted and needs PIN
     const isProtected = !!localStorage.getItem('budgetAppPinHash');
     const hasEncrypted = !!localStorage.getItem('budgetAppDataEncrypted');
@@ -3744,7 +3800,15 @@ const DataStore = {
       try {
         this._data = this._normalize(JSON.parse(raw));
       } catch(e) {
+        // Unreadable is not the same as empty. Starting from a blank ledger is fine,
+        // but writing that blank ledger over the stored text (the save() below)
+        // destroyed the only copy of the user's data. Keep the text exactly as it
+        // is, set it aside once, and let the UI tell the user (see 22-init.js).
+        this._keepCorruptCopy(raw);
+        window._dataLoadError = true;
         this._data = this._normalize(this._defaults());
+        this._log('init', 'LOAD_ERROR ' + e.message);
+        return;
       }
     } else {
       // Routed through _normalize like the restored branch, so a brand-new store
@@ -3758,6 +3822,43 @@ const DataStore = {
     this._processPendingDeletes();
 
     this.save();
+  },
+
+  // Set the unreadable stored ledger aside, once. The FIRST copy is kept: a later
+  // failure is more likely to be the blank ledger that replaced it than the real one.
+  _keepCorruptCopy(raw) {
+    try {
+      if (localStorage.getItem('budgetAppDataCorrupt') === null) localStorage.setItem('budgetAppDataCorrupt', raw);
+    } catch (e) { /* storage full — nothing more we can do */ }
+  },
+
+  // Parent links must form a forest. A loop (X under Y under X, or a category
+  // under itself) makes every "walk up to the root" in the app run forever, and
+  // because the loop is saved with the ledger, reloading does not help.
+  //
+  // Only the link that closes a loop is cut; nothing is deleted. The choice is
+  // deterministic — the category with the smallest id in the loop becomes a
+  // top-level category — so two devices holding the same loop repair it the same
+  // way and still converge. Safe on partial payloads: a loop is a loop no matter
+  // which other categories are missing.
+  _breakCategoryCycles(data) {
+    if (!data || !Array.isArray(data.categories)) return;
+    const byId = new Map();
+    data.categories.forEach(c => { if (c && c.id) byId.set(c.id, c); });
+    const parentOf = c => (c.parentId ? byId.get(c.parentId) : null);
+    // Each round cuts one loop, so the number of categories bounds the rounds.
+    for (let round = byId.size + 1; round > 0; round--) {
+      let loop = null;
+      for (const start of byId.values()) {
+        const seenAt = new Map(), path = [];
+        let cur = start;
+        while (cur && !seenAt.has(cur.id)) { seenAt.set(cur.id, path.length); path.push(cur); cur = parentOf(cur); }
+        if (cur) { loop = path.slice(seenAt.get(cur.id)); break; }
+      }
+      if (!loop) return;
+      const victim = loop.reduce((a, b) => (String(b.id) < String(a.id) ? b : a));
+      victim.parentId = null;
+    }
   },
 
   // Entity-level cleanup that is safe to run on ANY data object, including one
@@ -3788,6 +3889,7 @@ const DataStore = {
     if (Array.isArray(data.categories)) {
       data.categories = data.categories.filter(c => c && safeId(c.id) && (c.parentId == null || safeId(c.parentId)))
         .map(c => cleanEntity(c, '#6366F1'));
+      this._breakCategoryCycles(data);
       // `kind` splits the two trees. Drop anything that is neither value rather
       // than defaulting it: absence already means expense, so normalising would
       // only rewrite every pre-income category and churn the sync fingerprint.
@@ -3803,6 +3905,16 @@ const DataStore = {
     }
     if (Array.isArray(data.records)) {
       data.records = data.records.filter(r => r && safeId(r.id));
+      // Money has to be a finite number, and a record has to say when it happened.
+      // Without either, every total turns into NaN and the CSV / Excel export throws
+      // on the first such row. A number written as text ("12.5") is still readable,
+      // so it is converted rather than thrown away; anything else cannot be placed
+      // and is dropped (importJSON() tells the user how many).
+      data.records = data.records.filter(r => {
+        if (typeof r.amount === 'string' && r.amount.trim() !== '' && isFinite(Number(r.amount))) r.amount = Number(r.amount);
+        if (typeof r.amount !== 'number' || !isFinite(r.amount)) return false;
+        return (typeof r.date === 'string' && r.date !== '') || (typeof r.createdAt === 'string' && r.createdAt !== '');
+      });
       data.records.forEach(r => {
         if (r.categoryId != null && !safeId(r.categoryId)) r.categoryId = 'uncategorized';
         if (r.splitBillId != null && !safeId(r.splitBillId)) delete r.splitBillId;
@@ -3813,7 +3925,16 @@ const DataStore = {
     }
     if (Array.isArray(data.splitBills)) {
       data.splitBills = data.splitBills.filter(b => b && safeId(b.id));
-      data.splitBills.forEach(b => { if (b.categoryId != null && !safeId(b.categoryId)) b.categoryId = 'uncategorized'; });
+      data.splitBills.forEach(b => {
+        if (b.categoryId != null && !safeId(b.categoryId)) b.categoryId = 'uncategorized';
+        // A participant's contactId is a lookup key that the UI pastes into inline
+        // handlers. People without a saved contact have none and are keyed by name,
+        // so dropping an unsafe one turns the person into an anonymous participant
+        // instead of leaving script-shaped text in the key.
+        if (Array.isArray(b.participants)) {
+          b.participants.forEach(p => { if (p && p.contactId != null && !safeId(p.contactId)) delete p.contactId; });
+        }
+      });
     }
     if (Array.isArray(data.purchasePlans)) {
       data.purchasePlans = data.purchasePlans.filter(p => p && safeId(p.id));
@@ -3918,7 +4039,10 @@ const DataStore = {
     this._migrateSplitRecordCategories(data);
     this._migrateIncomeCategories(data);
     const currentMonth = getMonthKey(new Date().toISOString());
-    if (data.budgets && data.budgets[currentMonth] && !data.monthlyIncome[currentMonth]) {
+    // Only when no income was ever entered for the month. A saved 0 is an answer
+    // ("nothing came in"), and writing the budget over it on every load re-created
+    // income the user had just removed — and synced it to the cloud.
+    if (data.budgets && data.budgets[currentMonth] && (data.monthlyIncome[currentMonth] === undefined || data.monthlyIncome[currentMonth] === null)) {
       data.monthlyIncome[currentMonth] = data.budgets[currentMonth];
     }
     if (!data.lastActiveMonth) data.lastActiveMonth = currentMonth;
@@ -4153,9 +4277,15 @@ const DataStore = {
     return record;
   },
 
-  // Undo a pending delete
-  undoDelete() {
+  // Undo a pending delete. There is only one slot, so a caller that knows which
+  // record it means passes the id: an "Undo" button left over from an earlier
+  // delete must not quietly bring back a different record.
+  undoDelete(id) {
     if (!this._pendingDelete) { this._log('undoDelete', 'NOTHING_PENDING'); return false; }
+    if (id !== undefined && this._pendingDelete.id !== id) {
+      this._log('undoDelete', 'STALE id=' + id + ' pending=' + this._pendingDelete.id);
+      return false;
+    }
     this._log('undoDelete', 'id=' + this._pendingDelete.id);
     clearTimeout(this._pendingDelete.timeoutId);
     // Restore the split chain (bill + its linked records) first, then the record
@@ -4265,10 +4395,15 @@ const DataStore = {
   },
 
   getDescendantIds(id) {
-    const ids = [id];
-    this.getChildren(id).forEach(child => {
-      ids.push(...this.getDescendantIds(child.id));
-    });
+    // `seen` keeps a looped parent chain from recursing forever (see _breakCategoryCycles)
+    const ids = [], seen = new Set();
+    const walk = cid => {
+      if (seen.has(cid)) return;
+      seen.add(cid);
+      ids.push(cid);
+      this.getChildren(cid).forEach(child => walk(child.id));
+    };
+    walk(id);
     return ids;
   },
 
@@ -4312,8 +4447,11 @@ const DataStore = {
   deleteCategory(id, options = {}) {
     const children = this.getChildren(id);
     if (children.length) {
-      if (options.moveToParent) {
-        const parentId = options.moveToParent;
+      if (Object.prototype.hasOwnProperty.call(options, 'moveToParent')) {
+        // null / '' = the deleted category was top-level, so there is no parent to
+        // hand the children to: they become top-level themselves. Checking for a
+        // truthy value here used to turn that case into "do nothing, return false".
+        const parentId = options.moveToParent || null;
         children.forEach(child => {
           child.parentId = parentId;
         });
@@ -4486,6 +4624,23 @@ const DataStore = {
     if (typeof raw === 'object') return { value: raw.value || 0, type: raw.type || 'fixed' };
     return { value: 0, type: 'fixed' };
   },
+  // A category budget as RM. getCategoryBudget returns what the user typed, and
+  // for a '%' budget that is the percentage (30), not money — anything that
+  // compares spending with a budget has to come through here, or "30%" reads as
+  // RM30. A % is of the month's income (the same base the budget-progress card
+  // uses); with no income set it cannot be turned into money, so it is 0 = no limit.
+  getCategoryBudgetAmount(catId, month) {
+    const b = this.getCategoryBudget(catId, month);
+    return this.budgetToAmount(b.value, b.type, month);
+  },
+  // The same conversion for a value that is not saved yet (the budget being typed).
+  budgetToAmount(value, type, month) {
+    const v = Number(value) || 0;
+    if (v <= 0) return 0;
+    if (type !== 'percent') return v;
+    const income = this.getMonthlyIncome(month) || this.getBudget(month) || 0;
+    return income > 0 ? Math.round(income * v) / 100 : 0;
+  },
   setCategoryBudget(catId, month, amount, type) {
     const key = catId + ':' + month;
     if (!amount || amount <= 0) {
@@ -4624,11 +4779,24 @@ const DataStore = {
     });
 
     // Keyed maps: incoming wins per key.
-    ['budgets', 'categoryBudgets', 'monthlyIncome', 'billAmounts', 'tagColors'].forEach(k => {
+    ['budgets', 'categoryBudgets', 'monthlyIncome', 'tagColors'].forEach(k => {
       if (!incoming[k] || typeof incoming[k] !== 'object') return;
       if (!cur[k] || typeof cur[k] !== 'object') cur[k] = {};
       Object.assign(cur[k], incoming[k]);
     });
+    // billAmounts is month -> { bill -> amount }, one level deeper than the maps
+    // above. Replacing a whole month made a file that only mentioned the rent wipe
+    // out the water bill already set here; merge inside the month instead. For a
+    // bill both sides set, incoming still wins, like every other keyed map.
+    if (incoming.billAmounts && typeof incoming.billAmounts === 'object') {
+      if (!cur.billAmounts || typeof cur.billAmounts !== 'object') cur.billAmounts = {};
+      Object.keys(incoming.billAmounts).forEach(month => {
+        const theirs = incoming.billAmounts[month];
+        const mine = cur.billAmounts[month];
+        const plain = x => x !== null && typeof x === 'object' && !Array.isArray(x);
+        cur.billAmounts[month] = (plain(theirs) && plain(mine)) ? Object.assign({}, mine, theirs) : theirs;
+      });
+    }
 
     // Tag library: union, kept sorted the way addTagUsage() maintains it.
     if (Array.isArray(incoming.allTags)) {
@@ -4775,6 +4943,9 @@ const DataStore = {
     // Detach from the inputs: the closing steps below edit in place.
     const res = JSON.parse(JSON.stringify(merged));
 
+    // 0. Each device may have moved a category under the other's: merged, that is a loop.
+    this._breakCategoryCycles(res);
+
     // 1. Repayment totals are clamped into [0, share] and `paid` follows them. Only
     //    participants that carry paidAmount — a legacy boolean-only one is left alone.
     if (typeof SplitEngine !== 'undefined' && Array.isArray(res.splitBills)) {
@@ -4843,14 +5014,23 @@ const DataStore = {
   },
 
   importJSON(jsonStr, mode = 'replace') {
+    this.lastImportDropped = 0;
     try {
       const data = JSON.parse(jsonStr);
-      if (!data.records || !data.categories) return false;
+      // Arrays, not just "something truthy": {} and [] both pass a plain truthiness
+      // check, and _normalize() then swaps a non-array `records` for an empty list —
+      // so a file that merely LOOKED like a backup used to wipe the whole ledger.
+      if (!data || !Array.isArray(data.records) || !Array.isArray(data.categories)) return false;
+      const incomingCount = data.records.length;
       // replace takes over the whole store, so it needs the full normalisation.
       // merge only contributes entities — backfilling defaults into it would let
       // a default savingsTarget / percentBase overwrite the local one.
       if (mode === 'replace') this._normalize(data);
       else this._sanitizeEntities(data);
+      // Every record rejected means the file is wrong, not that the user wants an
+      // empty ledger (a genuinely empty backup has no records to reject).
+      if (incomingCount > 0 && data.records.length === 0) return false;
+      this.lastImportDropped = incomingCount - data.records.length;
       if (mode === 'replace') {
         this._data = data;
         this._markBulk('import-replace');
@@ -5213,6 +5393,7 @@ const DataStore = {
     try {
       localStorage.removeItem('budgetBackupBeforeSync');
       localStorage.removeItem('budgetBackupTime');
+      localStorage.removeItem('budgetAppDataCorrupt');   // a plaintext copy of the ledger too
     } catch (e) { /* ignore */ }
     const scrub = e => {
       if (e && typeof e.d === 'string') {
@@ -5352,13 +5533,285 @@ try{
    EXCEL EXPORT — Generates a real .xlsx-compatible XML Spreadsheet
    with formulas (SUM, AVERAGE, MAX, MIN, IF, etc.) so the user
    can modify values and have them auto-recalculate.
-   Format: XML Spreadsheet 2003 (SpreadsheetML) — no ZIP needed,
-           opens natively in Excel / LibreOffice / Google Sheets.
+   Sheets are emitted as XML Spreadsheet 2003 (SpreadsheetML), then
+   converted by spreadsheetMLToXlsx() into a genuine .xlsx (OOXML in a
+   store-only zip) — no library needed.
    ============================================================ */
 (function() {
 'use strict';
 
-function exportToExcel() {
+/* ---------- SpreadsheetML → .xlsx (OOXML in a store-only zip) ---------- */
+
+const NS_SS = 'urn:schemas-microsoft-com:office:spreadsheet';
+const NS_X  = 'urn:schemas-microsoft-com:office:excel';
+const NS_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+const NS_REL  = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+// SpreadsheetML ss:ID → cellXfs index in XLSX_STYLES below. Keep both in step:
+// a style missing here silently renders as Default.
+const XLSX_STYLE_INDEX = {
+  Default: 0, header: 1, headerGreen: 2, money: 3, moneyBold: 4,
+  pct: 5, pctBold: 6, total: 7, danger: 8, success: 9, subtotal: 10
+};
+
+const XLSX_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+  '<styleSheet xmlns="' + NS_MAIN + '">' +
+  '<fonts count="5">' +
+    '<font><sz val="11"/><name val="Calibri"/></font>' +
+    '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>' +
+    '<font><b/><sz val="11"/><name val="Calibri"/></font>' +
+    '<font><b/><sz val="11"/><color rgb="FFEF4444"/><name val="Calibri"/></font>' +
+    '<font><b/><sz val="11"/><color rgb="FF10B981"/><name val="Calibri"/></font>' +
+  '</fonts>' +
+  '<fills count="6">' +
+    '<fill><patternFill patternType="none"/></fill>' +
+    '<fill><patternFill patternType="gray125"/></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FF4472C4"/><bgColor indexed="64"/></patternFill></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FF10B981"/><bgColor indexed="64"/></patternFill></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFF0F0F0"/><bgColor indexed="64"/></patternFill></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFE8E8E8"/><bgColor indexed="64"/></patternFill></fill>' +
+  '</fills>' +
+  '<borders count="3">' +
+    '<border><left/><right/><top/><bottom/><diagonal/></border>' +
+    '<border><left/><right/><top/><bottom style="thin"><color auto="1"/></bottom><diagonal/></border>' +
+    '<border><left/><right/><top style="medium"><color auto="1"/></top><bottom/><diagonal/></border>' +
+  '</borders>' +
+  '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+  // numFmtId 4 = #,##0.00 and 10 = 0.00% are built in
+  '<cellXfs count="11">' +
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+    '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
+    '<xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
+    '<xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+    '<xf numFmtId="4" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>' +
+    '<xf numFmtId="10" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+    '<xf numFmtId="10" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>' +
+    '<xf numFmtId="0" fontId="2" fillId="4" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>' +
+    '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+    '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+    '<xf numFmtId="0" fontId="2" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1"/>' +
+  '</cellXfs>' +
+  '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+  '</styleSheet>';
+
+function xmlEsc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+// Control characters are illegal in XML 1.0 and make Excel declare the file corrupt.
+function xmlText(s) {
+  return xmlEsc(String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, ''));
+}
+
+function colLetters(n) {
+  let s = '';
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+// SpreadsheetML formulas are R1C1 (RC[-1], R2C4:R9C4); xlsx wants A1.
+// `row`/`col` are the 1-based position of the cell holding the formula, which
+// relative references hang off. String literals ("正常") are left alone.
+function r1c1ToA1(formula, row, col) {
+  const part = (p, cur) => {
+    if (p === undefined) return { n: cur, abs: false };
+    if (p.charAt(0) === '[') return { n: cur + parseInt(p.slice(1, -1), 10), abs: false };
+    return { n: parseInt(p, 10), abs: true };
+  };
+  const re = /(^|[^A-Za-z0-9_.])R(\[-?\d+\]|\d+)?C(\[-?\d+\]|\d+)?(?![A-Za-z0-9_(])/g;
+  return formula.split(/("(?:[^"]|"")*")/).map((chunk, i) => {
+    if (i % 2 === 1) return chunk;
+    return chunk.replace(re, (m, pre, rp, cp) => {
+      const r = part(rp, row), c = part(cp, col);
+      if (r.n < 1 || c.n < 1) return pre + '#REF!';
+      return pre + (c.abs ? '$' : '') + colLetters(c.n) + (r.abs ? '$' : '') + r.n;
+    });
+  }).join('');
+}
+
+let _crcTable = null;
+function crc32(bytes) {
+  if (!_crcTable) {
+    _crcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      _crcTable[n] = c >>> 0;
+    }
+  }
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) crc = _crcTable[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+// Store-only zip (method 0). The export is a few KB of XML, so compression is
+// not worth a dependency.
+function zipStore(files) {
+  const enc = new TextEncoder();
+  const d = new Date();
+  const dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  const entries = files.map(f => {
+    const name = enc.encode(f.name);
+    const data = typeof f.data === 'string' ? enc.encode(f.data) : f.data;
+    return { name, data, crc: crc32(data), offset: 0 };
+  });
+  let size = 22;
+  entries.forEach(e => { size += 30 + e.name.length + e.data.length + 46 + e.name.length; });
+  const out = new Uint8Array(size);
+  const dv = new DataView(out.buffer);
+  let p = 0;
+  entries.forEach(e => {
+    e.offset = p;
+    dv.setUint32(p, 0x04034b50, true);
+    dv.setUint16(p + 4, 20, true);
+    dv.setUint16(p + 6, 0x0800, true);          // bit 11: UTF-8 names
+    dv.setUint16(p + 8, 0, true);               // stored
+    dv.setUint16(p + 10, dosTime, true);
+    dv.setUint16(p + 12, dosDate, true);
+    dv.setUint32(p + 14, e.crc, true);
+    dv.setUint32(p + 18, e.data.length, true);
+    dv.setUint32(p + 22, e.data.length, true);
+    dv.setUint16(p + 26, e.name.length, true);
+    dv.setUint16(p + 28, 0, true);
+    out.set(e.name, p + 30);
+    out.set(e.data, p + 30 + e.name.length);
+    p += 30 + e.name.length + e.data.length;
+  });
+  const cdStart = p;
+  entries.forEach(e => {
+    dv.setUint32(p, 0x02014b50, true);
+    dv.setUint16(p + 4, 20, true);
+    dv.setUint16(p + 6, 20, true);
+    dv.setUint16(p + 8, 0x0800, true);
+    dv.setUint16(p + 10, 0, true);
+    dv.setUint16(p + 12, dosTime, true);
+    dv.setUint16(p + 14, dosDate, true);
+    dv.setUint32(p + 16, e.crc, true);
+    dv.setUint32(p + 20, e.data.length, true);
+    dv.setUint32(p + 24, e.data.length, true);
+    dv.setUint16(p + 28, e.name.length, true);
+    // extra/comment length, disk number, internal + external attrs stay 0
+    dv.setUint32(p + 42, e.offset, true);
+    out.set(e.name, p + 46);
+    p += 46 + e.name.length;
+  });
+  dv.setUint32(p, 0x06054b50, true);
+  dv.setUint16(p + 8, entries.length, true);
+  dv.setUint16(p + 10, entries.length, true);
+  dv.setUint32(p + 12, p - cdStart, true);
+  dv.setUint32(p + 16, cdStart, true);
+  return out;
+}
+
+function kids(el, localName) {
+  return Array.prototype.filter.call(el.children, c => c.localName === localName);
+}
+
+function spreadsheetMLToXlsx(xml) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) throw new Error('SpreadsheetML is not well-formed');
+
+  const usedNames = {}, names = [];
+  const sheets = kids(doc.documentElement, 'Worksheet').map((ws, si) => {
+    let name = (ws.getAttributeNS(NS_SS, 'Name') || '').replace(/[\\\/?*\[\]:]/g, ' ').trim().slice(0, 31) || ('Sheet' + (si + 1));
+    while (usedNames[name.toLowerCase()]) name = name.slice(0, 28) + '_' + (si + 1);
+    usedNames[name.toLowerCase()] = true;
+    names.push(name);
+
+    const table = kids(ws, 'Table')[0];
+    let colsXml = '';
+    kids(table, 'Column').forEach((c, i) => {
+      const w = parseFloat(c.getAttributeNS(NS_SS, 'Width'));
+      if (w > 0) colsXml += '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + (Math.round(w / 5.25 * 100) / 100) + '" customWidth="1"/>';
+    });
+
+    let rowNo = 0, rowsXml = '';
+    kids(table, 'Row').forEach(row => {
+      rowNo = parseInt(row.getAttributeNS(NS_SS, 'Index'), 10) || rowNo + 1;
+      let colNo = 0, cellsXml = '';
+      kids(row, 'Cell').forEach(cell => {
+        colNo = parseInt(cell.getAttributeNS(NS_SS, 'Index'), 10) || colNo + 1;
+        const ref = colLetters(colNo) + rowNo;
+        const styleIdx = XLSX_STYLE_INDEX[cell.getAttributeNS(NS_SS, 'StyleID')] || 0;
+        const attrs = ' r="' + ref + '"' + (styleIdx ? ' s="' + styleIdx + '"' : '');
+        const data = kids(cell, 'Data')[0];
+        const text = data ? data.textContent : '';
+        const isNum = data && data.getAttributeNS(NS_SS, 'Type') === 'Number';
+        const rawF = cell.getAttributeNS(NS_SS, 'Formula');
+        const f = rawF ? '<f>' + xmlText(r1c1ToA1(rawF.replace(/^=/, ''), rowNo, colNo)) + '</f>' : '';
+        if (isNum) {
+          // NaN / Infinity in <v> is a corrupt-file error in Excel; leave the cell blank instead.
+          const num = Number(text);
+          cellsXml += '<c' + attrs + '>' + f + (text.trim() !== '' && isFinite(num) ? '<v>' + num + '</v>' : '') + '</c>';
+        } else if (f) {
+          cellsXml += '<c' + attrs + ' t="str">' + f + '<v>' + xmlText(text) + '</v></c>';
+        } else if (text === '') {
+          cellsXml += '<c' + attrs + '/>';
+        } else {
+          cellsXml += '<c' + attrs + ' t="inlineStr"><is><t xml:space="preserve">' + xmlText(text) + '</t></is></c>';
+        }
+      });
+      rowsXml += '<row r="' + rowNo + '">' + cellsXml + '</row>';
+    });
+
+    // The only worksheet options the exporter emits: a frozen header row and an autofilter.
+    let pane = '';
+    const opts = kids(ws, 'WorksheetOptions')[0];
+    const split = opts && kids(opts, 'SplitHorizontal')[0];
+    if (split && parseInt(split.textContent, 10) > 0) {
+      const y = parseInt(split.textContent, 10);
+      pane = '<pane ySplit="' + y + '" topLeftCell="A' + (y + 1) + '" activePane="bottomLeft" state="frozen"/>' +
+             '<selection pane="bottomLeft" activeCell="A' + (y + 1) + '" sqref="A' + (y + 1) + '"/>';
+    }
+    const af = kids(ws, 'AutoFilter')[0];
+    const afRange = af && af.getAttributeNS(NS_X, 'Range');
+
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<worksheet xmlns="' + NS_MAIN + '">' +
+      '<sheetViews><sheetView workbookViewId="0"' + (si === 0 ? ' tabSelected="1"' : '') + '>' + pane + '</sheetView></sheetViews>' +
+      '<sheetFormatPr defaultRowHeight="15"/>' +
+      (colsXml ? '<cols>' + colsXml + '</cols>' : '') +
+      '<sheetData>' + rowsXml + '</sheetData>' +
+      (afRange ? '<autoFilter ref="' + r1c1ToA1(afRange, 1, 1).replace(/\$/g, '') + '"/>' : '') +
+      '</worksheet>';
+  });
+
+  const files = [
+    { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      sheets.map((_, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') +
+      '</Types>' },
+    { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="' + NS_REL + '/officeDocument" Target="xl/workbook.xml"/>' +
+      '</Relationships>' },
+    { name: 'xl/workbook.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<workbook xmlns="' + NS_MAIN + '" xmlns:r="' + NS_REL + '">' +
+      '<bookViews><workbookView/></bookViews>' +
+      '<sheets>' + sheets.map((_, i) => '<sheet name="' + xmlEsc(names[i]) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join('') + '</sheets>' +
+      // cached <v> values for formula cells are placeholders; have Excel recompute everything on open
+      '<calcPr calcId="191029" fullCalcOnLoad="1"/>' +
+      '</workbook>' },
+    { name: 'xl/_rels/workbook.xml.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      sheets.map((_, i) => '<Relationship Id="rId' + (i + 1) + '" Type="' + NS_REL + '/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') +
+      '<Relationship Id="rId' + (sheets.length + 1) + '" Type="' + NS_REL + '/styles" Target="styles.xml"/>' +
+      '</Relationships>' },
+    { name: 'xl/styles.xml', data: XLSX_STYLES }
+  ];
+  sheets.forEach((s, i) => files.push({ name: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: s }));
+  return zipStore(files);
+}
+
+function buildSpreadsheetXml() {
   const records = DataStore.getRecords();
   // Sheet 1 lists the whole ledger, but every aggregate below it is a SPENDING
   // question and must not see income. Keeping the two lists apart here is what
@@ -5374,14 +5827,28 @@ function exportToExcel() {
   cats.forEach(c => { if (c.parentId) parentMap[c.id] = c.parentId; });
   function getRootCatId(id) {
     let cur = id;
-    while (parentMap[cur]) cur = parentMap[cur];
+    const seen = new Set();   // a looped parent chain must not hang the export
+    while (parentMap[cur] && !seen.has(cur)) { seen.add(cur); cur = parentMap[cur]; }
     return cur;
   }
 
   // Helper: escape XML text
-  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const esc = xmlText;
   // Helper: format a number nicely
   const fmtNum = n => Number(n).toFixed(2);
+  // The value a cell actually holds once written (two decimals). Totals, averages and
+  // the "value saved next to each formula" are computed from THIS, so a viewer that
+  // shows the saved value and Excel (which recalculates on open) agree.
+  const cellNum = n => Number(fmtNum(n));
+  const sumOf = a => a.reduce((s, v) => s + v, 0);
+  const r2 = n => Math.round(n * 100) / 100;
+  // Ratios keep six decimals; fmtNum's two turned 37.5% into 38% wherever the saved value is shown.
+  const fmtRatio = n => String(Math.round(Number(n) * 1e6) / 1e6);
+  // One footer cell: the formula only when there are rows to point at (an empty range such
+  // as R2C2:R1C2 reaches back over the formula's own row and Excel reports a circular reference).
+  const footCell = (style, formula, value, asText, index) =>
+    '    <Cell' + (index ? ' ss:Index="' + index + '"' : '') + ' ss:StyleID="' + style + '"' + (formula ? ' ss:Formula="=' + formula + '"' : '') + '>' +
+    (asText ? '<Data ss:Type="String">' + esc(value) + '</Data>' : '<Data ss:Type="Number">' + value + '</Data>') + '</Cell>\n';
 
   // --- Gather all months with records ---
   const monthSet = new Set();
@@ -5510,31 +5977,41 @@ function exportToExcel() {
     xml += '   </Row>\n';
   });
 
-  // --- Summary footer with formulas (row after data) ---
+  // --- Summary footer with formulas (rows after data) ---
   // R1C1 notation: R{row}C{col}
+  // Four short rows, each figure under the 金额 column. EXPENSES ONLY: the footer used to
+  // SUM / AVERAGE the whole column, so a 3000 salary was added into 合计 and into 平均 —
+  // and the cells were written one after another, so the figures ended up under the
+  // 日期 / 分类 / 备注 headings instead of under 金额.
   const cAmountCol = 4; // column D = 4
   const rFirst = dataStartRow;
   const rLast = dataEndRow;
-
-  xml += `   <Row>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.total')}</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.records')}: ${sortedRecords.length}</Data></Cell>\n`;
-  // =SUM formula
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${rFirst}C${cAmountCol}:R${rLast}C${cAmountCol})"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.average')}</Data></Cell>\n`;
-  // =AVERAGE formula  
-  xml += `    <Cell ss:StyleID="money" ss:Formula="=AVERAGE(R${rFirst}C${cAmountCol}:R${rLast}C${cAmountCol})"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.max')}: </Data></Cell>\n`;
-  // =MAX formula
-  xml += `    <Cell ss:StyleID="money" ss:Formula="=MAX(R${rFirst}C${cAmountCol}:R${rLast}C${cAmountCol})"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.min')}: </Data></Cell>\n`;
-  // =MIN formula
-  xml += `    <Cell ss:StyleID="money" ss:Formula="=MIN(R${rFirst}C${cAmountCol}:R${rLast}C${cAmountCol})"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `   </Row>\n`;
+  const hasRows = sortedRecords.length > 0;
+  const expAmts = sortedRecords.filter(r => !isIncomeRec(r)).map(r => cellNum(r.amount));
+  const expCount = expAmts.length;
+  const expTotal = r2(sumOf(expAmts));
+  const tRng = 'R' + rFirst + 'C2:R' + rLast + 'C2';                       // 类型 column
+  const aRng = 'R' + rFirst + 'C' + cAmountCol + ':R' + rLast + 'C' + cAmountCol;   // 金额 column
+  const isExp = '&quot;' + esc(__('excel.label.expense')) + '&quot;';
+  const sumF = 'SUMIF(' + tRng + ',' + isExp + ',' + aRng + ')';
+  const cntF = 'COUNTIF(' + tRng + ',' + isExp + ')';
+  const footRow = (label, extra, formula, value) =>
+    '   <Row>\n' +
+    '    <Cell ss:StyleID="total"><Data ss:Type="String">' + esc(label) + '</Data></Cell>\n' +
+    (extra ? '    <Cell ss:StyleID="total"><Data ss:Type="String">' + esc(extra) + '</Data></Cell>\n' : '') +
+    footCell('moneyBold', hasRows ? formula : '', fmtNum(value), false, cAmountCol) +
+    '   </Row>\n';
+  xml += footRow(__('excel.summary.total') + __('excel.summary.expenseOnly'), __('excel.summary.records') + ': ' + expCount, sumF, expTotal);
+  xml += footRow(__('excel.summary.average'), '', 'IF(' + cntF + '>0,' + sumF + '/' + cntF + ',0)', expCount ? expTotal / expCount : 0);
+  // MAX / MIN limited to expense rows without array-entered formulas: SUMPRODUCT makes Excel
+  // evaluate the inner expression row by row; for MIN every non-expense row is pushed out of
+  // the way with +1E+15.
+  xml += footRow(__('excel.summary.max'), '', 'SUMPRODUCT(MAX((' + tRng + '=' + isExp + ')*' + aRng + '))', expCount ? expAmts.reduce((a, b) => Math.max(a, b), -Infinity) : 0);
+  xml += footRow(__('excel.summary.min'), '', 'IF(' + cntF + '>0,SUMPRODUCT(MIN(' + aRng + '+(' + tRng + '&lt;&gt;' + isExp + ')*1E+15)),0)', expCount ? expAmts.reduce((a, b) => Math.min(a, b), Infinity) : 0);
 
   xml += '  </Table>\n';
   // Auto-filter on header row
-  xml += '  <x:AutoFilter x:Range="R1C1:R1C' + nCols + '" xmlns="urn:schemas-microsoft-com:office:excel"/>\n';
+  xml += '  <x:AutoFilter x:Range="R1C1:R' + Math.max(1, dataEndRow) + 'C' + nCols + '" xmlns="urn:schemas-microsoft-com:office:excel"/>\n';
   // Freeze header row
   xml += '  <x:WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">\n';
   xml += '   <x:FreezePanes/>\n';
@@ -5559,21 +6036,30 @@ function exportToExcel() {
   xml += '   </Row>\n';
 
   const catStartRow = 2;
-  sortedCats.forEach((c, idx) => {
-    const rowNum = catStartRow + idx;
-    const catRecs = expenseRecs.filter(r => getRootCatId(r.categoryId) === c.id);
-    const catCount = catRecs.length;
+  // A root row is followed by one row per sub-category, so the root rows are NOT
+  // consecutive. The grand total must add exactly the root rows (the sub-categories are
+  // already inside them), which used to be written as one range R2:R<number of roots+1>
+  // — it stopped short, in the middle of the first few categories' children.
+  const rootRowOf = {};
+  let nextCatRow = catStartRow;
+  sortedCats.forEach(c => { rootRowOf[c.id] = nextCatRow; nextCatRow += 1 + DataStore.getChildren(c.id).length; });
+  const rootRowRefs = col => 'SUM(' + sortedCats.map(c => 'R' + rootRowOf[c.id] + 'C' + col).join(',') + ')';
+  const rootCountOf = {};
+  sortedCats.forEach(c => { rootCountOf[c.id] = expenseRecs.filter(r => getRootCatId(r.categoryId) === c.id).length; });
+  const allCatSum = r2(sumOf(sortedCats.map(c => cellNum(c.total))));
+  sortedCats.forEach((c) => {
+    const catCount = rootCountOf[c.id];
     // Also include sub-breakdown: children
     const children = DataStore.getChildren(c.id);
+    const rootTotal = cellNum(c.total);
     // For the total row of this root cat
     xml += '   <Row>\n';
     xml += `    <Cell><Data ss:Type="String">${esc(c.icon + ' ' + c.name)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(c.total)}</Data></Cell>\n`;
-    // Percentage formula: this amount / total of all categories
-    // =IF(SUM(R2C2:R{last}C2)>0, R{row}C2/SUM(R2C2:R{last}C2), 0)
-    const allCatSum = sortedCats.reduce((s, cc) => s + cc.total, 0);
+    // Percentage: this amount / the sum of the root rows
     if (allCatSum > 0) {
-      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(SUM(R2C2:R${catStartRow + rootCats.length - 1}C2)>0, RC[-1]/SUM(R2C2:R${catStartRow + rootCats.length - 1}C2), 0)"><Data ss:Type="Number">${fmtNum(c.total / allCatSum)}</Data></Cell>\n`;
+      const tot = rootRowRefs(2);
+      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(${tot}&gt;0, RC[-1]/${tot}, 0)"><Data ss:Type="Number">${fmtRatio(rootTotal / allCatSum)}</Data></Cell>\n`;
     } else {
       xml += `    <Cell ss:StyleID="pct"><Data ss:Type="Number">0</Data></Cell>\n`;
     }
@@ -5589,9 +6075,11 @@ function exportToExcel() {
         xml += '   <Row>\n';
         xml += `    <Cell><Data ss:Type="String">  ↳ ${esc(child.icon + ' ' + child.name)}</Data></Cell>\n`;
         xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(childTotal)}</Data></Cell>\n`;
-        // Subcategory % = this subcategory / this root's total
-        if (c.total > 0) {
-          xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(R[-1]C[-1]>0, RC[-1]/R[-1]C[-1], 0)"><Data ss:Type="Number">${fmtNum(childTotal / c.total)}</Data></Cell>\n`;
+        // Subcategory % = this subcategory / ITS ROOT's row. The old R[-1]C[-1] meant "the row
+        // above", which is the root only for the first child — for the second it was the first
+        // child, so 午餐 60 of 餐饮 200 read as 60 / 40 = 150%.
+        if (rootTotal > 0) {
+          xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(R${rootRowOf[c.id]}C2&gt;0, RC[-1]/R${rootRowOf[c.id]}C2, 0)"><Data ss:Type="Number">${fmtRatio(cellNum(childTotal) / rootTotal)}</Data></Cell>\n`;
         } else {
           xml += `    <Cell ss:StyleID="pct"><Data ss:Type="Number">0</Data></Cell>\n`;
         }
@@ -5601,14 +6089,13 @@ function exportToExcel() {
     }
   });
 
-  // Total row with formulas
-  const catEndRow = catStartRow + rootCats.length - 1; // only root cats in total
-  const catTotalRow = catStartRow + sortedCats.length + rootCats.reduce((s, c) => s + DataStore.getChildren(c.id).length, 0);
+  // Total row: the root rows only; 100% is simply 100%
+  const hasCats = sortedCats.length > 0;
   xml += '   <Row>\n';
   xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.grandTotal')}</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R2C2:R${catEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=IF(R[-1]C[-1]>0, RC[-1]/R[-1]C[-1], 0)"><Data ss:Type="Number">1</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total" ss:Formula="=SUM(R2C4:R${catEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
+  xml += footCell('moneyBold', hasCats ? rootRowRefs(2) : '', fmtNum(allCatSum), false);
+  xml += `    <Cell ss:StyleID="pctBold"><Data ss:Type="Number">${allCatSum > 0 ? 1 : 0}</Data></Cell>\n`;
+  xml += footCell('total', hasCats ? rootRowRefs(4) : '', sumOf(sortedCats.map(c => rootCountOf[c.id])), false);
   xml += '   </Row>\n';
 
   xml += '  </Table>\n';
@@ -5640,6 +6127,9 @@ function exportToExcel() {
   const monthStartRow = 2;
   // Sort months descending (newest first)
   const monthsDesc = [...sortedMonths].sort((a, b) => a > b ? -1 : 1);
+  // What each column holds, kept as we write so the footer can state the right figure next
+  // to its formula (and so a viewer that does not recalculate still shows correct totals).
+  const mCol = { total: [], count: [], daily: [], budget: [], spendable: [], savings: [], usage: [], income: [], net: [] };
   monthsDesc.forEach((m, idx) => {
     const rowNum = monthStartRow + idx;
     const md = monthData[m];
@@ -5653,7 +6143,10 @@ function exportToExcel() {
     if (targetType === 'fixed') targetAmount += (targetObj.fixedAmount || 0);
     if (targetType === 'percent') targetAmount += budget * ((targetObj.percent || 0) / 100);
     spendable = Math.max(0, budget - targetAmount);
-    savingsAmt = spendable - md.total;
+    // Worked out from the cells as written (two decimals), the way the formulas will
+    const tC = cellNum(md.total), sC = cellNum(spendable), bC = cellNum(budget);
+    savingsAmt = sC > 0 ? r2(sC - tC) : (tC > 0 ? -tC : 0);
+    const netC = r2(cellNum(md.income) - tC);
 
     xml += '   <Row>\n';
     xml += `    <Cell><Data ss:Type="String">${esc(m)}</Data></Cell>\n`;
@@ -5666,39 +6159,41 @@ function exportToExcel() {
     // If 可支配>0: savings = 可支配 - 支出; else: savings = -支出 (or 0)
     xml += `    <Cell ss:StyleID="money" ss:Formula="=IF(RC[-1]>0, RC[-1]-RC[-5], IF(RC[-5]>0, -RC[-5], 0))"><Data ss:Type="Number">${fmtNum(savingsAmt)}</Data></Cell>\n`;
     // Budget usage rate: B / E (总支出 / 预算)
-    if (budget > 0) {
-      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-3]>0, RC[-6]/RC[-3], 0)"><Data ss:Type="Number">${fmtNum(md.total / budget)}</Data></Cell>\n`;
+    if (bC > 0) {
+      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-3]>0, RC[-6]/RC[-3], 0)"><Data ss:Type="Number">${fmtRatio(tC / bC)}</Data></Cell>\n`;
+      mCol.usage.push(tC / bC);
     } else {
       xml += `    <Cell><Data ss:Type="String">${esc(__('excel.summary.noBudget'))}</Data></Cell>\n`;
     }
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(md.income)}</Data></Cell>\n`;
     // 结余 = 收入记录 − 总支出 (I − B), as a formula so editing a row above updates it
-    xml += `    <Cell ss:StyleID="money" ss:Formula="=RC[-1]-RC[-8]"><Data ss:Type="Number">${fmtNum(md.net)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money" ss:Formula="=RC[-1]-RC[-8]"><Data ss:Type="Number">${fmtNum(netC)}</Data></Cell>\n`;
     xml += '   </Row>\n';
+    mCol.total.push(tC); mCol.count.push(md.count); mCol.daily.push(cellNum(md.dailyAvg)); mCol.budget.push(bC);
+    mCol.spendable.push(sC); mCol.savings.push(savingsAmt); mCol.income.push(cellNum(md.income)); mCol.net.push(netC);
   });
 
-  // Totals row
+  // Totals row. With no months at all there is nothing to add up, and R2:R1 would point
+  // back at the formula's own row, so the cells are plain zeros then.
   const monthEndRow = monthStartRow + monthsDesc.length - 1;
+  const hasMonths = monthsDesc.length > 0;
+  const mRng = c => 'R' + monthStartRow + 'C' + c + ':R' + monthEndRow + 'C' + c;
+  const avgOf = a => a.length ? sumOf(a) / a.length : 0;
   xml += '   <Row>\n';
   xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.totalAvg')}</Data></Cell>\n`;
-  // Total spending across all months
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C2:R${monthEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Total records
-  xml += `    <Cell ss:StyleID="total" ss:Formula="=SUM(R${monthStartRow}C3:R${monthEndRow}C3)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Average daily average
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=AVERAGE(R${monthStartRow}C4:R${monthEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Average budget
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=AVERAGE(R${monthStartRow}C5:R${monthEndRow}C5)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Average spendable
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=AVERAGE(R${monthStartRow}C6:R${monthEndRow}C6)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Total savings
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C7:R${monthEndRow}C7)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Average usage rate
-  xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=AVERAGE(R${monthStartRow}C8:R${monthEndRow}C8)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Total recorded income
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C9:R${monthEndRow}C9)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Net across the window
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C10:R${monthEndRow}C10)"><Data ss:Type="Number">0</Data></Cell>\n`;
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + mRng(2) + ')' : '', fmtNum(sumOf(mCol.total)), false);          // total spending
+  xml += footCell('total', hasMonths ? 'SUM(' + mRng(3) + ')' : '', sumOf(mCol.count), false);                      // total records
+  xml += footCell('moneyBold', hasMonths ? 'AVERAGE(' + mRng(4) + ')' : '', fmtNum(avgOf(mCol.daily)), false);     // average daily average
+  xml += footCell('moneyBold', hasMonths ? 'AVERAGE(' + mRng(5) + ')' : '', fmtNum(avgOf(mCol.budget)), false);    // average budget
+  xml += footCell('moneyBold', hasMonths ? 'AVERAGE(' + mRng(6) + ')' : '', fmtNum(avgOf(mCol.spendable)), false); // average spendable
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + mRng(7) + ')' : '', fmtNum(sumOf(mCol.savings)), false);       // total savings
+  // Average usage rate: months without a budget hold the text 无预算, and AVERAGE of a column
+  // of text is #DIV/0! — the very first export of someone who has not set a budget yet.
+  xml += mCol.usage.length
+    ? footCell('pctBold', 'IF(COUNT(' + mRng(8) + ')&gt;0,AVERAGE(' + mRng(8) + '),&quot;&quot;)', fmtRatio(avgOf(mCol.usage)), false)
+    : footCell('pctBold', hasMonths ? 'IF(COUNT(' + mRng(8) + ')&gt;0,AVERAGE(' + mRng(8) + '),&quot;&quot;)' : '', '', true);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + mRng(9) + ')' : '', fmtNum(sumOf(mCol.income)), false);        // total recorded income
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + mRng(10) + ')' : '', fmtNum(sumOf(mCol.net)), false);          // net across the window
   xml += '   </Row>\n';
 
   xml += '  </Table>\n';
@@ -5722,6 +6217,8 @@ function exportToExcel() {
   });
   xml += '   </Row>\n';
 
+  const btCol = { budget: [], target: [], spendable: [], actual: [], remaining: [] };
+  const btUsage = [];
   monthsDesc.forEach((m, idx) => {
     const rowNum = monthStartRow + idx;
     const md = monthData[m];
@@ -5731,44 +6228,53 @@ function exportToExcel() {
     const targetType = targetObj.type || 'fixed';
     if (targetType === 'fixed') targetAmount += (targetObj.fixedAmount || 0);
     if (targetType === 'percent') targetAmount += budget * ((targetObj.percent || 0) / 100);
-    const spendable = Math.max(0, budget - targetAmount);
-    const remaining = spendable - md.total;
-    const usagePct = spendable > 0 ? (md.total / spendable) : 0;
+    // Figures worked out from the cells as written, the way the formulas will
+    const bC = cellNum(budget), tgC = cellNum(targetAmount), eC = cellNum(md.total);
+    const spendable = bC > 0 ? Math.max(0, r2(bC - tgC)) : 0;
+    const remaining = r2(spendable - eC);
     const status = remaining >= 0 ? __('excel.status.normal') : __('excel.status.overspent');
 
     xml += '   <Row>\n';
     xml += `    <Cell><Data ss:Type="String">${esc(m)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(budget)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(targetAmount)}</Data></Cell>\n`;
-    // 可支配 = 预算 - 储蓄目标 (formula: B-C)
-    xml += `    <Cell ss:StyleID="money" ss:Formula="=IF(RC[-2]>0, RC[-2]-RC[-1], 0)"><Data ss:Type="Number">${fmtNum(spendable)}</Data></Cell>\n`;
+    // 可支配 = 预算 - 储蓄目标 (formula: B-C), never below 0 — a savings target bigger than
+    // the budget used to make the formula negative while the saved value said 0
+    xml += `    <Cell ss:StyleID="money" ss:Formula="=IF(RC[-2]>0, MAX(0, RC[-2]-RC[-1]), 0)"><Data ss:Type="Number">${fmtNum(spendable)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(md.total)}</Data></Cell>\n`;
     // 剩余 = 可支配 - 实际支出 (formula: D-E)
     xml += `    <Cell ss:StyleID="money" ss:Formula="=RC[-2]-RC[-1]"><Data ss:Type="Number">${fmtNum(remaining)}</Data></Cell>\n`;
     // 使用率 = 实际 / 可支配 (formula: E/D)
     if (spendable > 0) {
-      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-3]>0, RC[-2]/RC[-3], 0)"><Data ss:Type="Number">${fmtNum(usagePct)}</Data></Cell>\n`;
+      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-3]>0, RC[-2]/RC[-3], 0)"><Data ss:Type="Number">${fmtRatio(eC / spendable)}</Data></Cell>\n`;
+      btUsage.push(eC / spendable);
     } else {
       xml += `    <Cell><Data ss:Type="String">N/A</Data></Cell>\n`;
     }
-    // 状态 = IF(剩余>=0, "正常", "超支")
-    const fRow = rowNum;
+    // 状态 = IF(剩余>=0, "正常", "超支"). 剩余 is column F, i.e. two to the left (RC[-2]);
+    // RC[-1] is 使用率, which is never negative, so every month — overspent or not —
+    // came out as 正常.
     const statusOk = __('excel.status.normal');
     const statusFail = __('excel.status.overspent');
-    xml += `    <Cell ss:StyleID="${remaining >= 0 ? 'success' : 'danger'}" ss:Formula="=IF(RC[-1]>=0, &quot;${esc(statusOk)}&quot;, &quot;${esc(statusFail)}&quot;)"><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="${remaining >= 0 ? 'success' : 'danger'}" ss:Formula="=IF(RC[-2]>=0, &quot;${esc(statusOk)}&quot;, &quot;${esc(statusFail)}&quot;)"><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
     xml += '   </Row>\n';
+    btCol.budget.push(bC); btCol.target.push(tgC); btCol.spendable.push(spendable); btCol.actual.push(eC); btCol.remaining.push(remaining);
   });
 
   // Totals
   const btEndRow = monthStartRow + monthsDesc.length - 1;
+  const btRng = c => 'R' + monthStartRow + 'C' + c + ':R' + btEndRow + 'C' + c;
   xml += '   <Row>\n';
   xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.total')}</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C2:R${btEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C3:R${btEndRow}C3)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C4:R${btEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C5:R${btEndRow}C5)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C6:R${btEndRow}C6)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=AVERAGE(R${monthStartRow}C7:R${btEndRow}C7)"><Data ss:Type="Number">0</Data></Cell>\n`;
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + btRng(2) + ')' : '', fmtNum(sumOf(btCol.budget)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + btRng(3) + ')' : '', fmtNum(sumOf(btCol.target)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + btRng(4) + ')' : '', fmtNum(sumOf(btCol.spendable)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + btRng(5) + ')' : '', fmtNum(sumOf(btCol.actual)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + btRng(6) + ')' : '', fmtNum(sumOf(btCol.remaining)), false);
+  // Average usage: months with nothing to spend show N/A, and a column of only text is #DIV/0!
+  xml += btUsage.length
+    ? footCell('pctBold', 'IF(COUNT(' + btRng(7) + ')&gt;0,AVERAGE(' + btRng(7) + '),&quot;&quot;)', fmtRatio(avgOf(btUsage)), false)
+    : footCell('pctBold', hasMonths ? 'IF(COUNT(' + btRng(7) + ')&gt;0,AVERAGE(' + btRng(7) + '),&quot;&quot;)' : '', '', true);
   xml += `    <Cell ss:StyleID="total"><Data ss:Type="String"></Data></Cell>\n`;
   xml += '   </Row>\n';
 
@@ -5791,6 +6297,8 @@ function exportToExcel() {
   });
   xml += '   </Row>\n';
 
+  const svCol = { budget: [], target: [], actual: [], savings: [] };
+  const svRate = [];
   monthsDesc.forEach((m, idx) => {
     const rowNum = monthStartRow + idx;
     const md = monthData[m];
@@ -5800,35 +6308,46 @@ function exportToExcel() {
     const targetType = targetObj.type || 'fixed';
     if (targetType === 'fixed') targetAmount += (targetObj.fixedAmount || 0);
     if (targetType === 'percent') targetAmount += budget * ((targetObj.percent || 0) / 100);
-    const spendable = Math.max(0, budget - targetAmount);
-    const actualSavings = spendable - md.total;
+    // Figures worked out from the cells as written, the way the formulas will
+    const bC = cellNum(budget), tgC = cellNum(targetAmount), eC = cellNum(md.total);
+    const spendable = Math.max(0, r2(bC - tgC));
+    const actualSavings = r2(spendable - eC);
 
     xml += '   <Row>\n';
     xml += `    <Cell><Data ss:Type="String">${esc(m)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(budget)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(targetAmount)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(md.total)}</Data></Cell>\n`;
-    // 实际储蓄 = 可支配 - 支出 = (预算 - 目标) - 支出  → formula: B - C - D
-    xml += `    <Cell ss:StyleID="money" ss:Formula="=RC[-3]-RC[-2]-RC[-1]"><Data ss:Type="Number">${fmtNum(actualSavings)}</Data></Cell>\n`;
-    // 目标达成率 = 实际储蓄 / 储蓄目标, capped at 100%
-    if (targetAmount > 0) {
-      const rate = Math.min(100, Math.max(0, actualSavings / targetAmount));
-      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-1]>0, MIN(1, MAX(0, RC[-1]/RC[-4])), 0)"><Data ss:Type="Number">${fmtNum(rate)}</Data></Cell>\n`;
+    // 实际储蓄 = 可支配 - 支出 = max(0, 预算 - 目标) - 支出  → formula: MAX(0, B - C) - D
+    // (the max keeps a target bigger than the budget from going negative here while the
+    // saved value says otherwise)
+    xml += `    <Cell ss:StyleID="money" ss:Formula="=MAX(0, RC[-3]-RC[-2])-RC[-1]"><Data ss:Type="Number">${fmtNum(actualSavings)}</Data></Cell>\n`;
+    // 目标达成率 = 实际储蓄 / 储蓄目标, capped at 100%. 储蓄目标 is column C, three to the
+    // left (RC[-3]); RC[-4] is the budget, which made 200 saved of a 200 target read as
+    // 20% when the budget was 1000.
+    if (tgC > 0) {
+      const rate = actualSavings > 0 ? Math.min(1, actualSavings / tgC) : 0;
+      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-1]>0, MIN(1, MAX(0, RC[-1]/RC[-3])), 0)"><Data ss:Type="Number">${fmtRatio(rate)}</Data></Cell>\n`;
+      svRate.push(rate);
     } else {
       xml += `    <Cell><Data ss:Type="String">—</Data></Cell>\n`;
     }
     xml += '   </Row>\n';
+    svCol.budget.push(bC); svCol.target.push(tgC); svCol.actual.push(eC); svCol.savings.push(actualSavings);
   });
 
   // Totals
   const svEndRow = monthStartRow + monthsDesc.length - 1;
+  const svRng = c => 'R' + monthStartRow + 'C' + c + ':R' + svEndRow + 'C' + c;
   xml += '   <Row>\n';
   xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.total')}</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C2:R${svEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C3:R${svEndRow}C3)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C4:R${svEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C5:R${svEndRow}C5)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=AVERAGE(R${monthStartRow}C6:R${svEndRow}C6)"><Data ss:Type="Number">0</Data></Cell>\n`;
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + svRng(2) + ')' : '', fmtNum(sumOf(svCol.budget)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + svRng(3) + ')' : '', fmtNum(sumOf(svCol.target)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + svRng(4) + ')' : '', fmtNum(sumOf(svCol.actual)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + svRng(5) + ')' : '', fmtNum(sumOf(svCol.savings)), false);
+  xml += svRate.length
+    ? footCell('pctBold', 'IF(COUNT(' + svRng(6) + ')&gt;0,AVERAGE(' + svRng(6) + '),&quot;&quot;)', fmtRatio(avgOf(svRate)), false)
+    : footCell('pctBold', hasMonths ? 'IF(COUNT(' + svRng(6) + ')&gt;0,AVERAGE(' + svRng(6) + '),&quot;&quot;)' : '', '', true);
   xml += '   </Row>\n';
 
   xml += '  </Table>\n';
@@ -6001,7 +6520,7 @@ function exportToExcel() {
       .map(c => ({ id: c.id, name: c.name, icon: c.icon, total: incomeCatTotals[c.id] || 0 }))
       .filter(c => c.total > 0)
       .sort((a, b) => b.total - a.total);
-    const incomeGrandTotal = sortedIncomeCats.reduce((s, c) => s + c.total, 0);
+    const incomeGrandTotal = r2(sumOf(sortedIncomeCats.map(c => cellNum(c.total))));
 
     xml += ' <Worksheet ss:Name="' + __('excel.sheet.incomeBreakdown') + '">\n';
     xml += '  <Table>\n';
@@ -6022,7 +6541,7 @@ function exportToExcel() {
       xml += `    <Cell><Data ss:Type="String">${esc(c.icon + ' ' + c.name)}</Data></Cell>\n`;
       xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(c.total)}</Data></Cell>\n`;
       if (incomeGrandTotal > 0) {
-        xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(SUM(R2C2:R${incStartRow + sortedIncomeCats.length - 1}C2)>0, RC[-1]/SUM(R2C2:R${incStartRow + sortedIncomeCats.length - 1}C2), 0)"><Data ss:Type="Number">${fmtNum(c.total / incomeGrandTotal)}</Data></Cell>\n`;
+        xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(SUM(R2C2:R${incStartRow + sortedIncomeCats.length - 1}C2)&gt;0, RC[-1]/SUM(R2C2:R${incStartRow + sortedIncomeCats.length - 1}C2), 0)"><Data ss:Type="Number">${fmtRatio(cellNum(c.total) / incomeGrandTotal)}</Data></Cell>\n`;
       } else {
         xml += `    <Cell ss:StyleID="pct"><Data ss:Type="Number">0</Data></Cell>\n`;
       }
@@ -6030,21 +6549,31 @@ function exportToExcel() {
       xml += '   </Row>\n';
     });
 
+    // Total row. 100% is just 100%: the old formula divided by "the cell above", which is the
+    // last category and not a total (two incomes of 3000 and 1000 gave 400%).
     const incEndRow = incStartRow + sortedIncomeCats.length - 1;
+    const hasIncCats = sortedIncomeCats.length > 0;
     xml += '   <Row>\n';
     xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.grandTotal')}</Data></Cell>\n`;
-    xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${incStartRow}C2:R${incEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
-    xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=IF(R[-1]C[-1]>0, RC[-1]/R[-1]C[-1], 0)"><Data ss:Type="Number">1</Data></Cell>\n`;
-    xml += `    <Cell ss:StyleID="total" ss:Formula="=SUM(R${incStartRow}C4:R${incEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
+    xml += footCell('moneyBold', hasIncCats ? `SUM(R${incStartRow}C2:R${incEndRow}C2)` : '', fmtNum(incomeGrandTotal), false);
+    xml += `    <Cell ss:StyleID="pctBold"><Data ss:Type="Number">${incomeGrandTotal > 0 ? 1 : 0}</Data></Cell>\n`;
+    xml += footCell('total', hasIncCats ? `SUM(R${incStartRow}C4:R${incEndRow}C4)` : '', sumOf(sortedIncomeCats.map(c => incomeRecs.filter(r => getRootCatId(r.categoryId) === c.id).length)), false);
     xml += '   </Row>\n';
     xml += '  </Table>\n';
     xml += ' </Worksheet>\n';
   }
 
   xml += '</Workbook>';
+  return xml;
+}
 
-  // Trigger download as .xlsx (the XML Spreadsheet format — Excel opens it fine)
-  const blob = new Blob([xml], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+function exportToExcel() {
+  // Excel sniffs the content, not the extension: SpreadsheetML bytes saved as
+  // .xlsx is refused with "file format or extension is not valid". The sheets
+  // are still built as SpreadsheetML (easy to emit), then packed into a real
+  // OOXML zip here.
+  const bytes = spreadsheetMLToXlsx(buildSpreadsheetXml());
+  const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -6061,6 +6590,9 @@ function exportToExcel() {
 
   // === EXPORTS ===
   window.exportToExcel = exportToExcel;
+  // Exposed so tests can inspect the sheet content without unzipping the download.
+  window.buildExcelSpreadsheetXml = buildSpreadsheetXml;
+  window.spreadsheetMLToXlsx = spreadsheetMLToXlsx;
 
   // === I18N ENTRIES ===
   addI18nEntries({
@@ -6132,6 +6664,7 @@ function exportToExcel() {
     'excel.split.status.unpaid': { zh: '⏳ 待收', en: '⏳ Unpaid' },
     'excel.split.status.unknown': { zh: '❓ 金额不明（待收）', en: '❓ Unknown (unpaid)' },
     'excel.summary.total': { zh: '合计', en: 'Total' },
+    'excel.summary.expenseOnly': { zh: '（只算支出）', en: ' (expenses only)' },
     'excel.summary.totalAvg': { zh: '合计/平均', en: 'Total / Avg' },
     'excel.summary.grandTotal': { zh: '总计', en: 'Grand Total' },
     'excel.summary.records': { zh: '记录数', en: 'Records' },
@@ -6235,8 +6768,9 @@ const StatsEngine = {
     const currentMonth = getMonthKey(now.toISOString());
     const daysPassed = month === currentMonth ? today : daysInMonth;
     // Only my real share counts toward daily avg — others' shares (paid or not)
-    // are uncollected/collected money, not my spending
-    return daysPassed ? (records.reduce((s, r) => s + r.amount, 0) - this.getSplitOthers(month)) / daysPassed : 0;
+    // are uncollected/collected money, not my spending. Taken off only for the
+    // records that are in this sum (splitOthersOf), never the whole month's total.
+    return daysPassed ? (records.reduce((s, r) => s + r.amount, 0) - this.splitOthersOf(records)) / daysPassed : 0;
   },
 
   // TREND projection: "at this pace, how much will I spend by month-end". One-off
@@ -6257,7 +6791,7 @@ const StatsEngine = {
     // Fixed: guard against daysPassed=0 (first day of month) (M5)
     if (daysPassed <= 0) return 0;
     // Projection based on my real share only (others' shares excluded)
-    return ((total - this.getSplitOthers(month)) / daysPassed) * daysInMonth;
+    return ((total - this.splitOthersOf(records)) / daysPassed) * daysInMonth;
   },
 
   // CASH-FLOW projection: "how much will actually have left my wallet by
@@ -6287,19 +6821,26 @@ const StatsEngine = {
   //   instalments — card-instalment records (planId), at face value
   //   large       — 不计日均 records that are neither of the above, at face value
   //   normal      — my share of everyday spending, projected at its daily pace
-  // Others' split shares come off the everyday spending (they are not mine).
-  _predictParts(records, daysPassed, daysInPeriod, splitOthers, unpaidBills) {
+  // Others' split shares are not mine, and they come off the part their OWN record
+  // sits in: a utility bill split with a flatmate is a smaller bill, not smaller
+  // lunches. (They used to be taken off the everyday pace whatever the record was,
+  // which dragged the daily average down and the forecast with it.)
+  _predictParts(records, daysPassed, daysInPeriod, unpaidBills) {
     let bills = 0, inst = 0, large = 0, pace = 0;
+    const seen = new Set();
     (records || []).forEach(r => {
       if (!r) return;
-      const a = r.amount || 0;
+      let a = r.amount || 0;
+      if (r.splitBillId && !seen.has(r.splitBillId)) {
+        seen.add(r.splitBillId);
+        a = Math.max(0, a - this._othersShareOfBill(r.splitBillId));
+      }
       if (this.isBillCategory(r.categoryId)) bills += a;
       else if (r.planId) inst += a;
       else if (r.excludeFromAvg) large += a;
       else pace += a;
     });
-    const mine = Math.max(0, pace - Math.max(0, splitOthers || 0));
-    const trend = daysPassed > 0 ? (mine / daysPassed) * daysInPeriod : 0;
+    const trend = daysPassed > 0 ? (pace / daysPassed) * daysInPeriod : 0;
     const b = round2(bills), u = round2(Math.max(0, unpaidBills || 0)), i = round2(inst), l = round2(large);
     const predicted = round2(b + u + i + l + trend);
     return { bills: b, billsUnpaid: u, instalments: i, large: l, normal: round2(predicted - b - u - i - l), predicted: predicted };
@@ -6318,7 +6859,7 @@ const StatsEngine = {
     const daysInMonth = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10), 0).getDate() || 30;
     const now = new Date();
     const daysPassed = month === getMonthKey(now.toISOString()) ? now.getDate() : daysInMonth;
-    return this._predictParts(this.getRecordsInMonth(month), daysPassed, daysInMonth, this.getSplitOthers(month), this.getUnpaidPlannedBills(month));
+    return this._predictParts(this.getRecordsInMonth(month), daysPassed, daysInMonth, this.getUnpaidPlannedBills(month));
   },
 
   // Variable (ex-bills) twin: large (non-bill excludeFromAvg, already happened)
@@ -6335,7 +6876,7 @@ const StatsEngine = {
   // Rolling-30-day twins (same split, period window).
   getPeriodPredictedBreakdown() {
     const range = getPeriodDateRange();
-    return this._predictParts(this.getPeriodRecords(), range.daysPassed || 0, range.daysInPeriod || 30, this.getPeriodSplitOthers(), this.getPeriodUnpaidPlannedBills());
+    return this._predictParts(this.getPeriodRecords(), range.daysPassed || 0, range.daysInPeriod || 30, this.getPeriodUnpaidPlannedBills());
   },
 
   getPeriodPredictedBreakdownVariable() {
@@ -6355,8 +6896,7 @@ const StatsEngine = {
     if (!(daysPassed > 0)) return 0;
     const recs = this.getPeriodRecords().filter(r => r && !this.isFixedRecord(r) && !r.excludeFromAvg);
     const total = recs.reduce((s, r) => s + (r.amount || 0), 0);
-    const splitOthers = Math.max(0, this.getPeriodSplitOthers() || 0);
-    return round2(Math.max(0, total - Math.min(splitOthers, total)) / daysPassed * daysInPeriod);
+    return round2(Math.max(0, total - this.splitOthersOf(recs)) / daysPassed * daysInPeriod);
   },
 
   getSavingsPrediction(month) {
@@ -6400,10 +6940,14 @@ const StatsEngine = {
 
   // `excludeInstalments`: leave out card-instalment records (the 含固定账单
   // toggle is off), which sit inside ordinary categories.
-  getCategoryBreakdownDeep(month, categoryId, excludeInstalments) {
+  //
+  // `pool`: the records to break down, when the window is not a calendar month (a
+  // custom date range, or the rolling 30 days). Without it the month's records are used.
+  getCategoryBreakdownDeep(month, categoryId, excludeInstalments, pool) {
     const cat = DataStore.getCategory(categoryId);
     if (!cat) return null;
-    const records = this.getRecordsInMonth(month).filter(r => r.categoryId === categoryId && !(excludeInstalments && r.planId));
+    const source = pool || this.getRecordsInMonth(month);
+    const records = source.filter(r => r.categoryId === categoryId && !(excludeInstalments && r.planId));
     const children = DataStore.getChildren(categoryId);
     const breakdown = {
       category: cat,
@@ -6412,7 +6956,7 @@ const StatsEngine = {
       children: []
     };
     children.forEach(child => {
-      const childBreak = this.getCategoryBreakdownDeep(month, child.id, excludeInstalments);
+      const childBreak = this.getCategoryBreakdownDeep(month, child.id, excludeInstalments, source);
       if (childBreak) {
         breakdown.total += childBreak.total;
         breakdown.children.push(childBreak);
@@ -6422,22 +6966,21 @@ const StatsEngine = {
   },
 
   getCustomRangeTotals(startDate, endDate) {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const inRange = DataStore.getRecords().filter(r => {
-      const d = new Date(r.date || r.createdAt);
-      return d >= start && d <= end;
-    });
+    // Whole days: 'to 10-28' means up to the last minute of the 28th (compared by day, so
+    // the time zone does not matter). The split-bill part below still takes timestamps.
+    const start = parseLocalDay(startDate, false);
+    const end = parseLocalDay(endDate, true);
+    const inRange = DataStore.getRecords().filter(r => inDayRange(r, startDate, endDate));
     const records = expenseRecords(inRange);
     const incomeRecs = incomeRecords(inRange);
     const daily = {};
     records.forEach(r => {
-      const key = (r.date || r.createdAt).substr(0, 10);
+      const key = recordDayKey(r);
       daily[key] = (daily[key] || 0) + r.amount;
     });
     const incomeDaily = {};
     incomeRecs.forEach(r => {
-      const key = (r.date || r.createdAt).substr(0, 10);
+      const key = recordDayKey(r);
       incomeDaily[key] = (incomeDaily[key] || 0) + r.amount;
     });
     const incomeTotal = incomeRecs.reduce((s, r) => s + (r.amount || 0), 0);
@@ -6500,6 +7043,45 @@ const StatsEngine = {
       });
     });
     return total;
+  },
+
+  // Others' share (paid or not) of ONE split bill — the part of its full-amount
+  // record that was never my spending. 0 for a bill someone else paid (there is no
+  // record of mine behind it) and for an id that matches no bill.
+  _othersShareOfBill(billId) {
+    if (!billId || typeof SplitEngine === 'undefined' || !SplitEngine.getSplitBill) return 0;
+    const b = SplitEngine.getSplitBill(billId);
+    if (!b || b.payer !== 'self') return 0;
+    let total = 0;
+    (b.participants || []).forEach(p => {
+      const amt = parseFloat(p.share) || 0;
+      if (amt > 0) total += amt;
+    });
+    return total;
+  },
+
+  // Others' shares of the split bills behind exactly these records — what to take
+  // off a sum made from this list. A whole-month figure (getSplitOthers) is the
+  // wrong thing to subtract from a SUBSET of the month: with the bill's record in
+  // a bill category, or flagged 不计日均, the share came off records that never
+  // contained it, so daily averages went too low and could go negative. Counted once
+  // per bill, and never more than the record itself.
+  splitOthersOf(records) {
+    const seen = new Set();
+    let total = 0;
+    (records || []).forEach(r => {
+      if (!r || !r.splitBillId || seen.has(r.splitBillId)) return;
+      seen.add(r.splitBillId);
+      total += Math.min(this._othersShareOfBill(r.splitBillId), r.amount || 0);
+    });
+    return total;
+  },
+
+  // A record that sets the everyday spending PACE: not a bill, not a card
+  // instalment, not flagged 不计日均. Everything else is a known amount (already
+  // spent, or fixed) and is added at face value, never extrapolated.
+  isPaceRecord(r) {
+    return !!r && !r.excludeFromAvg && !this.isFixedRecord(r);
   },
 
   // Unpaid others' shares only (未收回账目) — shown in the overview total caption
@@ -6582,7 +7164,7 @@ const StatsEngine = {
   },
 
   getCustomSplitContrib(startDate, endDate) {
-    return this._splitContribBetween(new Date(startDate), new Date(endDate));
+    return this._splitContribBetween(parseLocalDay(startDate, false), parseLocalDay(endDate, true));
   },
 
   getOverspentCategories(month) {
@@ -6607,9 +7189,9 @@ const StatsEngine = {
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const key = d.toISOString().substr(0, 10);
+      const key = localDateKey(d);
       const dayTotal = expenseRecords(DataStore.getRecords().filter(r => {
-        const rd = (r.date || r.createdAt).substr(0, 10);
+        const rd = recordDayKey(r);
         return rd === key;
       })).reduce((s, r) => s + r.amount, 0);
       result.push({ date: key, total: dayTotal, label: (d.getMonth()+1)+'/'+d.getDate() });
@@ -6715,8 +7297,10 @@ const StatsEngine = {
     const currentMonth = getMonthKey(now.toISOString());
     const daysPassed = month === currentMonth ? today : daysInMonth;
     const varTotal = records.reduce((s, r) => s + r.amount, 0);
-    // My real share only (others' shares excluded from daily avg)
-    return daysPassed ? (varTotal - this.getSplitOthers(month)) / daysPassed : 0;
+    // My real share only (others' shares excluded from daily avg) — only the shares
+    // of the bills behind THESE records, so a split utility bill (filed under the
+    // bill category, not in this list) cannot eat into the lunches.
+    return daysPassed ? (varTotal - this.splitOthersOf(records)) / daysPassed : 0;
   },
 
   // Get combined disposable info
@@ -6817,7 +7401,7 @@ const StatsEngine = {
     const { daysPassed } = getPeriodDateRange();
     const records = this.getPeriodRecords().filter(r => !r.excludeFromAvg);
     // Only my real share counts: others' shares (paid or not) are not my spending
-    const realSpent = records.reduce((s, r) => s + r.amount, 0) - this.getPeriodSplitOthers();
+    const realSpent = records.reduce((s, r) => s + r.amount, 0) - this.splitOthersOf(records);
     return daysPassed > 0 ? realSpent / daysPassed : 0;
   },
   // TREND twin of getPredictedTotal for the rolling-30-day range. Must filter
@@ -6829,7 +7413,7 @@ const StatsEngine = {
     const { daysPassed, daysInPeriod } = getPeriodDateRange();
     if (daysPassed === 0) return 0;
     const records = this.getPeriodRecords().filter(r => !r.excludeFromAvg);
-    const realSpent = records.reduce((s, r) => s + r.amount, 0) - this.getPeriodSplitOthers();
+    const realSpent = records.reduce((s, r) => s + r.amount, 0) - this.splitOthersOf(records);
     const avg = realSpent / daysPassed;
     return Math.round(avg * daysInPeriod * 100) / 100;
   },
@@ -6880,12 +7464,11 @@ const StatsEngine = {
       ? this.getPeriodRecords().filter(r => !this.isFixedRecord(r))
       : this.getPeriodRecords();
     records.forEach(r => {
-      const d = new Date(r.date || r.createdAt);
-      const dayKey = d.toISOString().substr(0, 10);
+      const dayKey = recordDayKey(r);
       daily[dayKey] = (daily[dayKey] || 0) + r.amount;
     });
     // Net out split repayments per day
-    const contribP = this._splitContribByDay(d => d.toISOString().substr(0, 10));
+    const contribP = this._splitContribByDay(d => localDateKey(d));
     Object.entries(contribP).forEach(([k, v]) => {
       if (k in daily) daily[k] -= v;
     });
@@ -7214,7 +7797,7 @@ const PlanMath = {
 
   // What self-imposed plans actually consumed this month (may be less than the
   // due amount when the month came up short). Subtracting this from the app's
-  // "累计已存" gives the part of the surplus that is genuinely free.
+  // "本月还剩" gives the part of the surplus that is genuinely free.
   getVirtualPaid(month) {
     const state = this.computeUpTo(month);
     let sum = 0;
@@ -7306,9 +7889,16 @@ const SimulationEngine = {
     // Split bills: records are stored at the full bill amount, but others' shares
     // (paid OR unpaid) are not my spending. Subtract them so the simulation only
     // projects MY real share — consistent with the overview daily avg/prediction.
-    const splitOthers = isRolling ? StatsEngine.getPeriodSplitOthers() : StatsEngine.getSplitOthers(month);
-    const actualSpent = allRecords.reduce((s, r) => s + r.amount, 0) - splitOthers;
+    // Only the shares of the bills behind THESE records: a bill filed under a
+    // bill category is not in this list, and its share must not come off the rest.
+    const actualSpent = allRecords.reduce((s, r) => s + r.amount, 0) - StatsEngine.splitOthersOf(allRecords);
+    // categoryTotals = what has been spent (every record, my share). paceTotals =
+    // the part of it that sets the daily PACE: one-off large purchases flagged
+    // 不计日均 and card instalments have already happened / are fixed, so dividing
+    // them by the days passed and running them forward invented spending that the
+    // trend (StatsEngine.getPredictedBreakdown) never counts.
     const categoryTotals = {};
+    const paceTotals = {};
     const categoryDays = {};
     allRecords.forEach(r => {
       // Split records are stored at the full bill amount; only MY share counts in
@@ -7319,6 +7909,7 @@ const SimulationEngine = {
         if (bill) amt = parseFloat(bill.selfShare) || 0;
       }
       categoryTotals[r.categoryId] = (categoryTotals[r.categoryId] || 0) + amt;
+      if (StatsEngine.isPaceRecord(r)) paceTotals[r.categoryId] = (paceTotals[r.categoryId] || 0) + amt;
       const d = new Date(r.date || r.createdAt);
       const day = d.getDate();
       if (!categoryDays[r.categoryId]) categoryDays[r.categoryId] = new Set();
@@ -7342,7 +7933,7 @@ const SimulationEngine = {
     const getCurrentDailyAvg = (catId) => {
       // Fixed: guard against daysPassed=0 (M6)
       if (daysPassed <= 0) return 0;
-      return (categoryTotals[catId] || 0) / daysPassed;
+      return (paceTotals[catId] || 0) / daysPassed;
     };
 
     // For each leaf category, compute projected spending
@@ -7473,13 +8064,20 @@ const SimulationEngine = {
     });
     totalProjectedRemaining += hypotheticalTotal;
 
-    // Account for spending on non-leaf categories (e.g., records on root categories directly)
-    const leafTotalCurrent = Object.values(categoryProjections).reduce((s, p) => s + p.currentTotal, 0);
-    const unaccounted = Math.max(0, actualSpent - leafTotalCurrent);
-    if (unaccounted > 0.01) {
-      const unaccountedProjection = (unaccounted / Math.max(1, daysPassed)) * remainingDays;
-      totalProjectedRemaining += unaccountedProjection;
-    }
+    // Account for spending on non-leaf categories (e.g., records on root categories
+    // directly) — at the everyday pace, like the leaves
+    const paceAll = Object.values(paceTotals).reduce((s, v) => s + v, 0);
+    const paceLeaf = Object.keys(categoryProjections).reduce((s, id) => s + (paceTotals[id] || 0), 0);
+    const unaccounted = Math.max(0, paceAll - paceLeaf);
+    const unaccountedProjection = unaccounted > 0.01 ? (unaccounted / Math.max(1, daysPassed)) * remainingDays : 0;
+    totalProjectedRemaining += unaccountedProjection;
+
+    // The same model with NO what-if change: spent so far, plus every category at
+    // its current pace. A what-if is measured against this, so "no change" reads
+    // as exactly the trend however the base is made up.
+    let baselineRemaining = unaccountedProjection;
+    Object.keys(categoryProjections).forEach(id => { baselineRemaining += getCurrentDailyAvg(id) * remainingDays; });
+    const trendProjected = actualSpent + baselineRemaining;
 
     // Aggregate to root level
     const rootProjections = {};
@@ -7551,6 +8149,8 @@ const SimulationEngine = {
 
       // Projection
       totalProjected: totalProjected,
+      // The projection with every adjustment switched off (see baselineRemaining)
+      trendProjected: trendProjected,
       projectedRemaining: totalProjectedRemaining,
       projectedDailyAvg: projectedDailyAvg,
       projectedSavings: projectedSavings,
@@ -8087,10 +8687,15 @@ function formatMoney(amount) {
   return 'RM ' + num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+// The three walkers below follow parentId upwards. `seen` stops them if the data
+// ever contains a loop (the ledger repairs loops on load, but a page must never
+// freeze because some path let one through).
 function getCategoryFullPath(catId) {
   const parts = [];
+  const seen = new Set();
   let cat = DataStore.getCategory(catId);
-  while (cat) {
+  while (cat && !seen.has(cat.id)) {
+    seen.add(cat.id);
     parts.unshift(cat.icon + ' ' + cat.name);
     cat = cat.parentId ? DataStore.getCategory(cat.parentId) : null;
   }
@@ -8098,16 +8703,15 @@ function getCategoryFullPath(catId) {
 }
 
 function getRootAncestorId(catId) {
-  let cat = DataStore.getCategory(catId);
-  while (cat && cat.parentId) {
-    cat = DataStore.getCategory(cat.parentId);
-  }
+  const cat = getRootAncestor(catId);
   return cat ? cat.id : null;
 }
 
 function getRootAncestor(catId) {
+  const seen = new Set();
   let cat = DataStore.getCategory(catId);
-  while (cat && cat.parentId) {
+  while (cat && cat.parentId && !seen.has(cat.id)) {
+    seen.add(cat.id);
     cat = DataStore.getCategory(cat.parentId);
   }
   return cat;
@@ -8316,7 +8920,7 @@ function openTagPicker(selectedTags, callback) {
       const stats = DataStore.getTagStats(tag);
       html += `
         <div class="flex items-center gap-8" style="padding:6px 4px;cursor:pointer;border-radius:6px;hover:background:var(--bg)"
-          onclick="toggleTagPick('${escHtml(tag)}')" id="tag-item-${escHtml(tag)}" data-tag="${escHtml(tag)}">
+          onclick="toggleTagPick(${jsArg(tag)})" id="tag-item-${escHtml(tag)}" data-tag="${escHtml(tag)}">
           <span id="tag-check-${escHtml(tag)}" style="width:20px;text-align:center">
             ${selected.has(tag) ? '✅' : '⬜'}
           </span>
@@ -8851,7 +9455,11 @@ function _pickerCapture() {
   const wasOpen = overlay && overlay.classList.contains('open');
   if (wasOpen) {
     const content = document.getElementById('modalContent');
-    _pickerPrev = { html: content.innerHTML };
+    // Keep the live nodes, not just the markup: innerHTML only carries each input's
+    // ORIGINAL value, so restoring from it threw away everything typed since the
+    // form opened (the amount, the note, ticked boxes). The nodes are simply set
+    // aside while the picker is showing and put back, typed values and all.
+    _pickerPrev = { html: content.innerHTML, nodes: Array.from(content.childNodes) };
   } else {
     _pickerPrev = null;
   }
@@ -8863,7 +9471,14 @@ function pickerRestore() {
   if (_pickerPrev && _pickerPrev.html !== null) {
     const content = document.getElementById('modalContent');
     const overlay = document.getElementById('modalOverlay');
-    if (content) content.innerHTML = _pickerPrev.html;
+    if (content) {
+      if (_pickerPrev.nodes && _pickerPrev.nodes.length) {
+        content.textContent = '';
+        _pickerPrev.nodes.forEach(n => content.appendChild(n));
+      } else {
+        content.innerHTML = _pickerPrev.html;
+      }
+    }
     if (_pickerDisp) {
       _applyDisplay(document.getElementById('editCategoryDisplay'), _pickerDisp.cat, _pickerDisp.suffix || '');
       _applyDisplay(document.getElementById('addCategoryDisplay'), _pickerDisp.cat, '');
@@ -9231,12 +9846,12 @@ function renderOverview() {
   // Today's and yesterday's spending — expenses only. Income recorded today is
   // money coming in, and folding it into 今日消费 would make a payday look like
   // the most extravagant day of the month.
-  const todayKey = now.toISOString().substr(0, 10);
+  const todayKey = localDateKey(now);
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayKey = yesterday.toISOString().substr(0, 10);
-  const todayTotal = expenseRecords(DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === todayKey)).reduce((s, r) => s + r.amount, 0);
-  const yesterdayTotal = expenseRecords(DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === yesterdayKey)).reduce((s, r) => s + r.amount, 0);
+  const yesterdayKey = localDateKey(yesterday);
+  const todayTotal = expenseRecords(DataStore.getRecords().filter(r => recordDayKey(r) === todayKey)).reduce((s, r) => s + r.amount, 0);
+  const yesterdayTotal = expenseRecords(DataStore.getRecords().filter(r => recordDayKey(r) === yesterdayKey)).reduce((s, r) => s + r.amount, 0);
 
   // Actual cash flow from the records themselves. Deliberately kept separate from
   // 月收入 (a per-month setting that drives the whole budget chain) — this is what
@@ -9254,7 +9869,12 @@ function renderOverview() {
   const totalBills = sp.totalBills;
   const paidBills = StatsEngine.getBillSpendingActual(month);
   const unpaidPlannedBills = Math.max(0, totalBills - paidBills);
-  const effectiveTotal = monthTotal + unpaidPlannedBills;
+  // What has really gone out (bills and instalments included) plus the bills still
+  // to pay. 本月还剩 is money in the bank, so it cannot depend on the 含固定账单
+  // switch — monthTotal above does, and using it here showed RM1,400 with the
+  // switch on and RM2,400 with it off, for the same month.
+  const allSpent = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month);
+  const effectiveTotal = allSpent + unpaidPlannedBills;
   // 预计储蓄 = what is left AFTER the purchase plans took their share — the same
   // figure the plan panel shows, and the one the savings target is held against.
   // 预计结余 (before plans) is kept alongside so the gap is explained, not hidden.
@@ -9493,8 +10113,8 @@ function renderOverview() {
         </div>
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('overview.estimatedMonthEndSavings')}</div>
-          <div class="text-lg font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div>
-          ${planReservedPred > 0 ? `<div class="text-xs text-muted" style="margin-top:2px" title="${__('plan.afterPlansHint')}">${__('plan.afterPlansRow', formatMoney(surplusPred), formatMoney(planReservedPred))}</div>` : ''}
+          <div class="text-lg font-bold" style="color:${budget > 0 ? (savingsPred >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--text-muted)'}">${budget > 0 ? formatMoney(savingsPred) : '—'}</div>
+          ${planReservedPred > 0 && budget > 0 ? `<div class="text-xs text-muted" style="margin-top:2px" title="${__('plan.afterPlansHint')}">${__('plan.afterPlansRow', formatMoney(surplusPred), formatMoney(planReservedPred))}</div>` : ''}
         </div>
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('overview.targetAchievement')}</div>
@@ -9507,10 +10127,12 @@ function renderOverview() {
         </div>` : ''}
       </div>
       <div class="text-sm text-secondary mb-8">
-        ${savingsPred >= 0
-          ? __('overview.predictionPositive', formatMoney(savingsPred))
-          : __('overview.predictionNegative', formatMoney(Math.abs(savingsPred)))}
-        ${planReservedPred > 0 && savingsPred >= 0 ? ' ' + __('plan.predictionPlanNote', formatMoney(planReservedPred)) : ''}
+        ${budget <= 0
+          ? __('overview.predictionNeedIncome')
+          : (savingsPred >= 0
+            ? __('overview.predictionPositive', formatMoney(savingsPred))
+            : __('overview.predictionNegative', formatMoney(Math.abs(savingsPred))))}
+        ${budget > 0 && planReservedPred > 0 && savingsPred >= 0 ? ' ' + __('plan.predictionPlanNote', formatMoney(planReservedPred)) : ''}
       </div>
       ${budget > 0 ? `
         ${(() => {
@@ -9557,7 +10179,7 @@ function renderOverview() {
     <div class="card mb-16">
       <div class="card-title">${__('overview.top5')}</div>
       ${topCats.length ? topCats.map((item, i) => {
-        const catBudget = item.cat.id && !item.isBill ? (DataStore.getCategoryBudget(item.cat.id, month).value || 0) : 0;
+        const catBudget = item.cat.id && !item.isBill ? DataStore.getCategoryBudgetAmount(item.cat.id, month) : 0;   // RM, also for a % budget
         const exceeded = catBudget > 0 && item.total > catBudget;
         return `
         <div class="flex items-center justify-between" style="padding:8px 0;border-bottom:1px solid var(--border)">
@@ -9746,11 +10368,12 @@ function refreshOverviewBudget() {
     'overview.targetAchieved': { zh: '✅ 预计可达成目标', en: '✅ On track to meet target' },
     'overview.estimatedSave': { zh: '预计储蓄', en: 'Est. savings' },
     'overview.savingsPrediction': { zh: '💵 储蓄预测', en: '💵 Savings Forecast' },
-    'overview.currentSaved': { zh: '累计已存', en: 'Cumulative Saved' },
+    'overview.currentSaved': { zh: '本月还剩', en: 'Left This Month' },
     'overview.estimatedMonthEndSavings': { zh: '预计月末储蓄', en: 'Est. Month-End Savings' },
     'overview.targetAchievement': { zh: '目标达成', en: 'Target Progress' },
     'overview.predictionPositive': { zh: '📈 如果维持当前消费习惯，本月末预计可存 {0}', en: '📈 At this rate, est. to save {0} by month end' },
     'overview.predictionNegative': { zh: '⚠️ 预计超支 {0}，请注意控制支出', en: '⚠️ Est. overspend {0}, please control spending' },
+    'overview.predictionNeedIncome': { zh: '先设置本月收入，才能预测月末大概能存多少', en: 'Set this month\'s income first to see how much you may save by month end' },
     'overview.remainingTotalPerDay': { zh: '剩余可花/天（未扣储蓄目标）', en: 'Left to spend / day (pre-savings)' },
     'overview.dailySpendablePerDay': { zh: '日常可花/天（已扣账单+储蓄）', en: 'Daily spendable / day (ex-bills & savings)' },
     'overview.perDay': { zh: '/天', en: '/day' },
@@ -10135,7 +10758,7 @@ function renderBudgetProgressCardInner(month) {
       html += '<span class="text-xs text-muted" style="flex-shrink:0">↳</span>';
       html += '<span>' + escHtml(cr.cat.icon) + '</span>';
       html += '<span class="font-semibold" style="font-size:0.78rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(cr.cat.name) + '</span>';
-      html += '<span class="text-xs text-muted" style="flex-shrink:0">(' + cr.parentName + ')</span>';
+      html += '<span class="text-xs text-muted" style="flex-shrink:0">(' + escHtml(cr.parentName) + ')</span>';
       html += '<span style="font-size:0.78rem;font-weight:600">' + formatMoney(cr.spent) + '</span>';
       html += '<span class="text-xs text-muted">/ ' + formatMoney(cr.budget) + '</span>';
       html += '<span style="font-size:0.8rem;font-weight:700;color:' + cBarColor + ';width:48px;text-align:right">' + cr.pct.toFixed(0) + '%</span>';
@@ -10551,7 +11174,7 @@ function submitRecord(e) {
   const tags = window._addRecordTags || [];
 
   if (splitMode) {
-    const splitDate = date || new Date().toISOString().slice(0, 16);
+    const splitDate = date || localNowForInput();
     const splitRes = SplitEngine.collectSplitBill({ amount, date: splitDate, note, tags, categoryId });
     if (!splitRes.ok) {
       showToast(splitRes.error, 'error');
@@ -10616,7 +11239,7 @@ function submitRecord(e) {
     amount,
     categoryId,
     type: recKind,
-    date: date || new Date().toISOString().slice(0, 16),
+    date: date || localNowForInput(),
     note,
     tags,
     excludeFromAvg: recKind === 'income' ? false : document.getElementById('addExcludeAvg').checked,
@@ -10658,7 +11281,7 @@ function renderAddTagsDisplay() {
     container.innerHTML = tags.map(t => 
       `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">
         ${escHtml(t)}
-        <span style="cursor:pointer;opacity:0.7" onclick="removeAddTag('${escHtml(t)}')">✕</span>
+        <span style="cursor:pointer;opacity:0.7" onclick="removeAddTag(${jsArg(t)})">✕</span>
       </span>`
     ).join('');
   }
@@ -10728,15 +11351,24 @@ function renderRecords() {
   const el = document.getElementById('page-records');
   const cats = DataStore.getCategories();
 
-  // Set default date range for rolling30 mode
+  // Default date range for rolling30 mode. A value the page filled in itself is
+  // flagged (_autoStart / _autoEnd) so that it can be refreshed to today's window on
+  // every visit — filled once and kept, it froze at the day you first opened the page
+  // and new entries vanished from the list — and cleared again when you go back to
+  // month mode. A range the user typed in (applyRecordsFilter) is never touched.
   if (getStatsRange() === 'rolling30') {
     const { start, end } = getPeriodDateRange();
-    if (!recordsFilter.dateStart) {
-      recordsFilter.dateStart = start.toISOString().substr(0, 10);
+    if (!recordsFilter.dateStart || recordsFilter._autoStart) {
+      recordsFilter.dateStart = localDateKey(start);
+      recordsFilter._autoStart = true;
     }
-    if (!recordsFilter.dateEnd) {
-      recordsFilter.dateEnd = end.toISOString().substr(0, 10);
+    if (!recordsFilter.dateEnd || recordsFilter._autoEnd) {
+      recordsFilter.dateEnd = localDateKey(end);
+      recordsFilter._autoEnd = true;
     }
+  } else {
+    if (recordsFilter._autoStart) { recordsFilter.dateStart = ''; recordsFilter._autoStart = false; }
+    if (recordsFilter._autoEnd) { recordsFilter.dateEnd = ''; recordsFilter._autoEnd = false; }
   }
 
   const filterCat = recordsFilter.categoryId ? DataStore.getCategory(recordsFilter.categoryId) : null;
@@ -10751,7 +11383,7 @@ function renderRecords() {
         <label class="text-sm text-secondary">${__('records.filter.tags')}</label>
         <div style="display:flex;flex-wrap:wrap;gap:4px" id="recordsTagFilterDisplay">
           ${recordsFilter.tags && recordsFilter.tags.length > 0
-            ? recordsFilter.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 6px;background:var(--primary);color:white;border-radius:10px;font-size:0.7rem">${escHtml(t)}<span style="cursor:pointer" onclick="removeRecordsTagFilter('${escHtml(t)}')">✕</span></span>`).join('')
+            ? recordsFilter.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 6px;background:var(--primary);color:white;border-radius:10px;font-size:0.7rem">${escHtml(t)}<span style="cursor:pointer" onclick="removeRecordsTagFilter(${jsArg(t)})">✕</span></span>`).join('')
             : '<span class="text-xs text-muted">' + __('records.filter.all') + '</span>'}
         </div>
         <button type="button" class="btn btn-sm btn-outline" style="font-size:0.72rem" onclick="openTagPickerForRecords()">${__('records.filter.filterTags')}</button>
@@ -10975,6 +11607,9 @@ function applyRecordsFilter() {
   recordsFilter.keyword = document.getElementById('filterKeyword').value;
   recordsFilter.dateStart = document.getElementById('filterDateStart').value;
   recordsFilter.dateEnd = document.getElementById('filterDateEnd').value;
+  // Whatever is in the boxes now was confirmed by the user, so it stops being "auto"
+  recordsFilter._autoStart = false;
+  recordsFilter._autoEnd = false;
   recordsFilter.amountMin = document.getElementById('filterAmountMin').value;
   recordsFilter.amountMax = document.getElementById('filterAmountMax').value;
   window.recordsPage = 0;
@@ -11022,7 +11657,12 @@ function selectCategoryFilter(catId) {
 }
 
 function clearRecordsFilter() {
-  recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, kind: 'all' };
+  // Emptied in place, never replaced: window.recordsFilter is the SAME object, and
+  // the stats page's "view in records" button sets its category and dates through
+  // it. A fresh object here left that button writing into a dead copy, so the
+  // records page showed everything.
+  Object.keys(recordsFilter).forEach(k => { delete recordsFilter[k]; });
+  Object.assign(recordsFilter, { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, tags: [], kind: 'all' });
   renderRecords();
 }
 
@@ -11168,7 +11808,10 @@ function renderRecordsList() {
 
   container.innerHTML = html;
 
-  // Attach per-card events (normal view only for swipe; compact handles its own)
+  // Attach per-card events (normal view only for swipe; compact handles its own).
+  // Clicking a card is NOT bound here: each card already carries an inline onclick
+  // that either toggles its selection (batch mode) or opens the editor. A second,
+  // unconditional listener opened the editor on top of the selection.
   container.querySelectorAll('.record-card').forEach(card => {
     const isCompact = card.classList.contains('compact');
 
@@ -11182,32 +11825,36 @@ function renderRecordsList() {
         const btn = card.querySelector('.record-del-btn');
         if (btn) btn.style.opacity = '0';
       });
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('.record-delete-btn') || e.target.closest('.record-del-btn')) return;
-        openRecordOrSplitEditor(card.dataset.id);
-      });
 
-      // Swipe to delete (normal view only)
-      let startX = 0, currentX = 0, isDragging = false;
+      // Swipe to delete (normal view, not in batch mode — batch mode draws no delete strip)
+      if (batchMode) return;
+      let startX = 0, startY = 0, currentX = 0, currentY = 0, isDragging = false;
+      // Start and current are the same point until the finger actually moves, so a
+      // plain tap is a swipe of 0 — not "a swipe of startX pixels".
+      const swipeLeft = () => startX - currentX;
+      // Mostly sideways only: scrolling the page with a slight leftward drift is not a delete swipe
+      const isSideways = () => swipeLeft() > Math.abs(startY - currentY);
       card.addEventListener('touchstart', (e) => {
-        startX = e.touches[0].clientX;
+        startX = currentX = e.touches[0].clientX;
+        startY = currentY = e.touches[0].clientY;
         isDragging = true;
       });
       card.addEventListener('touchmove', (e) => {
         if (!isDragging) return;
         currentX = e.touches[0].clientX;
-        const diff = startX - currentX;
-        if (diff > 0) {
-          const deleteBtn = card.querySelector('.record-delete-btn');
-          deleteBtn.style.right = Math.max(-80 + Math.min(diff, 80)) + 'px';
+        currentY = e.touches[0].clientY;
+        const diff = swipeLeft();
+        const deleteBtn = card.querySelector('.record-delete-btn');
+        if (diff > 0 && isSideways() && deleteBtn) {
+          deleteBtn.style.right = (-80 + Math.min(diff, 80)) + 'px';
           card.style.transform = `translateX(${-Math.min(diff, 80)}px)`;
         }
       });
       card.addEventListener('touchend', () => {
         isDragging = false;
-        const diff = startX - currentX;
         const deleteBtn = card.querySelector('.record-delete-btn');
-        if (diff > 40) {
+        if (!deleteBtn) return;
+        if (swipeLeft() > 40 && isSideways()) {
           deleteBtn.style.right = '0';
           card.style.transform = 'translateX(-80px)';
           deleteBtn.onclick = (e) => {
@@ -11359,7 +12006,7 @@ function deleteRecordConfirm(id) {
     <p style="color:var(--text-secondary);margin-bottom:16px">${__('records.deleteConfirm.text')}</p>
     <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-        <span>${cat ? cat.icon : '❓'}</span>
+        <span>${cat ? escHtml(cat.icon) : '❓'}</span>
         <span>${cat ? escHtml(cat.name) : __('records.unknownCategory')}</span>
         <span style="margin-left:auto;font-weight:700">${formatMoney(record.amount)}</span>
       </div>
@@ -11380,9 +12027,18 @@ function confirmDeleteRecord(id) {
   if (record) {
     // Show undo toast
     const container = document.getElementById('toastContainer');
+    // Only the newest delete can be undone (the store has a single slot, and the
+    // previous one was just made permanent). An older toast's button would now
+    // bring back the WRONG record, so take the buttons off the older toasts.
+    Array.from(container.querySelectorAll('.toast')).forEach(old => {
+      if (old._pendingId && old._pendingId !== id) {
+        const stale = old.querySelector('button');
+        if (stale) stale.remove();
+      }
+    });
     const toast = document.createElement('div');
     toast.className = 'toast warning';
-    toast.innerHTML = `<span>🗑️</span>${__('records.undoDeleted')}<button class="btn btn-sm btn-primary" style="padding:2px 10px;font-size:0.8rem" onclick="undoDelete(this)">${__('records.undoBtn')}</button>`;
+    toast.innerHTML = `<span>🗑️</span>${__('records.undoDeleted')}<button class="btn btn-sm btn-primary" style="padding:2px 10px;font-size:0.8rem" onclick="undoDelete(this, ${jsArg(id)})">${__('records.undoBtn')}</button>`;
     container.appendChild(toast);
     toast._pendingId = id;
     // Auto-dismiss after 5s
@@ -11410,10 +12066,11 @@ function confirmHardDeleteRecord(id) {
   refreshCurrentPage();
 }
 
-function undoDelete(btn) {
+function undoDelete(btn, id) {
   const toast = btn.closest('.toast');
   if (!toast) return;
-  const success = DataStore.undoDelete();
+  // `id` says which delete this button belongs to; the store refuses a stale one
+  const success = DataStore.undoDelete(id);
   if (success) {
     toast.innerHTML = `<span>✅</span>${__('records.undoSuccess')}`;
     toast.classList.add('success');
@@ -11487,7 +12144,7 @@ function openEditRecord(id) {
         <label class="input-label">${__('records.edit.amount')}</label>
         <div style="position:relative">
           <span id="editAmountPrefix" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:${isIncome ? 'var(--success)' : 'var(--primary)'}">RM</span>
-          <input type="text" inputmode="numeric" data-money id="editAmount" class="input-field" value="${record.amount}" style="padding-left:44px;font-size:1.2rem;font-weight:700" autocomplete="off">
+          <input type="text" inputmode="numeric" data-money id="editAmount" class="input-field" value="${escHtml(String(record.amount))}" style="padding-left:44px;font-size:1.2rem;font-weight:700" autocomplete="off">
         </div>
       </div>
       <div class="input-group">
@@ -11498,7 +12155,7 @@ function openEditRecord(id) {
       </div>
       <div class="input-group">
         <label class="input-label">${__('records.edit.dateTime')}</label>
-        <input type="datetime-local" id="editDateTime" class="input-field" value="${(record.date || record.createdAt).slice(0, 16)}">
+        <input type="datetime-local" id="editDateTime" class="input-field" value="${escHtml((record.date || record.createdAt).slice(0, 16))}">
       </div>
       <div class="input-group">
         <label class="input-label">${__('records.edit.note')}</label>
@@ -11509,11 +12166,11 @@ function openEditRecord(id) {
         <label class="input-label">${__('records.edit.tags')}</label>
         <div id="editTagsDisplay" style="display:flex;flex-wrap:wrap;gap:4px;min-height:28px;padding:4px 0">
           ${record.tags && record.tags.length > 0
-            ? record.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag('${escHtml(t)}')">✕</span></span>`).join('')
+            ? record.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag(${jsArg(t)})">✕</span></span>`).join('')
             : '<span class="text-xs text-muted">' + __('records.edit.noTags') + '</span>'}
         </div>
         <button type="button" class="btn btn-sm btn-outline" onclick="openEditTagPicker()">${__('records.edit.addTag')}</button>
-        <input type="hidden" id="editTagsInput" value='${JSON.stringify(record.tags || [])}'>
+        <input type="hidden" id="editTagsInput" value="${escHtml(JSON.stringify(record.tags || []))}">
       </div>
       ${isSplit ? '' : `
       <div class="input-group" id="editExcludeAvgRow">
@@ -11713,7 +12370,7 @@ function renderEditTagsDisplay() {
     container.innerHTML = '<span class="text-xs text-muted">' + __('records.edit.noTags') + '</span>';
   } else {
     container.innerHTML = tags.map(t =>
-      `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag('${escHtml(t)}')">✕</span></span>`
+      `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag(${jsArg(t)})">✕</span></span>`
     ).join('');
   }
 }
@@ -12039,23 +12696,26 @@ function saveCategoryBudget(catId, month, value, type) {
   const amount = parseFloat(value) || 0;
   const budgetType = type || 'fixed';
   
-  // Validate: child budget cannot exceed parent's budget (m9)
+  // Validate: child budget cannot exceed parent's budget (m9). Everything is
+  // compared in RM — a '%' budget is a share of the month's income, and comparing
+  // "30" with "RM200" refused budgets that fit and let ones that did not through.
   const cat = DataStore.getCategory(catId);
   if (cat && cat.parentId && amount > 0) {
-    const parentBudget = DataStore.getCategoryBudget(cat.parentId, month).value || 0;
+    const parentBudget = DataStore.getCategoryBudgetAmount(cat.parentId, month);
+    const newAmount = DataStore.budgetToAmount(amount, budgetType, month);
     // Recursively sum all descendant budgets (not just direct children) (m9)
     var descendantBudgetSum = 0;
     (function sumDescendantBudgets(parentId) {
       var children = DataStore.getChildren(parentId);
       children.forEach(function(child) {
         if (child.id === catId) return; // exclude current
-        var cb = DataStore.getCategoryBudget(child.id, month).value || 0;
+        var cb = DataStore.getCategoryBudgetAmount(child.id, month);
         descendantBudgetSum += cb;
         sumDescendantBudgets(child.id); // recurse into grandchildren
       });
     })(cat.parentId);
-    if (descendantBudgetSum + amount > parentBudget) {
-      showToast(__('categories.budgetExceedParent', formatMoney(descendantBudgetSum + amount), formatMoney(parentBudget)), 'error');
+    if (descendantBudgetSum + newAmount > parentBudget) {
+      showToast(__('categories.budgetExceedParent', formatMoney(descendantBudgetSum + newAmount), formatMoney(parentBudget)), 'error');
       return;
     }
   }
@@ -12127,7 +12787,7 @@ function buildMergeTargetTree(cats, depth, sourceId, excludeIds) {
     html += `
       <div style="padding:6px 10px;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast);display:flex;align-items:center;gap:6px;margin-left:${indent}px"
            onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"
-           onclick="selectMergeTarget('${cat.id}','${escHtml(cat.icon)} ${escHtml(cat.name)}')">
+           onclick="selectMergeTarget(${jsArg(cat.id)},${jsArg(cat.icon + ' ' + cat.name)})">
         <span style="width:10px;height:10px;border-radius:50%;background:${cat.color};display:inline-block"></span>
         <span>${escHtml(cat.icon)}</span>
         <span class="text-sm">${escHtml(cat.name)}</span>
@@ -12143,6 +12803,17 @@ let _mergeSourceId = null;
 let _mergeTargetId = null;
 
 function selectMergeTarget(catId, displayName) {
+  // The picker only hides the source's subtree at the top level, so a deeper
+  // descendant can still be clicked. Merging a category into something below it
+  // would make that thing its own parent and freeze every page that walks up the
+  // tree — refuse here, and again in confirmMergeCategory().
+  if (_mergeSourceId && DataStore.getDescendantIds(_mergeSourceId).includes(catId)) {
+    _mergeTargetId = null;
+    const blocked = document.getElementById('mergeConfirmBtn');
+    if (blocked) { blocked.disabled = true; blocked.textContent = __('categories.merge.selectFirst'); }
+    showToast(__('categories.merge.cannotDescendant'), 'error');
+    return;
+  }
   _mergeTargetId = catId;
   const btn = document.getElementById('mergeConfirmBtn');
   if (btn) {
@@ -12160,6 +12831,10 @@ function confirmMergeCategory() {
   }
   if (sourceId === targetId) {
     showToast(__('categories.merge.cannotSelf'), 'error');
+    return;
+  }
+  if (DataStore.getDescendantIds(sourceId).includes(targetId)) {
+    showToast(__('categories.merge.cannotDescendant'), 'error');
     return;
   }
 
@@ -12498,7 +13173,7 @@ function showMoveBeforeDelete(id) {
   const parentId = cat.parentId;
   showModal(`
     <div class="modal-title">${__('categories.delete.moveTitle')}</div>
-    <p class="text-sm text-secondary mb-8">${__('categories.delete.willMoveTo', parentId ? DataStore.getCategory(parentId).icon + ' ' + DataStore.getCategory(parentId).name : __('categories.rootLevel'))}</p>
+    <p class="text-sm text-secondary mb-8">${__('categories.delete.willMoveTo', parentId ? escHtml(DataStore.getCategory(parentId).icon + ' ' + DataStore.getCategory(parentId).name) : __('categories.rootLevel'))}</p>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="deleteCategoryConfirm('${id}')">${__('categories.back')}</button>
       <button class="btn btn-danger" onclick="confirmDeleteCategory('${id}','moveToParent')">${__('categories.delete.confirm')}</button>
@@ -12507,13 +13182,17 @@ function showMoveBeforeDelete(id) {
 }
 
 function confirmDeleteCategory(id, mode) {
+  let done = true;
   if (mode === 'delete' || mode === 'deleteChildren') {
-    DataStore.deleteCategory(id, { deleteChildren: true });
+    done = DataStore.deleteCategory(id, { deleteChildren: true });
   } else if (mode === 'moveToParent') {
     const cat = DataStore.getCategory(id);
-    DataStore.deleteCategory(id, { moveToParent: cat.parentId });
+    // A top-level category has no parent: null means "the children become top-level"
+    done = DataStore.deleteCategory(id, { moveToParent: (cat && cat.parentId) || null });
   }
   closeModal();
+  // Say so when nothing was deleted — a "deleted" toast over an untouched list is a lie
+  if (!done) { showToast(__('categories.deleteFailed'), 'error'); return; }
   showToast(__('categories.deleted'));
   renderCategories();
 }
@@ -12710,6 +13389,8 @@ function saveCategoryEdit(catId) {
     'categories.merge.mergeInto': { zh: '合并到 {0}', en: 'Merge into {0}' },
     'categories.merge.selectTargetFirst': { zh: '请选择目标分类', en: 'Please select a target category' },
     'categories.merge.cannotSelf': { zh: '不能合并到自身', en: 'Cannot merge into itself' },
+    'categories.merge.cannotDescendant': { zh: '不能合并到它自己的子分类里', en: 'Can\'t merge a category into one of its own sub-categories' },
+    'categories.deleteFailed': { zh: '没能删除这个分类，请再试一次', en: 'Couldn\'t delete this category. Please try again.' },
     'categories.notFound': { zh: '分类不存在', en: 'Category not found' },
     'categories.merge.complete': { zh: '✅ 合并完成，已更新 {0} 条记录', en: '✅ Merge complete, updated {0} records' },
     'categories.addRootModal.title': { zh: '添加根分类', en: 'Add root category' },
@@ -12793,6 +13474,13 @@ function getDrillCategory() {
   return statsDrillStack.length > 0 ? statsDrillStack[statsDrillStack.length - 1] : null;
 }
 
+// The drill target is usually a real category, but 月账单 is a synthetic parent
+// (see getMonthlyBillGroup) that DataStore.getCategory has never heard of.
+function getDrillCatInfo(id) {
+  if (!id) return null;
+  return id === BILL_GROUP_ID ? getMonthlyBillGroupCat() : DataStore.getCategory(id);
+}
+
 // Update the pie drill bar (back button + breadcrumb) without touching rest of page
 function syncPieDrillBar() {
   const pieCard = document.getElementById('pieCard');
@@ -12801,7 +13489,7 @@ function syncPieDrillBar() {
   if (!backArea) return;
   const drillCategory = getDrillCategory();
   if (drillCategory) {
-    const c = DataStore.getCategory(drillCategory);
+    const c = getDrillCatInfo(drillCategory);
     backArea.innerHTML = `
       <button class="btn btn-ghost btn-sm" onclick="resetStatsDrill()">← ${__('stats.drill.back')}</button>
       <span class="text-sm" style="color:var(--primary);font-weight:600">
@@ -13098,16 +13786,25 @@ let statsHierarchyLevel = parseInt(localStorage.getItem('budgetStatsHierarchy') 
 if (statsHierarchyLevel < 1 || statsHierarchyLevel > 3) statsHierarchyLevel = 1;
 window.statsHierarchyLevel = statsHierarchyLevel;
 
+/* The date window the charts must draw: the custom range's two ends, or null/null for
+   a calendar month / rolling 30 days. Every redraw goes through here — a hard-coded
+   null/null under a custom range (where statsMonth is blank) draws an empty chart. */
+function statsRangeArgs() {
+  const isCustom = useCustomRange();
+  return [isCustom ? statsStartDate : null, isCustom ? statsEndDate : null];
+}
+
 function setStatsHierarchyLevel(n) {
   statsHierarchyLevel = n;
   window.statsHierarchyLevel = n;
   try { localStorage.setItem('budgetStatsHierarchy', String(n)); } catch (e) {}
-  if (statsCatView === 'waffle') drawCategoryWaffle('catWaffleChart', null, null, 250);
-  else if (statsCatView === 'treemap') drawCategoryTreemap('catTreemapChart', null, null, 250);
-  else if (typeof drawPieChart === 'function') drawPieChart('pieChart', statsMonth, null, null, null, 250, false);
-  if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', null, null, 360);
-  if (document.getElementById('expandCatTreemap')) drawCategoryTreemap('expandCatTreemap', null, null, 360);
-  if (document.getElementById('expandPieChart')) drawPieChart('expandPieChart', statsMonth, null, null, null, 360, false);
+  const [sD, eD] = statsRangeArgs();
+  if (statsCatView === 'waffle') drawCategoryWaffle('catWaffleChart', sD, eD, 250);
+  else if (statsCatView === 'treemap') drawCategoryTreemap('catTreemapChart', sD, eD, 250);
+  else if (typeof drawPieChart === 'function') drawPieChart('pieChart', statsMonth, sD, eD, null, 250, false);
+  if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', sD, eD, 360);
+  if (document.getElementById('expandCatTreemap')) drawCategoryTreemap('expandCatTreemap', sD, eD, 360);
+  if (document.getElementById('expandPieChart')) drawPieChart('expandPieChart', statsMonth, sD, eD, null, 360, false);
   if (typeof renderPieTables === 'function') renderPieTables();
   if (typeof syncPieDrillBar === 'function') syncPieDrillBar();
   document.querySelectorAll('[data-hier-level]').forEach(function (btn) {
@@ -13224,9 +13921,9 @@ function setCatWaffleDensity(level) {
     el.style.background = active ? 'var(--primary)' : 'var(--bg)';
     el.style.color = active ? '#fff' : 'var(--text-secondary)';
   });
-  const isCustom = useCustomRange();
-  drawCategoryWaffle('catWaffleChart', isCustom ? statsStartDate : null, isCustom ? statsEndDate : null, 250);
-  if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', null, null, 360);
+  const [sD, eD] = statsRangeArgs();
+  drawCategoryWaffle('catWaffleChart', sD, eD, 250);
+  if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', sD, eD, 360);
 }
 
 function renderCatDensityControl() {
@@ -13252,10 +13949,15 @@ function renderHierarchyToggle() {
 
 /* Direct records for the current view (custom range / rolling30 / month) */
 function getHierarchyRecords(month, startDate, endDate) {
+  // Under a custom range statsMonth is blank; a caller that forgot the two dates
+  // still means "the range on screen", not "no records".
+  if (!month && !startDate && !endDate && useCustomRange()) {
+    startDate = statsStartDate;
+    endDate = statsEndDate;
+  }
   if (startDate && endDate) {
     return expenseRecords(DataStore.getRecords().filter(function (r) {
-      const d = new Date(r.date || r.createdAt);
-      return d >= new Date(startDate) && d <= new Date(endDate);
+      return inDayRange(r, startDate, endDate);
     }));
   }
   const isRolling = getStatsRange() === 'rolling30' && month === getMonthKey(new Date().toISOString());
@@ -13338,6 +14040,16 @@ function getPlannedFixedExtras(startDate, endDate) {
    is ticked and no category is drilled into, the 月账单 parent (level 1) or its
    children (level 2+), and the plan repayments due. */
 function buildPieSliceRows(level, canvasId, startDate, endDate) {
+  // Drilled into 月账单: its bills are the slices. They are leaves, so the
+  // 1层/2层/全部 level changes nothing here. Same amounts as the parent block
+  // showed (recorded vs planned, whichever is larger), so the parts add up.
+  if (getDrillCategory() === BILL_GROUP_ID) {
+    const group = isBillToggleChecked('pieChart') ? getMonthlyBillGroup(startDate, endDate) : null;
+    if (!group) return [];
+    return group.children.map(function (c) {
+      return { id: c.id, cat: c.cat, total: c.total, depth: 1, path: [group.cat.name, c.cat.name], gap: c.gap };
+    });
+  }
   const rows = buildPieSliceRowsCore(level, canvasId, startDate, endDate);
   if (getDrillCategory() || !isBillToggleChecked('pieChart')) return rows;
   const out = rows.slice();
@@ -13383,7 +14095,11 @@ function buildPieSliceRowsCore(level, canvasId, startDate, endDate) {
   const rows = [];
 
   if (drillCategory) {
-    const breakdown = StatsEngine.getCategoryBreakdownDeep(statsMonth, drillCategory, excludeBills);
+    // Break down the records of the window on screen (custom range / rolling 30
+    // days / month) — the same ones the first level was built from. Asking for
+    // statsMonth alone returns nothing under a custom range and the calendar month
+    // under rolling 30 days, so a drilled level stopped adding up to the one above it.
+    const breakdown = StatsEngine.getCategoryBreakdownDeep(statsMonth, drillCategory, excludeBills, getHierarchyRecords(statsMonth, startDate, endDate));
     if (!breakdown) return rows;
     if (level <= 1) {
       const childrenData = (breakdown.children || []).map(function (c) { return { id: c.category.id, total: c.total, cat: c.category }; });
@@ -13536,18 +14252,29 @@ function jumpToCategoryRecords(catId) {
           }
         }
       }
-      if (typeof recordsPage !== 'undefined') recordsPage = 1;
+      if (typeof recordsPage !== 'undefined') recordsPage = 0;   // pages are 0-based: start on the first
     }
   } catch (e) {}
   navigateTo('records');
+}
+
+/* Something has a level below it if it has subcategories — or it is 月账单 with
+   at least one bill in the window being shown. */
+function canDrillInto(catId) {
+  if (catId === BILL_GROUP_ID) {
+    if (!isBillToggleChecked('pieChart')) return false;
+    const isCustom = useCustomRange();
+    return !!getMonthlyBillGroup(isCustom ? statsStartDate : null, isCustom ? statsEndDate : null);
+  }
+  const children = DataStore.getChildren(catId);
+  return !!(children && children.length);
 }
 
 /* Single entry point for "drill into this category", shared by the pie slices,
    the waffle blocks and the treemap boxes. */
 function drillIntoCategory(catId) {
   if (!catId) return;
-  const children = DataStore.getChildren(catId);
-  if (!children || !children.length) return;
+  if (!canDrillInto(catId)) return;
   if (getDrillCategory() !== catId) statsDrillStack.push(catId);
   updateDrillCharts();
   refreshExpandedCatChart();
@@ -13562,8 +14289,7 @@ function drillIntoCategory(catId) {
    staying silent, and points at the table. */
 function onChartBlockClick(catId, name) {
   if (!catId) return;
-  const children = DataStore.getChildren(catId);
-  if (children && children.length) { drillIntoCategory(catId); return; }
+  if (canDrillInto(catId)) { drillIntoCategory(catId); return; }
   showToast(__('stats.drill.leafHint', name || ''), 'info');
 }
 
@@ -13593,7 +14319,7 @@ function renderPieTable(containerId) {
   
   const total = data.reduce((s, d) => s + d.total, 0);
   const drillCat = getDrillCategory();
-  const parentCat = drillCat ? DataStore.getCategory(drillCat) : null;
+  const parentCat = getDrillCatInfo(drillCat);
   
   let html = '<div style="font-size:0.85rem">';
   
@@ -13601,7 +14327,7 @@ function renderPieTable(containerId) {
   if (drillCat) {
     html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">';
     html += '<button class="btn btn-ghost btn-sm" onclick="backFromDrill()" title="' + __('stats.back') + '" style="padding:2px 8px;font-size:0.75rem">← ' + __('stats.back') + '</button>';
-    html += '<span class="text-sm text-secondary">' + (parentCat ? parentCat.icon + ' ' + parentCat.name : '') + ' ' + __('stats.drill.subcategory') + '</span>';
+    html += '<span class="text-sm text-secondary">' + (parentCat ? escHtml(parentCat.icon + ' ' + parentCat.name) : '') + ' ' + __('stats.drill.subcategory') + '</span>';
     html += '</div>';
   }
   
@@ -13635,7 +14361,7 @@ function renderPieTable(containerId) {
     html += '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';flex-shrink:0"></span>';
     html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(d.cat.icon) + ' ' + escHtml(d.cat.name) + '</span>';
     if (d.path && d.path.length > 1) {
-      html += '<span style="color:var(--text-muted);opacity:0.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.7rem;padding-left:4px">' + d.path.slice(0, -1).join(' › ') + '</span>';
+      html += '<span style="color:var(--text-muted);opacity:0.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.7rem;padding-left:4px">' + escHtml(d.path.slice(0, -1).join(' › ')) + '</span>';
     }
     html += '</div>';
     
@@ -13851,6 +14577,11 @@ function refreshPieChart() {
   // share one data builder) and the detail table is built from the same rows.
   // This used to redraw only the pie, so with the waffle or treemap showing, the
   // toggle looked dead — redraw whichever view is on screen, plus the table.
+  // Un-ticking 含固定账单 while inside 月账单 would leave nothing to show there.
+  if (getDrillCategory() === BILL_GROUP_ID && !isBillToggleChecked('pieChart')) {
+    statsDrillStack = [];
+    window.statsDrillStack = [];
+  }
   updateDrillCharts();
   if (statsCatView !== 'pie') { refreshExpandedCatChart(); renderExpandPieTable(); }
   // Also redraw the expanded chart if it's open
@@ -13900,7 +14631,12 @@ function renderStats() {
   const netDisposableStats = spStats.netDisposable;
   const targetAmountStats = spStats.targetAmount;
   const spendableBudgetStats = spStats.spendableBudget;
+  // "N days left" and "can spend X a day" only mean something for the month that is
+  // under way. Counting from today's date inside an earlier month showed "2 days
+  // left" over a month that ended long ago, and gave two different day counts on one card.
+  const viewingCurrentMonth = !useCustomRange() && statsMonth === getMonthKey(now.toISOString());
   const remainingLimitSpendableStats = (() => {
+    if (!viewingCurrentMonth) return 0;
     const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
     const remainingDays = daysInMonth - now.getDate();
     if (remainingDays <= 0) return 0;
@@ -13911,13 +14647,13 @@ function renderStats() {
 
   const isCustom = useCustomRange();
   const rangeTotal = isCustom ? StatsEngine.getCustomRangeTotals(statsStartDate, statsEndDate) : null;
-  // Bills still unpaid are not savings: same definition as the overview's 累计已存
+  // Bills still unpaid are not savings: same definition as the overview's 本月还剩
   // (commit 596e6ca: "所有储蓄预测/当前已存均扣除未付计划账单")
   const actualSavings = Math.max(0, budget - effectiveTotalStats);
 
   // Compute extra stats
   let records = isCustom
-    ? expenseRecords(DataStore.getRecords().filter(r => { const d = new Date(r.date || r.createdAt); return d >= new Date(statsStartDate) && d <= new Date(statsEndDate); }))
+    ? expenseRecords(DataStore.getRecords().filter(r => inDayRange(r, statsStartDate, statsEndDate)))
     : (isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(statsMonth));
   const totalCount = records.length;
   const avgAmount = totalCount > 0 ? (isCustom ? rangeTotal.total : monthTotal) / totalCount : 0;
@@ -13977,7 +14713,7 @@ function renderStats() {
           return line ? `<div class="text-xs text-muted mt-4" title="${__('stats.predictedHint')}">${line}</div>` : '';
         } catch (e) { return ''; }
       })()}</div>
-      <div class="card"><div class="card-title">${__('stats.savingsPrediction')}</div><div class="text-xl font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div></div>
+      <div class="card"><div class="card-title">${__('stats.savingsPrediction')}</div><div class="text-xl font-bold" style="color:${budget > 0 ? (savingsPred >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--text-muted)'}">${budget > 0 ? formatMoney(savingsPred) : '—'}</div></div>
     </div>
 
     <!-- Recorded cash flow: what actually came in against what went out.
@@ -14063,7 +14799,8 @@ function renderStats() {
           </div>
           <div>
             <div class="text-xs text-secondary">${__('stats.estimatedMonthEnd')}</div>
-            <div class="text-lg font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div>
+            <div class="text-lg font-bold" style="color:${budget > 0 ? (savingsPred >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--text-muted)'}">${budget > 0 ? formatMoney(savingsPred) : '—'}</div>
+            ${planReservedStats > 0 ? `<div class="text-xs text-muted" style="margin-top:2px" title="${__('plan.afterPlansHint')}">${__('plan.afterPlansRow', formatMoney(savingsFc.surplus), formatMoney(planReservedStats))}</div>` : ''}
           </div>
           <div title="${__('stats.balanceHint')}">
             <div class="text-xs text-secondary">${__('stats.balance')}</div>
@@ -14071,7 +14808,7 @@ function renderStats() {
             <div class="text-xs text-muted" style="margin-top:2px">${__('stats.balanceHint')}</div>
           </div>
         </div>
-        ${budget > 0 ? `
+        ${budget > 0 && viewingCurrentMonth ? `
           ${(() => {
             const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
             const remainingDays = daysInMonth - now.getDate();
@@ -14096,7 +14833,6 @@ function renderStats() {
               <div class="text-xs text-secondary">${__('stats.dailyAvailablePerDay')}</div>
               <div class="font-bold" style="font-size:1rem;color:${remainingDailyPerDay > 0 ? 'var(--primary)' : 'var(--text-muted)'}">${formatMoney(remainingDailyPerDay)}/${__('stats.dayUnit')}</div>
               <div class="text-xs text-muted" style="margin-top:2px">${formatMoney(remainingDaily)} ÷ ${remainingDays}${__('stats.days')}</div>
-            ${planReservedStats > 0 ? `<div class="text-xs text-muted" style="margin-top:2px" title="${__('plan.afterPlansHint')}">${__('plan.afterPlansRow', formatMoney(savingsFc.surplus), formatMoney(planReservedStats))}</div>` : ''}
               <div class="text-xs text-muted" style="margin-top:2px;opacity:0.85">${__('stats.dailyAvailableFormula')}</div>
             </div>
           </div>`;
@@ -14412,7 +15148,7 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
   if (!data.length && getDrillCategory()) {
     const dc = DataStore.getCategory(getDrillCategory());
     if (dc) {
-      const db = StatsEngine.getCategoryBreakdownDeep(month, dc.id);
+      const db = StatsEngine.getCategoryBreakdownDeep(month, dc.id, false, getHierarchyRecords(month, startDate, endDate));
       data = [{ id: dc.id, cat: dc, total: db ? db.total : 0 }];
     }
   }
@@ -15015,8 +15751,7 @@ function drawBarChart(canvasId, month, startDate, endDate) {
 
     // Budget progress bar under label
     if (d.id) {
-      const catBudgetObj = DataStore.getCategoryBudget(d.id, budgetMonth);
-      const catBudget = catBudgetObj.value;
+      const catBudget = DataStore.getCategoryBudgetAmount(d.id, budgetMonth);   // RM, also for a % budget
       if (catBudget > 0) {
         const ratio = d.total / catBudget;
         const progW = Math.min(barW, 60);
@@ -15486,6 +16221,12 @@ function buildCategoryTreeNodes(level, startDate, endDate) {
 
   const drill = getDrillCategory();
   let rootIds;
+  if (drill === BILL_GROUP_ID) {
+    // Inside 月账单: one flat box per bill (they have no children of their own)
+    const g = excludeBills ? null : getMonthlyBillGroup(startDate, endDate);
+    return g ? g.children.map((c, i) => ({ id: c.id, name: c.cat.name, icon: c.cat.icon, value: c.total,
+      color: COLORS[i % COLORS.length], children: [], leafOnly: true })) : [];
+  }
   if (drill) {
     rootIds = (DataStore.getChildren(drill) || []).map(c => c.id);
     const own = direct[drill] || 0;
@@ -16023,10 +16764,10 @@ function openWaffleTagColorPicker(tagName, currentColor) {
   var html = '<div class="modal-title">🎨 ' + __('stats.waffle.chooseColor') + ' — ' + escHtml(tagName) + '</div>' +
     '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;padding:8px 0">' +
     colors.map(function(c) {
-      return '<span style="display:inline-block;width:32px;height:32px;border-radius:50%;background:' + c + ';cursor:pointer;border:' + (c === currentColor ? '3px solid var(--text-primary)' : '2px solid transparent') + '" onclick="DataStore.setTagColor(\'' + escHtml(tagName) + '\',\'' + c + '\');closeModal();renderStats()"></span>';
+      return '<span style="display:inline-block;width:32px;height:32px;border-radius:50%;background:' + c + ';cursor:pointer;border:' + (c === currentColor ? '3px solid var(--text-primary)' : '2px solid transparent') + '" onclick="DataStore.setTagColor(' + jsArg(tagName) + ',\'' + c + '\');closeModal();renderStats()"></span>';
     }).join('') +
     '</div>' +
-    (DataStore.getTagColor(tagName) ? '<div style="text-align:center;padding-top:4px"><button class="btn btn-ghost btn-sm" onclick="DataStore.resetTagColor(\'' + escHtml(tagName) + '\');closeModal();renderStats()">↩ ' + __('stats.waffle.resetDefault') + '</button></div>' : '') +
+    (DataStore.getTagColor(tagName) ? '<div style="text-align:center;padding-top:4px"><button class="btn btn-ghost btn-sm" onclick="DataStore.resetTagColor(' + jsArg(tagName) + ');closeModal();renderStats()">↩ ' + __('stats.waffle.resetDefault') + '</button></div>' : '') +
     '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('stats.cancel') + '</button></div>';
   showModal(html);
 }
@@ -16138,7 +16879,7 @@ addI18nEntries({
   'stats.savingsEstimate': { zh: '当月储蓄预估', en: 'Savings estimate' },
   'stats.notSet': { zh: '未设置', en: 'Not set' },
   'stats.netIncome': { zh: '净收入', en: 'Net income' },
-  'stats.currentSavings': { zh: '累计已存', en: 'Cumulative Saved' },
+  'stats.currentSavings': { zh: '本月还剩', en: 'Left This Month' },
   'stats.estimatedMonthEnd': { zh: '预计月末储蓄', en: 'Est. month-end savings' },
   'stats.balance': { zh: '预算结余', en: 'Budget balance' },
   'stats.balanceHint': { zh: '月收入设定 − 已花 − 未付账单；与下方实际结余口径不同', en: 'Income setting − spent − unpaid bills; different from recorded net below' },
@@ -16433,7 +17174,7 @@ function renderSettings() {
                 <span>${escHtml(tag)}</span>
                 <div class="flex items-center gap-8">
                   <span class="text-xs text-muted">${__('settings.tags.recordCount', stats.count, formatMoney(stats.total))}</span>
-                  <button class="btn btn-ghost btn-sm" style="color:var(--danger);font-size:0.65rem" onclick="deleteTag('${escHtml(tag)}')">${__('settings.tags.delete')}</button>
+                  <button class="btn btn-ghost btn-sm" style="color:var(--danger);font-size:0.65rem" onclick="deleteTag(${jsArg(tag)})">${__('settings.tags.delete')}</button>
                 </div>
               </div>
             `;
@@ -16555,9 +17296,22 @@ function importJSON(event) {
   const reader = new FileReader();
   reader.onload = function(e) {
     importJSONContent = e.target.result;
+    // Look inside before asking: a file that is not a ledger should say so right
+    // now, and "Replace" should show what it is about to swap.
+    let fileRecords = null;
+    try {
+      const peek = JSON.parse(importJSONContent);
+      if (peek && Array.isArray(peek.records) && Array.isArray(peek.categories)) fileRecords = peek.records.length;
+    } catch (err) { /* reported just below */ }
+    if (fileRecords === null) {
+      importJSONContent = null;
+      showToast(__('settings.toast.importFailed'), 'error');
+      return;
+    }
     showModal(`
       <div class="modal-title">${__('settings.import.title')}</div>
       <p class="text-sm text-secondary mb-16">${__('settings.import.description')}</p>
+      <p class="text-sm mb-16" style="font-weight:600">${__('settings.import.counts', fileRecords, DataStore.getRecords().length)}</p>
       <div class="flex flex-col gap-8">
         <button class="btn btn-primary btn-block" onclick="confirmImportJSON('replace')">🔄 ${__('settings.import.replace')}</button>
         <button class="btn btn-outline btn-block" onclick="confirmImportJSON('merge')">🔀 ${__('settings.import.merge')}</button>
@@ -16576,6 +17330,8 @@ function confirmImportJSON(mode) {
   closeModal();
   if (success) {
     showToast(__('settings.toast.importSuccess'));
+    // Never drop records without saying so
+    if (DataStore.lastImportDropped > 0) showToast(__('settings.toast.importSkipped', DataStore.lastImportDropped), 'warning');
     renderSettings();
   } else {
     showToast(__('settings.toast.importFailed'), 'error');
@@ -16627,7 +17383,7 @@ function renderLogPreview() {
   if (!log || log.length === 0) return '<span style="color:var(--text-muted)">' + __('settings.noRecords') + '</span>';
   return log.slice(-20).reverse().map(e => {
     const time = e.t.substring(11, 23);
-    return `<div>${time} [${e.a}] ${e.d}  | ${__('settings.diag.logRecords')}${e.recordsCount} ${__('settings.diag.logPending')}${e.pendingId || '—'}</div>`;
+    return `<div>${escHtml(time)} [${escHtml(e.a)}] ${escHtml(e.d)}  | ${__('settings.diag.logRecords')}${escHtml(e.recordsCount)} ${__('settings.diag.logPending')}${escHtml(e.pendingId || '—')}</div>`;
   }).join('');
 }
 
@@ -16725,9 +17481,9 @@ function renderDataInspector() {
         html += '<div style="padding:2px 4px;border-bottom:1px solid var(--border);display:flex;gap:4px">' +
           '<span style="color:var(--text-muted);min-width:80px" title="' + r.id + '">' + r.id.substring(0, 8) + '</span>' +
           '<span style="min-width:60px">RM' + r.amount.toFixed(2) + '</span>' +
-          '<span style="min-width:60px">' + (cat ? cat.icon + cat.name : '?') + '</span>' +
-          '<span style="color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis">' + (r.note || '') + '</span>' +
-          '<span style="color:var(--text-muted);min-width:80px">' + (r.date || '') + '</span>' +
+          '<span style="min-width:60px">' + (cat ? escHtml(cat.icon + cat.name) : '?') + '</span>' +
+          '<span style="color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis">' + escHtml(r.note || '') + '</span>' +
+          '<span style="color:var(--text-muted);min-width:80px">' + escHtml(r.date || '') + '</span>' +
         '</div>';
       });
       html += '</div>';
@@ -16780,11 +17536,11 @@ function renderDataInspector() {
       html += '<div style="display:flex;padding:3px 6px;border-bottom:1px solid var(--border);align-items:center' + (!inAudit ? ';background:rgba(239,68,68,0.05)' : '') + '">';
       html += '<span style="width:70px;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted)" title="' + r.id + '">' + r.id.substring(0, 6) + '</span>';
       html += '<span style="width:45px;font-weight:500;color:' + (isIncomeRec(r) ? 'var(--success)' : 'inherit') + '">' + (isIncomeRec(r) ? '+' : '') + formatMoney(r.amount) + '</span>';
-      html += '<span style="width:55px;overflow:hidden;text-overflow:ellipsis" title="catId=' + r.categoryId + '">' + (cat ? cat.icon + cat.name.substring(0,3) : '❓' + r.categoryId.substring(0,4)) + '</span>';
-      html += '<span style="width:80px;color:var(--text-muted)">' + (r.date ? r.date.substring(0, 10) : '-') + '</span>';
-      html += '<span style="width:70px;color:var(--text-muted)">' + (r.createdAt ? r.createdAt.substring(0, 10) : '-') + '</span>';
+      html += '<span style="width:55px;overflow:hidden;text-overflow:ellipsis" title="catId=' + escHtml(r.categoryId) + '">' + (cat ? escHtml(cat.icon + cat.name.substring(0,3)) : '❓' + escHtml(String(r.categoryId).substring(0,4))) + '</span>';
+      html += '<span style="width:80px;color:var(--text-muted)">' + (r.date ? escHtml(String(r.date).substring(0, 10)) : '-') + '</span>';
+      html += '<span style="width:70px;color:var(--text-muted)">' + (r.createdAt ? escHtml(String(r.createdAt).substring(0, 10)) : '-') + '</span>';
       html += '<span style="width:15px;color:var(--text-muted)">' + (r.excludeFromAvg ? '📌' : '') + '</span>';
-      html += '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted)">' + (r.note || '') + '</span>';
+      html += '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted)">' + escHtml(r.note || '') + '</span>';
       html += '<button class="btn btn-ghost" style="padding:1px 4px;font-size:0.6rem;flex-shrink:0;opacity:0.5" onclick="showRecordRaw(\'' + r.id + '\')" title="' + __('settings.diag.viewRaw') + '">🔍</button>';
       html += '</div>';
     });
@@ -16975,9 +17731,9 @@ function refreshStatsAudit() {
       auditHtml += '<div style="padding:2px 4px;border-bottom:1px solid var(--border);display:flex;gap:4px">' +
         '<span style="color:var(--text-muted);min-width:80px" title="' + r.id + '">' + r.id.substring(0, 8) + '</span>' +
         '<span style="min-width:60px">RM' + r.amount.toFixed(2) + '</span>' +
-        '<span style="min-width:60px">' + (cat ? cat.icon + cat.name : '?') + '</span>' +
-        '<span style="color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis">' + (r.note || '') + '</span>' +
-        '<span style="color:var(--text-muted);min-width:80px">' + (r.date || '') + '</span>' +
+        '<span style="min-width:60px">' + (cat ? escHtml(cat.icon + cat.name) : '?') + '</span>' +
+        '<span style="color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis">' + escHtml(r.note || '') + '</span>' +
+        '<span style="color:var(--text-muted);min-width:80px">' + escHtml(r.date || '') + '</span>' +
       '</div>';
     });
     auditHtml += '</div>';
@@ -17103,6 +17859,8 @@ function deleteTag(tag) {
     // Import modal
     'settings.import.title': { zh: '导入数据', en: 'Import Data' },
     'settings.import.description': { zh: '选择导入方式：', en: 'Choose import method:' },
+    'settings.import.counts': { zh: '这个文件里有 {0} 条记录，你现在有 {1} 条。选"替换"后，现在的记录会被文件里的取代。', en: 'This file has {0} records and you have {1} right now. "Replace" swaps your current records for the file\'s.' },
+    'settings.toast.importSkipped': { zh: '有 {0} 条记录因为金额或日期不对，没有导入', en: '{0} records were skipped because their amount or date was not valid' },
     'settings.import.replace': { zh: '🔄 替换当前数据', en: '🔄 Replace current data' },
     'settings.import.merge': { zh: '🔀 合并到当前数据', en: '🔀 Merge into current data' },
     'settings.import.cancel': { zh: '取消', en: 'Cancel' },
@@ -17191,15 +17949,14 @@ function renderReport() {
   const el = document.getElementById('page-report');
   const now = new Date();
   const isRolling = getStatsRange() === 'rolling30';
-  if (!reportMonth) {
-    if (isRolling) {
-      const { start, end, label } = getPeriodDateRange();
-      reportMonth = label; // Use label as pseudo month identifier
-    } else {
-      reportMonth = getMonthKey(now.toISOString());
-    }
-  }
-  const month = reportMonth;
+  // `reportMonth` only ever holds a real 'YYYY-MM'. It used to be set to the last-30-days
+  // label ("09-29 → 10-28") as a stand-in, and then every income / bills / forecast
+  // lookup for that "month" found nothing — and, never being reset, the label was still
+  // there after switching back to month mode.
+  if (!/^\d{4}-\d{2}$/.test(reportMonth)) reportMonth = getMonthKey(now.toISOString());
+  // The settings behind the report (income, bills, savings target) belong to the calendar
+  // month; the last-30-days mode only changes which records are counted.
+  const month = isRolling ? getMonthKey(now.toISOString()) : reportMonth;
   const periodRange = isRolling ? getPeriodDateRange() : null;
 
   const monthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month);
@@ -17216,8 +17973,11 @@ function renderReport() {
   const netDisposable = spRep.netDisposable;
   const targetAmount = spRep.targetAmount;
   const planDueVirtual = spRep.planDueVirtual;
-  // This page sets the budget against the month's FULL total (instalments
-  // included), so it must not have them carved out of the budget a second time.
+  // Shown as 每日可花 / in the savings summary only. It is NOT what the 总支出 colour
+  // and the ring are held against: 总支出 includes the paid bills, and this figure
+  // has the bills (and the savings target) taken off already, so comparing the two
+  // counted the bills twice and called 3,600 of 5,000 income an overspend. The
+  // total is held against the income, like the overview and this table's footer do.
   const spendableBudget = spRep.spendableBudget + (spRep.planDueCredit || 0);
   const variableSpending = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month);
   const actualSavings = Math.max(0, budget - (monthTotal + unpaidPlannedBillsRep));
@@ -17261,7 +18021,7 @@ function renderReport() {
   const rootCats = DataStore.getExpenseRootCategories();
   const catTableRows = rootCats.map(c => {
     const spent = rootTotals[c.id] || 0;
-    const catBudget = DataStore.getCategoryBudget(c.id, month).value || 0;
+    const catBudget = DataStore.getCategoryBudgetAmount(c.id, month);   // RM, also for a % budget
     const remaining = catBudget > 0 ? catBudget - spent : 0;
     const pct = catBudget > 0 ? (spent / catBudget * 100) : 0;
     const status = catBudget > 0 ? (spent <= catBudget ? __('report.withinBudget') : __('report.overspent')) : __('report.dash');
@@ -17281,7 +18041,7 @@ function renderReport() {
         <div class="flex items-center gap-12" style="flex-wrap:wrap">
           <div class="flex items-center gap-8">
           <label class="text-sm text-secondary">${isRolling ? __('report.selectPeriod') : __('report.selectMonth')}</label>
-          <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${month}" onchange="changeReportMonth(this.value)">
+          <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${isRolling ? '' : month}" onchange="changeReportMonth(this.value)">
           </div>
           <button class="btn btn-outline" onclick="printReport()">${__('report.printReport')}</button>
         </div>
@@ -17296,7 +18056,7 @@ function renderReport() {
         </div>
         <div class="card" style="text-align:center">
           <div class="card-title">${__('report.totalExpenditure')}</div>
-          <div class="text-xl font-bold" style="color:${monthTotal <= spendableBudget ? 'var(--success)' : 'var(--danger)'}">${formatMoney(monthTotal)}</div>
+          <div class="text-xl font-bold" style="${budget > 0 ? 'color:' + (monthTotal <= budget ? 'var(--success)' : 'var(--danger)') : ''}">${formatMoney(monthTotal)}</div>
           ${(() => {
             const billActual = isRolling ? StatsEngine.getPeriodFixedSpending() : StatsEngine.getFixedSpendingActual(month);
             if (billActual > 0) {
@@ -17464,7 +18224,7 @@ function renderReport() {
 
   // Draw rings and sparkline
   setTimeout(() => {
-    const budgetPct = spendableBudget > 0 ? (monthTotal / spendableBudget) : (budget > 0 ? monthTotal / budget : 0);
+    const budgetPct = budget > 0 ? monthTotal / budget : 0;   // the same ratio the text under the ring prints
     drawRing('reportBudgetRing', Math.min(budgetPct, 1), budgetPct > 1 ? '#EF4444' : '#6366F1',
       (budgetPct * 100).toFixed(0) + '%', '#EF4444');
     const savingsPct = targetAmount > 0 ? Math.max(0, Math.min(savingsPred / targetAmount, 1)) : 0;
@@ -17602,17 +18362,22 @@ function renderWhatIf() {
     if (changed) DataStore.setWhatIfParams(savedParams);
   }
 
-  const periodOpts = isRolling ? getPeriodDateRange() : null;
+  // What-if always works on the calendar month, whatever the stats range says. A
+  // last-30-days window has no "rest of the month" left to change, so every adjustment
+  // was a no-op ("0 days left") — and the parameter panel on the left, which was
+  // always month-based, disagreed with the results on the right.
+  const periodOpts = null;
 
   const descToday = new Date().getDate();
   const descMonthDays = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
-  const descPeriodLabel = isRolling ? __('whatif.period') : __('whatif.month');
-  const descPeriodValue = isRolling ? periodOpts.label : month;
-  const descDaysRemaining = Math.max(0, isRolling ? periodOpts.daysInPeriod - periodOpts.daysPassed : descMonthDays - descToday);
+  const descPeriodLabel = __('whatif.month');
+  const descPeriodValue = month;
+  const descDaysRemaining = Math.max(0, descMonthDays - descToday);
 
   let html = `<div class="whatif-container">
     <div class="section-title">🔮 ${__('whatif.title')}</div>
     <p class="text-sm text-muted" style="margin-bottom:16px">${__('whatif.descTemplate', descPeriodLabel, descPeriodValue, descDaysRemaining)}</p>
+    ${isRolling ? `<p class="text-xs text-muted" style="margin:-8px 0 16px">${__('whatif.monthOnlyNote')}</p>` : ''}
     <div class="whatif-two-col">
       <div class="whatif-left">`;
   html += renderWhatIfParams(month, savedParams, periodOpts);
@@ -17640,7 +18405,7 @@ function renderWhatIf() {
 }
 
 function renderWhatIfParams(month, savedParams, periodOpts) {
-  const isRolling = periodOpts && periodOpts.isRolling;
+  const isRolling = periodOpts && periodOpts.key === 'rolling30';
   // What-If reasons only about cutting SPENDING: income categories have no
   // spendable behaviour to project, so they are excluded here (not just zero).
   const allCats = DataStore.getCategories().filter(c => c && c.kind !== 'income');
@@ -17661,6 +18426,7 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
     : DataStore.getRecords()
         .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId)));
   const catActual = {};
+  const catPace = {};
   records.forEach(r => {
     // Split records store the full bill amount; only my share is my real spending
     let amt = r.amount;
@@ -17669,11 +18435,14 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
       if (bill) amt = parseFloat(bill.selfShare) || 0;
     }
     catActual[r.categoryId] = (catActual[r.categoryId] || 0) + amt;
+    // The daily average is the everyday pace: one-off 不计日均 purchases and card
+    // instalments are spent, but they are not a daily habit (same base the engine uses)
+    if (StatsEngine.isPaceRecord(r)) catPace[r.categoryId] = (catPace[r.categoryId] || 0) + amt;
   });
 
   // Compute daily avg per category
   const catDailyAvg = {};
-  Object.entries(catActual).forEach(([catId, total]) => {
+  Object.entries(catPace).forEach(([catId, total]) => {
     catDailyAvg[catId] = daysPassed > 0 ? total / daysPassed : 0;
   });
 
@@ -17762,7 +18531,7 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
           <option value="adjust" ${nodeAdj.mode === 'adjust' ? 'selected' : ''}>${__('whatif.mode.adjust')}</option>
           <option value="zero" ${nodeAdj.mode === 'zero' ? 'selected' : ''}>${__('whatif.mode.zero')}</option>
         </select>
-        <input ${valueAttrs} class="input-field whatif-value-input" data-cat="${node.id}" value="${nodeAdj.value || ''}" placeholder="${__('whatif.valuePlaceholder')}" ${valueHidden ? 'style="display:none"' : ''}>
+        <input ${valueAttrs} class="input-field whatif-value-input" data-cat="${node.id}" value="${escHtml(nodeAdj.value || '')}" placeholder="${__('whatif.valuePlaceholder')}" ${valueHidden ? 'style="display:none"' : ''}>
         ${nodeAdj.mode === 'adjust' && !valueHidden ? `<button type="button" class="btn btn-ghost btn-sm whatif-sign-btn" onclick="toggleMoneySign(this)" title="${__('money.toggleSign')}" aria-label="${__('money.toggleSign')}">±</button>` : ''}
         <span class="text-xs text-muted" style="min-width:60px;text-align:right">${__('whatif.dailyAvg', formatMoney(nodeDailyAvg))}</span>
       </div>`;
@@ -17794,7 +18563,7 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
         <option value="percent" ${globalAdj.mode === 'percent' ? 'selected' : ''}>${__('whatif.globalModePercent')}</option>
         <option value="amount" ${globalAdj.mode === 'amount' ? 'selected' : ''}>${__('whatif.globalModeAmount')}</option>
       </select>
-      <input ${globalAdj.mode === 'amount' ? 'type="text" inputmode="numeric" data-money="signed"' : 'type="number" min="0" step="0.01"'} class="input-field" id="wi-global-value" value="${globalAdj.value || ''}" placeholder="${__('whatif.valuePlaceholder')}" style="width:100px">
+      <input ${globalAdj.mode === 'amount' ? 'type="text" inputmode="numeric" data-money="signed"' : 'type="number" min="0" step="0.01"'} class="input-field" id="wi-global-value" value="${escHtml(globalAdj.value || '')}" placeholder="${__('whatif.valuePlaceholder')}" style="width:100px">
       ${globalAdj.mode === 'amount' ? `<button type="button" class="btn btn-ghost btn-sm whatif-sign-btn" onclick="toggleMoneySign(this)" title="${__('money.toggleSign')}" aria-label="${__('money.toggleSign')}">±</button>` : ''}
       <span class="text-xs text-muted">${__('whatif.globalHint')}</span>
     </div>
@@ -17807,9 +18576,9 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
     <div id="wi-hypo-list">
       ${hypos.map((h, i) => `
         <div class="whatif-hypo-row" data-index="${i}">
-          <input type="text" class="input-field wi-hypo-icon" value="${h.icon || ''}" placeholder="${__('whatif.hypoIcon')}" style="width:50px">
-          <input type="text" class="input-field wi-hypo-name" value="${h.name || ''}" placeholder="${__('whatif.hypoName')}" style="flex:1">
-          <input type="text" inputmode="numeric" data-money class="input-field wi-hypo-amount" value="${h.amount || ''}" placeholder="${__('whatif.hypoAmount')}" style="width:100px">
+          <input type="text" class="input-field wi-hypo-icon" value="${escHtml(h.icon || '')}" placeholder="${__('whatif.hypoIcon')}" style="width:50px">
+          <input type="text" class="input-field wi-hypo-name" value="${escHtml(h.name || '')}" placeholder="${__('whatif.hypoName')}" style="flex:1">
+          <input type="text" inputmode="numeric" data-money class="input-field wi-hypo-amount" value="${escHtml(h.amount || '')}" placeholder="${__('whatif.hypoAmount')}" style="width:100px">
           <select class="input-field wi-hypo-type" style="width:auto">
             <option value="daily" ${h.type === 'daily' ? 'selected' : ''}>${__('whatif.perDay')}</option>
             <option value="total" ${h.type === 'total' ? 'selected' : ''}>${__('whatif.perMonth')}</option>
@@ -17847,10 +18616,13 @@ function renderWhatIfResults(result) {
 
   // Adjusted values: base on trend methodology + what-if variable adjustment
   // This ensures zero adjustments => adjusted = trend (apples-to-apples).
-  // Baseline uses actualSpent (my real share only — same scope as totalProjected),
-  // NOT getVariableSpending which still includes uncollected split amounts; otherwise
-  // all-trend would shift the adjusted total by the unpaid portion.
-  const varTrendTotal = daysPassed > 0 ? actualSpent / daysPassed * daysInMonth : 0;
+  // The baseline is the engine's own "no change" projection (trendProjected: my
+  // real share spent so far + every category at its current pace), built from the
+  // same records and the same pace base as totalProjected. It used to be
+  // actualSpent ÷ days × days-in-month, which counted one-off large purchases and
+  // card instalments as daily pace, so adjusting a category that held one of them
+  // moved the total by a multiple of it — and could land below what was already spent.
+  const varTrendTotal = result.trendProjected;
   const varAdjustment = totalProjected - varTrendTotal;
   const adjustedTotal = trendTotal + varAdjustment;
   const adjustedDailyAvg = adjustedTotal / daysInMonth;
@@ -18203,8 +18975,7 @@ function toggleWhatIfCompareExpand(catId) {
   whatIfCompareExpandStates[key] = !whatIfCompareExpandStates[key];
   // Re-render only the results section (params stay intact)
   const month = getMonthKey(new Date().toISOString());
-  const isRolling = getStatsRange() === 'rolling30';
-  const periodOpts = isRolling ? getPeriodDateRange() : null;
+  const periodOpts = null;   // month-only, see renderWhatIf()
   const savedParams = DataStore.getWhatIfParams();
   const result = savedParams ? SimulationEngine.run(month, savedParams, { period: periodOpts }) : null;
   const rightEl = document.querySelector('#page-whatif .whatif-right');
@@ -18372,6 +19143,7 @@ function attachWhatIfListeners(month) {
   addI18nEntries({
     'whatif.title': { zh: '假设分析', en: 'What-If Simulation' },
     'whatif.period': { zh: '周期', en: 'Period' },
+    'whatif.monthOnlyNote': { zh: '假设分析只按本月来算，不受"近 30 天"设置影响。', en: 'What-if always works on the current month, whatever the "last 30 days" setting says.' },
     'whatif.month': { zh: '月份', en: 'Month' },
     'whatif.descTemplate': { zh: '调整未来消费假设，预测月末结果。当前{0}：{1}，剩余 {2} 天', en: 'Adjust future spending assumptions to predict end-of-month results. Current {0}: {1}, {2} days remaining' },
     'whatif.noResults': { zh: '调整参数后点击「生成预测」查看结果', en: 'Adjust parameters and click Generate Prediction to see results' },
@@ -18467,19 +19239,25 @@ function checkMonthRollover() {
     const lastAmounts = DataStore.getBillAmounts(lastMonth);
     const currentAmounts = DataStore.getBillAmounts(currentMonth);
 
-    if (Object.keys(currentAmounts).length === 0 && Object.keys(lastAmounts).length > 0) {
+    const carriedBills = Object.keys(currentAmounts).length === 0 && Object.keys(lastAmounts).length > 0;
+    if (carriedBills) {
       Object.entries(lastAmounts).forEach(([billId, amount]) => {
         DataStore.setBillAmount(currentMonth, billId, amount);
       });
-
-      const lastIncome = DataStore.getMonthlyIncome(lastMonth);
-      if (lastIncome > 0 && DataStore.getMonthlyIncome(currentMonth) === 0) {
-        DataStore.setMonthlyIncome(currentMonth, lastIncome);
-      }
-
-      DataStore.save();
-      setTimeout(() => showBillRolloverReminder(lastMonth, currentMonth), 500);
     }
+
+    // Income is carried on its own, not as a side effect of the bills: someone who
+    // only ever set a monthly income (no bills) used to start every month at 0, and
+    // the overview then called that "est. overspend".
+    const lastIncome = DataStore.getMonthlyIncome(lastMonth);
+    const carriedIncome = lastIncome > 0 && DataStore.getMonthlyIncome(currentMonth) === 0;
+    if (carriedIncome) {
+      DataStore.setMonthlyIncome(currentMonth, lastIncome);
+    }
+
+    if (carriedBills || carriedIncome) DataStore.save();
+    // The reminder is about the bills; an income-only carry-over has nothing to review
+    if (carriedBills) setTimeout(() => showBillRolloverReminder(lastMonth, currentMonth), 500);
 
     DataStore.setLastActiveMonth(currentMonth);
   }
@@ -18531,6 +19309,13 @@ try{
 (function() {
 'use strict';
 
+// Registered first: _bootstrap() below can run straight away and reads these.
+addI18nEntries({
+  'init.loadError.title': { zh: '账本读取失败', en: 'Couldn\'t read your ledger' },
+  'init.loadError.text': { zh: '这台设备上保存的账本读不出来，所以现在看到的是一本空账本。你原来的数据没有被删除，已经原样另存了一份。请先不要继续记账，联系应用作者帮你找回。', en: 'The ledger saved on this device can\'t be read, so you are seeing an empty one. Your old data has not been deleted — an untouched copy was set aside. Please don\'t add new entries yet, and contact the app\'s author to get it back.' },
+  'init.loadError.ok': { zh: '知道了', en: 'OK' }
+});
+
 // Fixed: wrap init in function with DOMContentLoaded guard (M10)
 function _bootstrap() {
   console.log('[INIT] _bootstrap start | DataStore.init()');
@@ -18544,6 +19329,17 @@ function _bootstrap() {
   } else {
     checkMonthRollover();
     applyTheme();
+    // The stored ledger could not be read (see DataStore.init). Say so before the
+    // user starts adding entries to what looks like a fresh, empty ledger.
+    if (window._dataLoadError) {
+      ModalQueue.request(1, 'data-load-error', function() {
+        showModal(`
+          <div class="modal-title">${__('init.loadError.title')}</div>
+          <p style="margin:8px 0 16px">${__('init.loadError.text')}</p>
+          <div class="modal-actions"><button class="btn btn-primary" onclick="closeModal()">${__('init.loadError.ok')}</button></div>
+        `);
+      });
+    }
     // Changelog: queued, so it yields to the rollover reminder above.
     if (typeof Changelog !== 'undefined') Changelog.checkAndShow();
   }
@@ -18573,6 +19369,17 @@ function initApp() {
   if (typeof planBootstrap === 'function') setTimeout(planBootstrap, 800);
   console.log('[INIT] initApp() complete');
 }
+
+// Another tab or window just saved the ledger. Every save() writes the WHOLE ledger
+// from this tab's memory, so without this the tab that saves second silently erases
+// what the first one wrote. Reload instead; a locked tab (no plaintext in storage,
+// PIN screen up) leaves it alone, and the add page keeps its half-typed form.
+window.addEventListener('storage', function(e) {
+  if (e.key !== 'budgetAppData' || e.newValue == null) return;
+  if (window._pinRequired) return;
+  if (!DataStore.reload()) return;
+  if (window.currentTab !== 'add') { try { refreshCurrentPage(); } catch (err) { /* keep going */ } }
+});
 
 // Start auto-lock & activity monitoring
 if (typeof bindActivityListeners === 'function') { console.log('[INIT] bindActivityListeners() called'); bindActivityListeners(); }
@@ -19720,9 +20527,9 @@ window.showRecordRaw = function showRecordRaw(id) {
         <div class="font-semibold" style="margin-bottom:6px">${__('diag.recordStatus')}</div>
         <div>${__('diag.inStatsEngine')}${inStatsEngine ? __('diag.yes') : __('diag.no')}</div>
         <div>${__('diag.inFiltered')}${inFilteredRecords ? __('diag.yes') : __('diag.no')}</div>
-        <div>getMonthKey(日期) = ${monthKey}</div>
-        <div>${__('diag.datePrefix')}"${datePrefix}"</div>
-        <div>${__('diag.category')}${cat ? cat.icon + ' ' + cat.name + ' (id=' + cat.id + ', parentId=' + cat.parentId + ')' : __('diag.deleted', record.categoryId)}</div>
+        <div>getMonthKey(日期) = ${escHtml(monthKey)}</div>
+        <div>${__('diag.datePrefix')}"${escHtml(datePrefix)}"</div>
+        <div>${__('diag.category')}${cat ? escHtml(cat.icon + ' ' + cat.name + ' (id=' + cat.id + ', parentId=' + cat.parentId + ')') : escHtml(__('diag.deleted', record.categoryId))}</div>
         ${cat && cat.parentId ? '<div style="color:var(--warning)">' + __('diag.hasParentWarning') + '</div>' : ''}
         ${record.excludeFromAvg ? '<div>📌 excludeFromAvg = true</div>' : ''}
         <div>${__('diag.recordType')}${isIncomeRec(record) ? __('excel.label.income') : __('excel.label.expense')} · kind = ${cat ? (cat.kind === 'income' ? 'income' : 'expense') : '—'}</div>
@@ -21171,10 +21978,11 @@ function _billMonth(bill) { return _billDateStr(bill).slice(0, 7); }
 // Raw date key 'YYYY-MM-DD' (matches getCustomRangeTotals / getLast7Days / today-yesterday)
 function _billDayRaw(bill) { return _billDateStr(bill).slice(0, 10); }
 
-// UTC ISO date key (matches getPeriodDailyTotals dayKey convention)
+// Local date key (matches getPeriodDailyTotals dayKey convention). The name is
+// historical: it used to be the UTC date, which put 00:00-08:00 bills on the day before.
 function _billDayUTC(bill) {
   const d = new Date(_billDateStr(bill));
-  return isNaN(d.getTime()) ? '' : d.toISOString().substr(0, 10);
+  return isNaN(d.getTime()) ? '' : localDateKey(d);
 }
 
 /* ============================================================
@@ -21263,7 +22071,7 @@ function getSplitDayMap(month) {
   return map;
 }
 
-// Day map for period daily totals: { 'YYYY-MM-DD': {..} } keyed by UTC (matches getPeriodDailyTotals)
+// Day map for period daily totals: { 'YYYY-MM-DD': {..} } keyed by local date (matches getPeriodDailyTotals)
 function getSplitDayMapUTC(startKey, endKey) {
   const map = {};
   (DataStore._data.splitBills || []).forEach(b => {
@@ -21899,6 +22707,24 @@ function renderSplitPeopleList() {
   }).join('');
 }
 
+// Who shares the bill, and what each person typed. The typed amounts only count in
+// "specified" mode: switching back to an even split hides the boxes but leaves what
+// was typed in the state, and it must not keep deciding the shares from there.
+function _addSplitPool(st) {
+  const specifiedMode = st.mode === 'specified';
+  const pool = [];
+  if (st.selfInvolved) {
+    pool.push({ id: 'self', name: __('split.me'), specified: (specifiedMode && !st.selfUnknown) ? _selfSpecified(st) : null });
+  }
+  (st.rows || []).forEach(r => {
+    if (!r.included) return;
+    // Unknown-amount participants cannot type a specified amount; they get the
+    // equal-share remainder like any unspecified person (display-only marker)
+    pool.push({ id: r.contactId, name: r.name, specified: (specifiedMode && !r.unknown) ? r.amount : null });
+  });
+  return pool;
+}
+
 function previewSplitShares() {
   const preview = document.getElementById('splitSharePreview');
   const amountEl = document.getElementById('addAmount');
@@ -21909,11 +22735,7 @@ function previewSplitShares() {
     preview.innerHTML = '<span class="text-xs text-muted">' + __('split.previewNeedAmount') + '</span>';
     return;
   }
-  const pool = [];
-  if (st.selfInvolved) pool.push({ id: 'self', name: __('split.me'), specified: st.selfUnknown ? null : _selfSpecified(st) });
-  st.rows.forEach(r => {
-    if (r.included) pool.push({ id: r.contactId, name: r.name, specified: r.unknown ? null : r.amount });
-  });
+  const pool = _addSplitPool(st);
   const result = computeShares(total, pool, st.selfInvolved);
   if (result.error) {
     preview.innerHTML = '<span class="text-xs" style="color:var(--danger)">⚠️ ' + result.error + '</span>';
@@ -21988,14 +22810,7 @@ function _selfSpecified(st) {
 
 function collectSplitBill(args) {
   const st = window._addSplitState || {};
-  const pool = [];
-  if (st.selfInvolved) pool.push({ id: 'self', name: __('split.me'), specified: st.selfUnknown ? null : _selfSpecified(st) });
-  (st.rows || []).forEach(r => {
-    if (!r.included) return;
-    // Unknown-amount participants cannot type a specified amount; they get the
-    // equal-share remainder like any unspecified person (display-only marker)
-    pool.push({ id: r.contactId, name: r.name, specified: r.unknown ? null : r.amount });
-  });
+  const pool = _addSplitPool(st);
   const result = computeShares(args.amount, pool, st.selfInvolved);
   if (result.error) return { ok: false, error: result.error };
   const selfShare = st.selfInvolved
@@ -22099,15 +22914,15 @@ function _splitCatChip(catId) {
 function _splitPaidControl(billId, contactId, name, paid, opts) {
   const key = contactId || 'anon:' + name;
   const editBtn = `<button class="btn btn-ghost btn-sm split-partial-btn" title="${__('split.pay.setAmountTitle')}"
-      onclick="openSplitPartial('${escHtml(billId)}','${escHtml(key)}')">${__('split.pay.partial')}</button>`;
+      onclick="openSplitPartial(${jsArg(billId)},${jsArg(key)})">${__('split.pay.partial')}</button>`;
   if (paid) {
     return `<span class="split-paid-badge" style="cursor:pointer" title="${__('split.pay.setAmountTitle')}"
-      onclick="openSplitPartial('${escHtml(billId)}','${escHtml(key)}')">✅ ${__('split.paidLabel')}</span>`;
+      onclick="openSplitPartial(${jsArg(billId)},${jsArg(key)})">✅ ${__('split.paidLabel')}</span>`;
   }
   const paidAmt = opts ? (parseFloat(opts.paidAmount) || 0) : 0;
   const progress = paidAmt > 0.005
     ? `<span class="split-partial-chip" title="${__('split.pay.setAmountTitle')}"
-        onclick="openSplitPartial('${escHtml(billId)}','${escHtml(key)}')">${formatMoney(paidAmt)} / ${formatMoney(parseFloat(opts.share) || 0)}</span>`
+        onclick="openSplitPartial(${jsArg(billId)},${jsArg(key)})">${formatMoney(paidAmt)} / ${formatMoney(parseFloat(opts.share) || 0)}</span>`
     : '';
   return `
     ${progress}
@@ -22137,11 +22952,11 @@ function _splitContactCardHtml(pc) {
   return `
     <div class="card split-contact-card" data-contact="${escHtml(key)}">
       <div class="split-contact-header">
-        <span style="font-weight:600;word-break:break-word;cursor:pointer;flex:1;min-width:0" onclick="toggleSplitContactExpand('${escHtml(key)}')">${expanded ? '▼' : '▶'} 👤 ${escHtml(pc.name)}</span>
+        <span style="font-weight:600;word-break:break-word;cursor:pointer;flex:1;min-width:0" onclick="toggleSplitContactExpand(${jsArg(key)})">${expanded ? '▼' : '▶'} 👤 ${escHtml(pc.name)}</span>
         ${settledAll
           ? `<span class="split-paid-badge">✅ ${__('split.allSettled')}</span>`
-          : `<span style="color:var(--danger);font-weight:700;cursor:pointer" onclick="toggleSplitContactExpand('${escHtml(key)}')">${formatMoney(owe)}${hasUnknown ? ' ❓' : ''}</span>
-             <button class="btn btn-outline btn-sm" style="flex-shrink:0;padding:1px 8px;font-size:0.72rem" onclick="openSplitReceive('${escHtml(key)}')">💰 ${__('split.pay.receive')}</button>`}
+          : `<span style="color:var(--danger);font-weight:700;cursor:pointer" onclick="toggleSplitContactExpand(${jsArg(key)})">${formatMoney(owe)}${hasUnknown ? ' ❓' : ''}</span>
+             <button class="btn btn-outline btn-sm" style="flex-shrink:0;padding:1px 8px;font-size:0.72rem" onclick="openSplitReceive(${jsArg(key)})">💰 ${__('split.pay.receive')}</button>`}
       </div>
       ${expanded ? pc.bills.map(b => {
         const t = _splitBillTitle({ tag: b.billTag, note: b.billNote });
@@ -22492,7 +23307,7 @@ function openSplitPartial(billId, contactKey) {
       <div id="splitPartialPreview" class="split-share-preview" style="margin-top:8px"></div>
       <div class="modal-actions" style="margin-top:10px">
         <button class="btn btn-ghost" onclick="closeModal();openSplitCenter()">${__('split.cancel')}</button>
-        <button class="btn btn-primary" onclick="confirmSplitPartial('${escHtml(billId)}','${escHtml(contactKey)}')">💾 ${__('split.save')}</button>
+        <button class="btn btn-primary" onclick="confirmSplitPartial(${jsArg(billId)},${jsArg(contactKey)})">💾 ${__('split.save')}</button>
       </div>
     </div>
   `);
@@ -22622,7 +23437,7 @@ function _splitPayRowsHtml() {
       <div class="split-pay-row ${on ? '' : 'off'}" data-bill="${escHtml(r.billId)}">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0">
           <input type="checkbox" ${on ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer"
-                 onchange="toggleSplitPayRow('${escHtml(r.billId)}', this.checked)">
+                 onchange="toggleSplitPayRow(${jsArg(r.billId)}, this.checked)">
           <span style="flex:1;min-width:0">
             <span style="word-break:break-word">${escHtml(r.label)}${r.unknown ? ' ❓' : ''}</span>
             <span class="text-xs text-muted" style="display:block">${r.date} · ${__('split.pay.rowRemaining', formatMoney(r.remaining), formatMoney(r.share))}</span>
@@ -23028,9 +23843,15 @@ function saveSplitBillEditor(billId) {
   const shares = window._editSplitComputed;
   if (!shares) { showToast(__('split.previewNeedPeople'), 'error'); return; }
   const selfShare = self ? (shares.find(s => s.id === 'self') || { share: 0 }).share : 0;
+  // Whether each person's box was TOUCHED, not just whether it is ticked: it opens
+  // ticked for anyone who had repaid their share, and leaving it alone must keep
+  // what they actually paid. defaultChecked is the state the box opened with.
   const paidMap = {};
+  const paidTouched = {};
   document.querySelectorAll('#editPaidCheckboxes input[type="checkbox"]').forEach(chk => {
-    paidMap[chk.getAttribute('data-paid-contact')] = chk.checked;
+    const k = chk.getAttribute('data-paid-contact');
+    paidMap[k] = chk.checked;
+    paidTouched[k] = chk.checked !== chk.defaultChecked;
   });
   const participants = shares
     .filter(s => s.id !== 'self')
@@ -23040,13 +23861,14 @@ function saveSplitBillEditor(billId) {
       const unk = (window._editSplitRows || []).find(r => r.contactId === key);
       const base = { contactId: s.id, name: s.name, share: s.share,
                      unknown: unk ? !!unk.unknown : (prev ? !!prev.unknown : false) };
-      const wasSettled = prev ? partSettled(prev) : false;
       const prevPaid = prev ? partPaid(prev) : 0;
-      const checked = paidMap[key] !== undefined ? paidMap[key] : wasSettled;
-      // Unchecking someone who only PARTLY repaid must not wipe what they did pay
-      // — it just means they are not settled yet. The amount is re-clamped to the
-      // (possibly edited) share by withPaidAmount.
-      const amount = checked ? s.share : (wasSettled ? 0 : prevPaid);
+      // Ticking the box means "paid their whole share" (the share as it is now);
+      // unticking one that was ticked means "has not paid". Leaving it alone keeps
+      // what they actually paid: if the total went up they now owe the difference,
+      // and if it went down the amount is clamped to the smaller share by
+      // withPaidAmount. The records page does the same when its amount is edited.
+      const touched = !!paidTouched[key];
+      const amount = touched ? (paidMap[key] ? s.share : 0) : prevPaid;
       return withPaidAmount(base, amount);
     });
   const patch = {
@@ -23645,15 +24467,21 @@ function emojiGridHtml() {
     .join('');
 }
 
+// Instalments are spending, so only expense categories are offered: an income one
+// would write every period into the ledger as money coming IN.
 function leafCategoryOptions(selectedId) {
   const cats = DataStore.getCategories() || [];
   const hasChild = new Set();
   cats.forEach(c => { if (c && c.parentId) hasChild.add(c.parentId); });
-  return cats
-    .filter(c => c && !hasChild.has(c.id))
+  const usable = cats.filter(c => c && !hasChild.has(c.id) && !DataStore.isIncomeCategory(c.id));
+  const options = usable
     .map(c => '<option value="' + escHtml(c.id) + '"' + (c.id === selectedId ? ' selected' : '') + '>' +
       escHtml(typeof getCategoryFullPath === 'function' ? getCategoryFullPath(c.id) : c.name) + '</option>')
     .join('');
+  // A plan saved earlier with an income category: do not quietly swap it for the
+  // first item in the list — leave the box empty so the person picks one.
+  const needsPick = !!selectedId && !usable.some(c => c.id === selectedId);
+  return (needsPick ? '<option value="" selected>' + __('plan.pickCategory') + '</option>' : '') + options;
 }
 
 /* ============================================================
@@ -23664,40 +24492,57 @@ function leafCategoryOptions(selectedId) {
    creating a plan that started in the past) still lands every period exactly
    once. Idempotent on planId + planMonth.
    ============================================================ */
+function backfillPlanRecords(p, nowMonth) {
+  const records = DataStore.getRecords(); // live reference — newly added rows are visible
+  const sIdx = PlanMath.monthToIndex(p.startMonth);
+  const nIdx = PlanMath.monthToIndex(nowMonth);
+  if (!isFinite(sIdx) || !isFinite(nIdx)) return 0;
+  const monthly = round2(p.totalAmount / p.months);
+  let created = 0;
+  for (let i = 0; i < p.months; i++) {
+    const idx = sIdx + i;
+    if (idx > nIdx) break;
+    const m = PlanMath.indexToMonth(idx);
+    if (records.some(r => r && r.planId === p.id && r.planMonth === m)) continue;
+    // Final period absorbs the rounding remainder so the sum is exact
+    const amt = (i === p.months - 1) ? round2(p.totalAmount - monthly * (p.months - 1)) : monthly;
+    DataStore.addRecord({
+      amount: amt,
+      categoryId: p.categoryId || 'uncategorized',
+      date: m + '-01T09:00',
+      note: __('plan.recordNote', p.name, i + 1, p.months),
+      tags: [],
+      excludeFromAvg: true, // a fixed obligation, not daily spending behaviour
+      planId: p.id,
+      planMonth: m,
+      createdAt: new Date().toISOString()
+    });
+    created++;
+  }
+  return created;
+}
+
 function syncPlanRecords() {
   const nowMonth = currentMonth();
   const plans = DataStore.getPurchasePlans().filter(p => p && p.mode === 'credit' && p.status === 'active');
   if (!plans.length) return 0;
-  const records = DataStore.getRecords(); // live reference — newly added rows are visible
   let created = 0;
-
-  plans.forEach(p => {
-    const sIdx = PlanMath.monthToIndex(p.startMonth);
-    const nIdx = PlanMath.monthToIndex(nowMonth);
-    if (!isFinite(sIdx) || !isFinite(nIdx)) return;
-    const monthly = round2(p.totalAmount / p.months);
-    for (let i = 0; i < p.months; i++) {
-      const idx = sIdx + i;
-      if (idx > nIdx) break;
-      const m = PlanMath.indexToMonth(idx);
-      if (records.some(r => r && r.planId === p.id && r.planMonth === m)) continue;
-      // Final period absorbs the rounding remainder so the sum is exact
-      const amt = (i === p.months - 1) ? round2(p.totalAmount - monthly * (p.months - 1)) : monthly;
-      DataStore.addRecord({
-        amount: amt,
-        categoryId: p.categoryId || 'uncategorized',
-        date: m + '-01T09:00',
-        note: __('plan.recordNote', p.name, i + 1, p.months),
-        tags: [],
-        excludeFromAvg: true, // a fixed obligation, not daily spending behaviour
-        planId: p.id,
-        planMonth: m,
-        createdAt: new Date().toISOString()
-      });
-      created++;
-    }
-  });
+  plans.forEach(p => { created += backfillPlanRecords(p, nowMonth); });
   if (created) logEvent('syncPlanRecords', 'created=' + created);
+  return created;
+}
+
+// The instalment rows already in the ledger carry the plan's old amount, period
+// count, start month, category and name. Sync only ever ADDS missing periods, so
+// after an edit they have to be thrown away and written again from the new plan —
+// otherwise the ledger, the progress bar and the plan total each tell a different story.
+function rebuildPlanRecords(planId) {
+  DataStore._data.records = DataStore.getRecords().filter(r => !r || r.planId !== planId);
+  const p = DataStore.getPurchasePlan(planId);
+  if (!p || p.mode !== 'credit' || p.status === 'cancelled') { DataStore.save(); return 0; }
+  const created = backfillPlanRecords(p, currentMonth());
+  if (!created) DataStore.save();
+  logEvent('rebuildPlanRecords', 'created=' + created);
   return created;
 }
 
@@ -23783,14 +24628,19 @@ function extendPlan(planId) {
   refreshCurrentPage();
 }
 
-// Writes a manual override for this month covering the whole outstanding balance
+// Writes a manual override for this month covering the whole outstanding balance.
+// st.remaining is what is left AFTER this month's own repayment was replayed, and
+// an override REPLACES that repayment, so the amount to write is everything still
+// owed before this month: what is left plus what this month had already taken.
 function payoffPlanNow(planId) {
   const m = currentMonth();
   const st = PlanMath.getState(planId, m);
   if (!st) return;
-  DataStore.setPlanOverride(planId, m, st.remaining);
+  const thisMonth = st.byMonth[m];
+  const owed = round2(st.remaining + (thisMonth ? thisMonth.actual : 0));
+  DataStore.setPlanOverride(planId, m, owed);
   DataStore.updatePurchasePlan(planId, { overdueAsked: false });
-  showToast(__('plan.paidOff', formatMoney(st.remaining)));
+  showToast(__('plan.paidOff', formatMoney(owed)));
   closeModal();
   refreshCurrentPage();
 }
@@ -24210,6 +25060,7 @@ function savePlanEditor(planId) {
   const startParsed = parsePlanMonth(startMonth);
   if (!startParsed) { showToast(__('plan.err.start'), 'error'); return; }
   if (mode === 'credit' && !categoryId) { showToast(__('plan.err.category'), 'error'); return; }
+  if (mode === 'credit' && DataStore.isIncomeCategory(categoryId)) { showToast(__('plan.err.categoryIncome'), 'error'); return; }
 
   const iconRaw = ((document.getElementById('planIcon') || {}).value || '').trim();
   const payload = {
@@ -24229,7 +25080,16 @@ function savePlanEditor(planId) {
     if (prev && prev.mode === 'credit' && mode !== 'credit') {
       DataStore._data.records = DataStore.getRecords().filter(r => !r || r.planId !== planId);
     }
+    // Still a card plan, but with something the written instalments depend on changed.
+    // Decided BEFORE the update: getPurchasePlan hands back the live object.
+    const restamp = !!prev && prev.mode === 'credit' && mode === 'credit' && (
+      Math.abs((prev.totalAmount || 0) - payload.totalAmount) > 0.004 ||
+      prev.months !== payload.months ||
+      prev.startMonth !== payload.startMonth ||
+      (prev.categoryId || '') !== payload.categoryId ||
+      prev.name !== payload.name);
     DataStore.updatePurchasePlan(planId, payload);
+    if (restamp) rebuildPlanRecords(planId);
     showToast(__('plan.updated'));
   } else {
     payload.status = 'active';
@@ -24471,7 +25331,9 @@ function renderPlanOverviewCard(month) {
     'plan.err.extendMax': { zh: '延长后总期数不能超过 {0} 期', en: 'Total periods cannot exceed {0} after extending' },
     'plan.err.amountMax': { zh: '金额不能超过 {0}', en: 'Amount cannot exceed {0}' },
     'plan.err.start': { zh: '请选择起始月份', en: 'Please pick a start month' },
-    'plan.err.category': { zh: '信用卡分期需要选择记账分类', en: 'Card instalments need a category' }
+    'plan.err.category': { zh: '信用卡分期需要选择记账分类', en: 'Card instalments need a category' },
+    'plan.err.categoryIncome': { zh: '分期是花钱，要记在支出分类里，不能选收入分类', en: 'Instalments are spending — pick an expense category, not an income one' },
+    'plan.pickCategory': { zh: '请选择分类', en: 'Choose a category' }
   });
 
 /* ============================================================
@@ -24766,7 +25628,20 @@ async function rpc(name, body) {
     try { detail = (await res.text()).slice(0, 160); } catch (e) { /* ignore */ }
     throw new SyncError(res.status >= 500 ? 'server' : 'http', 'HTTP ' + res.status + ' ' + detail);
   }
-  try { return await res.json(); } catch (e) { throw new SyncError('server', 'bad JSON'); }
+  let out;
+  try { out = await res.json(); } catch (e) { throw new SyncError('server', 'bad JSON'); }
+  // A version number is the one part of a reply that no encryption covers, and it
+  // is later compared, stored, bound into the ciphertext's AAD and printed into the
+  // settings page. A reply where it is anything but a plain non-negative integer is
+  // refused here, before any of that happens.
+  const isVersion = v => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+  if (out && typeof out === 'object') {
+    if (out.version != null && !isVersion(out.version)) throw new SyncError('server', 'bad version');
+    if (out.versions != null && (!Array.isArray(out.versions) || out.versions.some(v => !v || !isVersion(v.version)))) {
+      throw new SyncError('server', 'bad version list');
+    }
+  }
+  return out;
 }
 
 /* ============================================================
@@ -25478,7 +26353,7 @@ function renderCardBody() {
     (st.error ? '<div class="text-xs" style="color:var(--danger);margin:6px 0">' + escHtml(errText(st.error.code)) +
       (st.error.detail ? ' <span class="text-muted">(' + escHtml(String(st.error.detail).slice(0, 80)) + ')</span>' : '') + '</div>' : '') +
     (st.awaiting ? '<button class="btn btn-sm btn-primary" style="margin:6px 0" onclick="CloudSync.ui.showAwaiting()">⚠️ ' + __('cloud.needsYou') + '</button>' : '') +
-    '<div class="text-xs text-muted" style="margin:6px 0 10px">' + __('cloud.lastSync', fmtTime(meta.lastSyncAt), meta.version) + '</div>' +
+    '<div class="text-xs text-muted" style="margin:6px 0 10px">' + __('cloud.lastSync', fmtTime(meta.lastSyncAt), escHtml(String(meta.version))) + '</div>' +
     '<div class="flex gap-8" style="flex-wrap:wrap;margin-bottom:10px">' +
       '<button class="btn btn-primary btn-sm" onclick="CloudSync.ui.syncNow()">🔄 ' + __('cloud.syncNow') + '</button>' +
       '<button class="btn btn-outline btn-sm" onclick="CloudSync.ui.showCode()">🔑 ' + __('cloud.showCode') + '</button>' +
@@ -25677,8 +26552,8 @@ const ui = {
     try {
       const list = await listHistory();
       box.innerHTML = '<div class="text-xs text-muted" style="margin:6px 0">' + __('cloud.history.hint') + '</div>' +
-        (list.length ? list.map(v => '<div class="cloud-history-row"><span>v' + v.version + ' · ' + escHtml(fmtTime(v.at)) + '</span>' +
-          '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.exportVersion(' + v.version + ')">📥 ' + __('cloud.history.export') + '</button></div>').join('')
+        (list.length ? list.map(v => '<div class="cloud-history-row"><span>v' + escHtml(String(v.version)) + ' · ' + escHtml(fmtTime(v.at)) + '</span>' +
+          '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.exportVersion(' + (Number(v.version) || 0) + ')">📥 ' + __('cloud.history.export') + '</button></div>').join('')
           : '<div class="text-sm text-muted">' + __('cloud.history.none') + '</div>');
     } catch (e) { box.innerHTML = ui._err(e.code || 'internal', e.detail || e.message); }
   },
@@ -25819,20 +26694,20 @@ const ui = {
       '<input type="text" inputmode="numeric" data-money class="input-field" id="' + idb + '_amount" placeholder="' + __('cloud.conflict.amount') + '" value="' + escHtml(String(amt)) + '">' +
       '<input type="text" class="input-field" id="' + idb + '_note" placeholder="' + __('cloud.conflict.note') + '" value="' + escHtml(note) + '">' +
       '<div class="flex gap-8">' +
-        '<button class="btn btn-primary btn-sm" onclick="CloudSync.ui.cfSaveEdit(\'' + escHtml(conflictKey(p)) + '\')">' + __('cloud.conflict.save') + '</button>' +
-        '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.cfCancelEdit(\'' + escHtml(conflictKey(p)) + '\')">' + __('cloud.cancel') + '</button>' +
+        '<button class="btn btn-primary btn-sm" onclick="CloudSync.ui.cfSaveEdit(' + jsArg(conflictKey(p)) + ')">' + __('cloud.conflict.save') + '</button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.cfCancelEdit(' + jsArg(conflictKey(p)) + ')">' + __('cloud.cancel') + '</button>' +
       '</div></div>';
   },
   _conflictPairRow(p, draft) {
     const key = conflictKey(p);
     const d = draft[key] || (draft[key] = { action: null, value: null, editing: false });
     const btn = (action, label) => '<button class="btn btn-sm btn-outline' + (d.action === action ? ' is-picked' : '') +
-      '" onclick="CloudSync.ui.cfPick(\'' + escHtml(key) + '\',\'' + action + '\')">' + label + '</button>';
+      '" onclick="CloudSync.ui.cfPick(' + jsArg(key) + ',' + jsArg(action) + ')">' + label + '</button>';
     const canNewer = !!(p.local && p.remote);   // "newer" needs a timestamp on both sides to mean anything
     const actionsHtml = (canNewer ? btn('newer', __('cloud.conflict.useNewer')) : '') +
       btn('local', __('cloud.conflict.useLocal')) + btn('remote', __('cloud.conflict.useRemote')) +
       '<button class="btn btn-sm btn-outline' + (d.action === 'edit' ? ' is-picked' : '') +
-        '" onclick="CloudSync.ui.cfEdit(\'' + escHtml(key) + '\')">' + __('cloud.conflict.useEdited') + '</button>' +
+        '" onclick="CloudSync.ui.cfEdit(' + jsArg(key) + ')">' + __('cloud.conflict.useEdited') + '</button>' +
       btn('defer', __('cloud.conflict.defer'));
     return '<div class="conflict-row">' +
       '<div class="conflict-col">' + (p.local
@@ -26086,7 +26961,7 @@ window.CloudSync = {
   _t: {
     crc8, encodeSecret, decodeSecret, deriveKeys, sealLedger, openLedger, packSnapshot, unpackSnapshot,
     prepareCreate, prepareLogin, establish, confirmFirstMerge, deleteCloudCopy, listHistory, fetchVersionJson,
-    getMeta: () => meta, loadMeta, contentHash, isPristine, resolveAwaiting, resolveConflicts, conflictKey, isActive: () => active,
+    rpc, getMeta: () => meta, loadMeta, contentHash, isPristine, resolveAwaiting, resolveConflicts, conflictKey, isActive: () => active,
     resetForTests() { deactivate(); meta = null; keyCache = null; wiz = null; inflight = false; rerun = false; lastFinished = 0; hashCache = { rev: -1, data: null, hash: '' };
       st.phase = 'idle'; st.error = null; st.awaiting = null;
       approvals.merge = null; approvals.empty = false; approvals.bulk = null; approvals.conflicts = null;

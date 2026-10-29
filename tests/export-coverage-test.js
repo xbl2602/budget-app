@@ -199,8 +199,7 @@ window.URL.revokeObjectURL = () => {};
 window.HTMLAnchorElement.prototype.click = function () { capturedAnchor = this; };
 let capturedAnchor = null;
 try {
-  window.exportToExcel();
-  excelXml = await captured.text();
+  excelXml = window.buildExcelSpreadsheetXml();
 } catch (e) {
   console.log('excel capture error: ' + e.message);
 }
@@ -335,8 +334,7 @@ assert('E7 merge: purchasePlans preserved', Array.isArray(DataStore._data.purcha
   const oc = window.URL.createObjectURL;
   window.URL.createObjectURL = (blob) => { cap = blob; return 'blob:test'; };
   try {
-    window.exportToExcel();
-    planXml = await cap.text();
+    planXml = window.buildExcelSpreadsheetXml();
   } catch (e) {
     console.log('excel plan capture error: ' + e.message);
   }

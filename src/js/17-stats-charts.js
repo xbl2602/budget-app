@@ -20,6 +20,13 @@ function getDrillCategory() {
   return statsDrillStack.length > 0 ? statsDrillStack[statsDrillStack.length - 1] : null;
 }
 
+// The drill target is usually a real category, but 月账单 is a synthetic parent
+// (see getMonthlyBillGroup) that DataStore.getCategory has never heard of.
+function getDrillCatInfo(id) {
+  if (!id) return null;
+  return id === BILL_GROUP_ID ? getMonthlyBillGroupCat() : DataStore.getCategory(id);
+}
+
 // Update the pie drill bar (back button + breadcrumb) without touching rest of page
 function syncPieDrillBar() {
   const pieCard = document.getElementById('pieCard');
@@ -28,7 +35,7 @@ function syncPieDrillBar() {
   if (!backArea) return;
   const drillCategory = getDrillCategory();
   if (drillCategory) {
-    const c = DataStore.getCategory(drillCategory);
+    const c = getDrillCatInfo(drillCategory);
     backArea.innerHTML = `
       <button class="btn btn-ghost btn-sm" onclick="resetStatsDrill()">← ${__('stats.drill.back')}</button>
       <span class="text-sm" style="color:var(--primary);font-weight:600">
@@ -325,16 +332,25 @@ let statsHierarchyLevel = parseInt(localStorage.getItem('budgetStatsHierarchy') 
 if (statsHierarchyLevel < 1 || statsHierarchyLevel > 3) statsHierarchyLevel = 1;
 window.statsHierarchyLevel = statsHierarchyLevel;
 
+/* The date window the charts must draw: the custom range's two ends, or null/null for
+   a calendar month / rolling 30 days. Every redraw goes through here — a hard-coded
+   null/null under a custom range (where statsMonth is blank) draws an empty chart. */
+function statsRangeArgs() {
+  const isCustom = useCustomRange();
+  return [isCustom ? statsStartDate : null, isCustom ? statsEndDate : null];
+}
+
 function setStatsHierarchyLevel(n) {
   statsHierarchyLevel = n;
   window.statsHierarchyLevel = n;
   try { localStorage.setItem('budgetStatsHierarchy', String(n)); } catch (e) {}
-  if (statsCatView === 'waffle') drawCategoryWaffle('catWaffleChart', null, null, 250);
-  else if (statsCatView === 'treemap') drawCategoryTreemap('catTreemapChart', null, null, 250);
-  else if (typeof drawPieChart === 'function') drawPieChart('pieChart', statsMonth, null, null, null, 250, false);
-  if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', null, null, 360);
-  if (document.getElementById('expandCatTreemap')) drawCategoryTreemap('expandCatTreemap', null, null, 360);
-  if (document.getElementById('expandPieChart')) drawPieChart('expandPieChart', statsMonth, null, null, null, 360, false);
+  const [sD, eD] = statsRangeArgs();
+  if (statsCatView === 'waffle') drawCategoryWaffle('catWaffleChart', sD, eD, 250);
+  else if (statsCatView === 'treemap') drawCategoryTreemap('catTreemapChart', sD, eD, 250);
+  else if (typeof drawPieChart === 'function') drawPieChart('pieChart', statsMonth, sD, eD, null, 250, false);
+  if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', sD, eD, 360);
+  if (document.getElementById('expandCatTreemap')) drawCategoryTreemap('expandCatTreemap', sD, eD, 360);
+  if (document.getElementById('expandPieChart')) drawPieChart('expandPieChart', statsMonth, sD, eD, null, 360, false);
   if (typeof renderPieTables === 'function') renderPieTables();
   if (typeof syncPieDrillBar === 'function') syncPieDrillBar();
   document.querySelectorAll('[data-hier-level]').forEach(function (btn) {
@@ -451,9 +467,9 @@ function setCatWaffleDensity(level) {
     el.style.background = active ? 'var(--primary)' : 'var(--bg)';
     el.style.color = active ? '#fff' : 'var(--text-secondary)';
   });
-  const isCustom = useCustomRange();
-  drawCategoryWaffle('catWaffleChart', isCustom ? statsStartDate : null, isCustom ? statsEndDate : null, 250);
-  if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', null, null, 360);
+  const [sD, eD] = statsRangeArgs();
+  drawCategoryWaffle('catWaffleChart', sD, eD, 250);
+  if (document.getElementById('expandCatWaffle')) drawCategoryWaffle('expandCatWaffle', sD, eD, 360);
 }
 
 function renderCatDensityControl() {
@@ -479,10 +495,15 @@ function renderHierarchyToggle() {
 
 /* Direct records for the current view (custom range / rolling30 / month) */
 function getHierarchyRecords(month, startDate, endDate) {
+  // Under a custom range statsMonth is blank; a caller that forgot the two dates
+  // still means "the range on screen", not "no records".
+  if (!month && !startDate && !endDate && useCustomRange()) {
+    startDate = statsStartDate;
+    endDate = statsEndDate;
+  }
   if (startDate && endDate) {
     return expenseRecords(DataStore.getRecords().filter(function (r) {
-      const d = new Date(r.date || r.createdAt);
-      return d >= new Date(startDate) && d <= new Date(endDate);
+      return inDayRange(r, startDate, endDate);
     }));
   }
   const isRolling = getStatsRange() === 'rolling30' && month === getMonthKey(new Date().toISOString());
@@ -565,6 +586,16 @@ function getPlannedFixedExtras(startDate, endDate) {
    is ticked and no category is drilled into, the 月账单 parent (level 1) or its
    children (level 2+), and the plan repayments due. */
 function buildPieSliceRows(level, canvasId, startDate, endDate) {
+  // Drilled into 月账单: its bills are the slices. They are leaves, so the
+  // 1层/2层/全部 level changes nothing here. Same amounts as the parent block
+  // showed (recorded vs planned, whichever is larger), so the parts add up.
+  if (getDrillCategory() === BILL_GROUP_ID) {
+    const group = isBillToggleChecked('pieChart') ? getMonthlyBillGroup(startDate, endDate) : null;
+    if (!group) return [];
+    return group.children.map(function (c) {
+      return { id: c.id, cat: c.cat, total: c.total, depth: 1, path: [group.cat.name, c.cat.name], gap: c.gap };
+    });
+  }
   const rows = buildPieSliceRowsCore(level, canvasId, startDate, endDate);
   if (getDrillCategory() || !isBillToggleChecked('pieChart')) return rows;
   const out = rows.slice();
@@ -610,7 +641,11 @@ function buildPieSliceRowsCore(level, canvasId, startDate, endDate) {
   const rows = [];
 
   if (drillCategory) {
-    const breakdown = StatsEngine.getCategoryBreakdownDeep(statsMonth, drillCategory, excludeBills);
+    // Break down the records of the window on screen (custom range / rolling 30
+    // days / month) — the same ones the first level was built from. Asking for
+    // statsMonth alone returns nothing under a custom range and the calendar month
+    // under rolling 30 days, so a drilled level stopped adding up to the one above it.
+    const breakdown = StatsEngine.getCategoryBreakdownDeep(statsMonth, drillCategory, excludeBills, getHierarchyRecords(statsMonth, startDate, endDate));
     if (!breakdown) return rows;
     if (level <= 1) {
       const childrenData = (breakdown.children || []).map(function (c) { return { id: c.category.id, total: c.total, cat: c.category }; });
@@ -763,18 +798,29 @@ function jumpToCategoryRecords(catId) {
           }
         }
       }
-      if (typeof recordsPage !== 'undefined') recordsPage = 1;
+      if (typeof recordsPage !== 'undefined') recordsPage = 0;   // pages are 0-based: start on the first
     }
   } catch (e) {}
   navigateTo('records');
+}
+
+/* Something has a level below it if it has subcategories — or it is 月账单 with
+   at least one bill in the window being shown. */
+function canDrillInto(catId) {
+  if (catId === BILL_GROUP_ID) {
+    if (!isBillToggleChecked('pieChart')) return false;
+    const isCustom = useCustomRange();
+    return !!getMonthlyBillGroup(isCustom ? statsStartDate : null, isCustom ? statsEndDate : null);
+  }
+  const children = DataStore.getChildren(catId);
+  return !!(children && children.length);
 }
 
 /* Single entry point for "drill into this category", shared by the pie slices,
    the waffle blocks and the treemap boxes. */
 function drillIntoCategory(catId) {
   if (!catId) return;
-  const children = DataStore.getChildren(catId);
-  if (!children || !children.length) return;
+  if (!canDrillInto(catId)) return;
   if (getDrillCategory() !== catId) statsDrillStack.push(catId);
   updateDrillCharts();
   refreshExpandedCatChart();
@@ -789,8 +835,7 @@ function drillIntoCategory(catId) {
    staying silent, and points at the table. */
 function onChartBlockClick(catId, name) {
   if (!catId) return;
-  const children = DataStore.getChildren(catId);
-  if (children && children.length) { drillIntoCategory(catId); return; }
+  if (canDrillInto(catId)) { drillIntoCategory(catId); return; }
   showToast(__('stats.drill.leafHint', name || ''), 'info');
 }
 
@@ -820,7 +865,7 @@ function renderPieTable(containerId) {
   
   const total = data.reduce((s, d) => s + d.total, 0);
   const drillCat = getDrillCategory();
-  const parentCat = drillCat ? DataStore.getCategory(drillCat) : null;
+  const parentCat = getDrillCatInfo(drillCat);
   
   let html = '<div style="font-size:0.85rem">';
   
@@ -828,7 +873,7 @@ function renderPieTable(containerId) {
   if (drillCat) {
     html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">';
     html += '<button class="btn btn-ghost btn-sm" onclick="backFromDrill()" title="' + __('stats.back') + '" style="padding:2px 8px;font-size:0.75rem">← ' + __('stats.back') + '</button>';
-    html += '<span class="text-sm text-secondary">' + (parentCat ? parentCat.icon + ' ' + parentCat.name : '') + ' ' + __('stats.drill.subcategory') + '</span>';
+    html += '<span class="text-sm text-secondary">' + (parentCat ? escHtml(parentCat.icon + ' ' + parentCat.name) : '') + ' ' + __('stats.drill.subcategory') + '</span>';
     html += '</div>';
   }
   
@@ -862,7 +907,7 @@ function renderPieTable(containerId) {
     html += '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';flex-shrink:0"></span>';
     html += '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(d.cat.icon) + ' ' + escHtml(d.cat.name) + '</span>';
     if (d.path && d.path.length > 1) {
-      html += '<span style="color:var(--text-muted);opacity:0.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.7rem;padding-left:4px">' + d.path.slice(0, -1).join(' › ') + '</span>';
+      html += '<span style="color:var(--text-muted);opacity:0.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.7rem;padding-left:4px">' + escHtml(d.path.slice(0, -1).join(' › ')) + '</span>';
     }
     html += '</div>';
     
@@ -1078,6 +1123,11 @@ function refreshPieChart() {
   // share one data builder) and the detail table is built from the same rows.
   // This used to redraw only the pie, so with the waffle or treemap showing, the
   // toggle looked dead — redraw whichever view is on screen, plus the table.
+  // Un-ticking 含固定账单 while inside 月账单 would leave nothing to show there.
+  if (getDrillCategory() === BILL_GROUP_ID && !isBillToggleChecked('pieChart')) {
+    statsDrillStack = [];
+    window.statsDrillStack = [];
+  }
   updateDrillCharts();
   if (statsCatView !== 'pie') { refreshExpandedCatChart(); renderExpandPieTable(); }
   // Also redraw the expanded chart if it's open
@@ -1127,7 +1177,12 @@ function renderStats() {
   const netDisposableStats = spStats.netDisposable;
   const targetAmountStats = spStats.targetAmount;
   const spendableBudgetStats = spStats.spendableBudget;
+  // "N days left" and "can spend X a day" only mean something for the month that is
+  // under way. Counting from today's date inside an earlier month showed "2 days
+  // left" over a month that ended long ago, and gave two different day counts on one card.
+  const viewingCurrentMonth = !useCustomRange() && statsMonth === getMonthKey(now.toISOString());
   const remainingLimitSpendableStats = (() => {
+    if (!viewingCurrentMonth) return 0;
     const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
     const remainingDays = daysInMonth - now.getDate();
     if (remainingDays <= 0) return 0;
@@ -1138,13 +1193,13 @@ function renderStats() {
 
   const isCustom = useCustomRange();
   const rangeTotal = isCustom ? StatsEngine.getCustomRangeTotals(statsStartDate, statsEndDate) : null;
-  // Bills still unpaid are not savings: same definition as the overview's 累计已存
+  // Bills still unpaid are not savings: same definition as the overview's 本月还剩
   // (commit 596e6ca: "所有储蓄预测/当前已存均扣除未付计划账单")
   const actualSavings = Math.max(0, budget - effectiveTotalStats);
 
   // Compute extra stats
   let records = isCustom
-    ? expenseRecords(DataStore.getRecords().filter(r => { const d = new Date(r.date || r.createdAt); return d >= new Date(statsStartDate) && d <= new Date(statsEndDate); }))
+    ? expenseRecords(DataStore.getRecords().filter(r => inDayRange(r, statsStartDate, statsEndDate)))
     : (isRolling ? StatsEngine.getPeriodRecords() : StatsEngine.getRecordsInMonth(statsMonth));
   const totalCount = records.length;
   const avgAmount = totalCount > 0 ? (isCustom ? rangeTotal.total : monthTotal) / totalCount : 0;
@@ -1204,7 +1259,7 @@ function renderStats() {
           return line ? `<div class="text-xs text-muted mt-4" title="${__('stats.predictedHint')}">${line}</div>` : '';
         } catch (e) { return ''; }
       })()}</div>
-      <div class="card"><div class="card-title">${__('stats.savingsPrediction')}</div><div class="text-xl font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div></div>
+      <div class="card"><div class="card-title">${__('stats.savingsPrediction')}</div><div class="text-xl font-bold" style="color:${budget > 0 ? (savingsPred >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--text-muted)'}">${budget > 0 ? formatMoney(savingsPred) : '—'}</div></div>
     </div>
 
     <!-- Recorded cash flow: what actually came in against what went out.
@@ -1290,7 +1345,8 @@ function renderStats() {
           </div>
           <div>
             <div class="text-xs text-secondary">${__('stats.estimatedMonthEnd')}</div>
-            <div class="text-lg font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div>
+            <div class="text-lg font-bold" style="color:${budget > 0 ? (savingsPred >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--text-muted)'}">${budget > 0 ? formatMoney(savingsPred) : '—'}</div>
+            ${planReservedStats > 0 ? `<div class="text-xs text-muted" style="margin-top:2px" title="${__('plan.afterPlansHint')}">${__('plan.afterPlansRow', formatMoney(savingsFc.surplus), formatMoney(planReservedStats))}</div>` : ''}
           </div>
           <div title="${__('stats.balanceHint')}">
             <div class="text-xs text-secondary">${__('stats.balance')}</div>
@@ -1298,7 +1354,7 @@ function renderStats() {
             <div class="text-xs text-muted" style="margin-top:2px">${__('stats.balanceHint')}</div>
           </div>
         </div>
-        ${budget > 0 ? `
+        ${budget > 0 && viewingCurrentMonth ? `
           ${(() => {
             const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
             const remainingDays = daysInMonth - now.getDate();
@@ -1323,7 +1379,6 @@ function renderStats() {
               <div class="text-xs text-secondary">${__('stats.dailyAvailablePerDay')}</div>
               <div class="font-bold" style="font-size:1rem;color:${remainingDailyPerDay > 0 ? 'var(--primary)' : 'var(--text-muted)'}">${formatMoney(remainingDailyPerDay)}/${__('stats.dayUnit')}</div>
               <div class="text-xs text-muted" style="margin-top:2px">${formatMoney(remainingDaily)} ÷ ${remainingDays}${__('stats.days')}</div>
-            ${planReservedStats > 0 ? `<div class="text-xs text-muted" style="margin-top:2px" title="${__('plan.afterPlansHint')}">${__('plan.afterPlansRow', formatMoney(savingsFc.surplus), formatMoney(planReservedStats))}</div>` : ''}
               <div class="text-xs text-muted" style="margin-top:2px;opacity:0.85">${__('stats.dailyAvailableFormula')}</div>
             </div>
           </div>`;
@@ -1639,7 +1694,7 @@ function drawPieChart(canvasId, month, startDate, endDate, onDrill, height, noAn
   if (!data.length && getDrillCategory()) {
     const dc = DataStore.getCategory(getDrillCategory());
     if (dc) {
-      const db = StatsEngine.getCategoryBreakdownDeep(month, dc.id);
+      const db = StatsEngine.getCategoryBreakdownDeep(month, dc.id, false, getHierarchyRecords(month, startDate, endDate));
       data = [{ id: dc.id, cat: dc, total: db ? db.total : 0 }];
     }
   }
@@ -2242,8 +2297,7 @@ function drawBarChart(canvasId, month, startDate, endDate) {
 
     // Budget progress bar under label
     if (d.id) {
-      const catBudgetObj = DataStore.getCategoryBudget(d.id, budgetMonth);
-      const catBudget = catBudgetObj.value;
+      const catBudget = DataStore.getCategoryBudgetAmount(d.id, budgetMonth);   // RM, also for a % budget
       if (catBudget > 0) {
         const ratio = d.total / catBudget;
         const progW = Math.min(barW, 60);
@@ -2713,6 +2767,12 @@ function buildCategoryTreeNodes(level, startDate, endDate) {
 
   const drill = getDrillCategory();
   let rootIds;
+  if (drill === BILL_GROUP_ID) {
+    // Inside 月账单: one flat box per bill (they have no children of their own)
+    const g = excludeBills ? null : getMonthlyBillGroup(startDate, endDate);
+    return g ? g.children.map((c, i) => ({ id: c.id, name: c.cat.name, icon: c.cat.icon, value: c.total,
+      color: COLORS[i % COLORS.length], children: [], leafOnly: true })) : [];
+  }
   if (drill) {
     rootIds = (DataStore.getChildren(drill) || []).map(c => c.id);
     const own = direct[drill] || 0;
@@ -3250,10 +3310,10 @@ function openWaffleTagColorPicker(tagName, currentColor) {
   var html = '<div class="modal-title">🎨 ' + __('stats.waffle.chooseColor') + ' — ' + escHtml(tagName) + '</div>' +
     '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;padding:8px 0">' +
     colors.map(function(c) {
-      return '<span style="display:inline-block;width:32px;height:32px;border-radius:50%;background:' + c + ';cursor:pointer;border:' + (c === currentColor ? '3px solid var(--text-primary)' : '2px solid transparent') + '" onclick="DataStore.setTagColor(\'' + escHtml(tagName) + '\',\'' + c + '\');closeModal();renderStats()"></span>';
+      return '<span style="display:inline-block;width:32px;height:32px;border-radius:50%;background:' + c + ';cursor:pointer;border:' + (c === currentColor ? '3px solid var(--text-primary)' : '2px solid transparent') + '" onclick="DataStore.setTagColor(' + jsArg(tagName) + ',\'' + c + '\');closeModal();renderStats()"></span>';
     }).join('') +
     '</div>' +
-    (DataStore.getTagColor(tagName) ? '<div style="text-align:center;padding-top:4px"><button class="btn btn-ghost btn-sm" onclick="DataStore.resetTagColor(\'' + escHtml(tagName) + '\');closeModal();renderStats()">↩ ' + __('stats.waffle.resetDefault') + '</button></div>' : '') +
+    (DataStore.getTagColor(tagName) ? '<div style="text-align:center;padding-top:4px"><button class="btn btn-ghost btn-sm" onclick="DataStore.resetTagColor(' + jsArg(tagName) + ');closeModal();renderStats()">↩ ' + __('stats.waffle.resetDefault') + '</button></div>' : '') +
     '<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">' + __('stats.cancel') + '</button></div>';
   showModal(html);
 }
@@ -3365,7 +3425,7 @@ addI18nEntries({
   'stats.savingsEstimate': { zh: '当月储蓄预估', en: 'Savings estimate' },
   'stats.notSet': { zh: '未设置', en: 'Not set' },
   'stats.netIncome': { zh: '净收入', en: 'Net income' },
-  'stats.currentSavings': { zh: '累计已存', en: 'Cumulative Saved' },
+  'stats.currentSavings': { zh: '本月还剩', en: 'Left This Month' },
   'stats.estimatedMonthEnd': { zh: '预计月末储蓄', en: 'Est. month-end savings' },
   'stats.balance': { zh: '预算结余', en: 'Budget balance' },
   'stats.balanceHint': { zh: '月收入设定 − 已花 − 未付账单；与下方实际结余口径不同', en: 'Income setting − spent − unpaid bills; different from recorded net below' },

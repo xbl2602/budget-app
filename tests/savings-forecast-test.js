@@ -244,7 +244,7 @@ setTimeout(() => {
   w.localStorage.removeItem('budgetStatsRange');
 
   /* ---------- 8. 统计页：当前已存扣未付账单；近 30 天下储蓄预测仍是当月口径 ---------- */
-  section('【统计页】累计已存扣未付账单；近 30 天下储蓄预测不变成「收入 − 近 30 天已花」');
+  section('【统计页】本月还剩扣未付账单；近 30 天下储蓄预测不变成「收入 − 近 30 天已花」');
   DS.clearAll();
   setBills(true);
   DS.setMonthlyIncome(MONTH, 3000);
@@ -258,12 +258,13 @@ setTimeout(() => {
   t = text('page-stats');
   let card = t.slice(t.indexOf('当月储蓄预估'));
   // 3000 − 已花 1130 − 未付账单 500 = 1370（旧：3000 − 1130 = 1870，与总览 / 报告不一致）
-  ok('统计页 累计已存 = 3000 − 1130 − 500 = 1370，与总览、报告同一口径', card.indexOf('累计已存 ' + money(1370)) !== -1, card.slice(0, 160));
-  ok('统计页不再叫「当前已存」', t.indexOf('当前已存') === -1);
+  ok('统计页 本月还剩 = 3000 − 1130 − 500 = 1370，与总览、报告同一口径', card.indexOf('本月还剩 ' + money(1370)) !== -1, card.slice(0, 160));
+  ok('统计页不再叫「当前已存」「累计已存」', t.indexOf('当前已存') === -1 && t.indexOf('累计已存') === -1);
   t = overview();
-  ok('总览 累计已存 同为 1370', t.indexOf('累计已存 ' + money(1370)) !== -1, t.slice(t.indexOf('累计已存'), t.indexOf('累计已存') + 40));
+  ok('总览 本月还剩 同为 1370', t.indexOf('本月还剩 ' + money(1370)) !== -1, t.slice(t.indexOf('本月还剩'), t.indexOf('本月还剩') + 40));
+  ok('总览不再叫「累计已存」', t.indexOf('累计已存') === -1);
   w.renderReport();
-  ok('报告页 累计已存 同为 1370（已存 / 储蓄率那格）', text('page-report').indexOf(money(1370)) !== -1);
+  ok('报告页 本月还剩 同为 1370（已存 / 储蓄率那格）', text('page-report').indexOf(money(1370)) !== -1);
 
   const expectFree = SE.getSavingsForecast(MONTH).free;
   w.localStorage.setItem('budgetStatsRange', 'rolling30');

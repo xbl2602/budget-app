@@ -393,10 +393,15 @@ function formatMoney(amount) {
   return 'RM ' + num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+// The three walkers below follow parentId upwards. `seen` stops them if the data
+// ever contains a loop (the ledger repairs loops on load, but a page must never
+// freeze because some path let one through).
 function getCategoryFullPath(catId) {
   const parts = [];
+  const seen = new Set();
   let cat = DataStore.getCategory(catId);
-  while (cat) {
+  while (cat && !seen.has(cat.id)) {
+    seen.add(cat.id);
     parts.unshift(cat.icon + ' ' + cat.name);
     cat = cat.parentId ? DataStore.getCategory(cat.parentId) : null;
   }
@@ -404,16 +409,15 @@ function getCategoryFullPath(catId) {
 }
 
 function getRootAncestorId(catId) {
-  let cat = DataStore.getCategory(catId);
-  while (cat && cat.parentId) {
-    cat = DataStore.getCategory(cat.parentId);
-  }
+  const cat = getRootAncestor(catId);
   return cat ? cat.id : null;
 }
 
 function getRootAncestor(catId) {
+  const seen = new Set();
   let cat = DataStore.getCategory(catId);
-  while (cat && cat.parentId) {
+  while (cat && cat.parentId && !seen.has(cat.id)) {
+    seen.add(cat.id);
     cat = DataStore.getCategory(cat.parentId);
   }
   return cat;
@@ -622,7 +626,7 @@ function openTagPicker(selectedTags, callback) {
       const stats = DataStore.getTagStats(tag);
       html += `
         <div class="flex items-center gap-8" style="padding:6px 4px;cursor:pointer;border-radius:6px;hover:background:var(--bg)"
-          onclick="toggleTagPick('${escHtml(tag)}')" id="tag-item-${escHtml(tag)}" data-tag="${escHtml(tag)}">
+          onclick="toggleTagPick(${jsArg(tag)})" id="tag-item-${escHtml(tag)}" data-tag="${escHtml(tag)}">
           <span id="tag-check-${escHtml(tag)}" style="width:20px;text-align:center">
             ${selected.has(tag) ? '✅' : '⬜'}
           </span>

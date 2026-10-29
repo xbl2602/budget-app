@@ -174,8 +174,7 @@ boot().then(async w => {
     let c = null; const o = w.URL.createObjectURL;
     w.URL.createObjectURL = b => { c = b; return 'x'; };
     w.HTMLAnchorElement.prototype.click = function () {};
-    try { w.exportToExcel(); } catch (e) { w.URL.createObjectURL = o; return '__THREW__' + e.message; }
-    const t = await c.text(); w.URL.createObjectURL = o; return t;
+    try { const t = w.buildExcelSpreadsheetXml(); w.URL.createObjectURL = o; return t; } catch (e) { w.URL.createObjectURL = o; return '__THREW__' + e.message; }
   }
 
   L('===== A. 往返完整性矩阵 =====');

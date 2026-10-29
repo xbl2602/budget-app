@@ -4,6 +4,13 @@
 (function() {
 'use strict';
 
+// Registered first: _bootstrap() below can run straight away and reads these.
+addI18nEntries({
+  'init.loadError.title': { zh: '账本读取失败', en: 'Couldn\'t read your ledger' },
+  'init.loadError.text': { zh: '这台设备上保存的账本读不出来，所以现在看到的是一本空账本。你原来的数据没有被删除，已经原样另存了一份。请先不要继续记账，联系应用作者帮你找回。', en: 'The ledger saved on this device can\'t be read, so you are seeing an empty one. Your old data has not been deleted — an untouched copy was set aside. Please don\'t add new entries yet, and contact the app\'s author to get it back.' },
+  'init.loadError.ok': { zh: '知道了', en: 'OK' }
+});
+
 // Fixed: wrap init in function with DOMContentLoaded guard (M10)
 function _bootstrap() {
   console.log('[INIT] _bootstrap start | DataStore.init()');
@@ -17,6 +24,17 @@ function _bootstrap() {
   } else {
     checkMonthRollover();
     applyTheme();
+    // The stored ledger could not be read (see DataStore.init). Say so before the
+    // user starts adding entries to what looks like a fresh, empty ledger.
+    if (window._dataLoadError) {
+      ModalQueue.request(1, 'data-load-error', function() {
+        showModal(`
+          <div class="modal-title">${__('init.loadError.title')}</div>
+          <p style="margin:8px 0 16px">${__('init.loadError.text')}</p>
+          <div class="modal-actions"><button class="btn btn-primary" onclick="closeModal()">${__('init.loadError.ok')}</button></div>
+        `);
+      });
+    }
     // Changelog: queued, so it yields to the rollover reminder above.
     if (typeof Changelog !== 'undefined') Changelog.checkAndShow();
   }
@@ -46,6 +64,17 @@ function initApp() {
   if (typeof planBootstrap === 'function') setTimeout(planBootstrap, 800);
   console.log('[INIT] initApp() complete');
 }
+
+// Another tab or window just saved the ledger. Every save() writes the WHOLE ledger
+// from this tab's memory, so without this the tab that saves second silently erases
+// what the first one wrote. Reload instead; a locked tab (no plaintext in storage,
+// PIN screen up) leaves it alone, and the add page keeps its half-typed form.
+window.addEventListener('storage', function(e) {
+  if (e.key !== 'budgetAppData' || e.newValue == null) return;
+  if (window._pinRequired) return;
+  if (!DataStore.reload()) return;
+  if (window.currentTab !== 'add') { try { refreshCurrentPage(); } catch (err) { /* keep going */ } }
+});
 
 // Start auto-lock & activity monitoring
 if (typeof bindActivityListeners === 'function') { console.log('[INIT] bindActivityListeners() called'); bindActivityListeners(); }

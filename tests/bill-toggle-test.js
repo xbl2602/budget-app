@@ -300,14 +300,17 @@ setTimeout(async () => {
   w.closeModal();
   let threw = false;
   try { w.showCategoryRecords('plan-due:x'); w.drillIntoCategory('bill-group'); } catch (e) { threw = true; }
-  ok('点计划应还块 / 试图下钻「月账单」不会报错', !threw);
+  ok('点计划应还块 / 下钻「月账单」不会报错', !threw);
   w.closeModal();
+  ok('「月账单」现在可以下钻（见 bill-group-drill-test.js）', w.getDrillCategory() === 'bill-group');
+  w.backFromDrill();
   const toasts = w.document.getElementById('toastContainer').children.length;
   w.onChartBlockClick('bill-group', '月账单');
-  ok('点图上的「月账单」块：没有可下钻的子分类 → 弹提示，不弹明细，不下钻',
-    w.document.getElementById('toastContainer').children.length === toasts + 1
+  ok('点图上的「月账单」块：下钻进去，不弹提示，不弹明细',
+    w.document.getElementById('toastContainer').children.length === toasts
     && !w.document.getElementById('modalOverlay').classList.contains('open')
-    && !w.getDrillCategory());
+    && w.getDrillCategory() === 'bill-group');
+  w.backFromDrill();
   w.renderPieTables();
   const tableBox = w.document.getElementById('pieDetailTable');
   ok('明细表：「月账单」行点一下弹出明细（行级 onclick）', !!tableBox.querySelector('[onclick="showCategoryRecords(\'bill-group\')"]'));

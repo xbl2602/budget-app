@@ -19,10 +19,11 @@ function _billMonth(bill) { return _billDateStr(bill).slice(0, 7); }
 // Raw date key 'YYYY-MM-DD' (matches getCustomRangeTotals / getLast7Days / today-yesterday)
 function _billDayRaw(bill) { return _billDateStr(bill).slice(0, 10); }
 
-// UTC ISO date key (matches getPeriodDailyTotals dayKey convention)
+// Local date key (matches getPeriodDailyTotals dayKey convention). The name is
+// historical: it used to be the UTC date, which put 00:00-08:00 bills on the day before.
 function _billDayUTC(bill) {
   const d = new Date(_billDateStr(bill));
-  return isNaN(d.getTime()) ? '' : d.toISOString().substr(0, 10);
+  return isNaN(d.getTime()) ? '' : localDateKey(d);
 }
 
 /* ============================================================
@@ -111,7 +112,7 @@ function getSplitDayMap(month) {
   return map;
 }
 
-// Day map for period daily totals: { 'YYYY-MM-DD': {..} } keyed by UTC (matches getPeriodDailyTotals)
+// Day map for period daily totals: { 'YYYY-MM-DD': {..} } keyed by local date (matches getPeriodDailyTotals)
 function getSplitDayMapUTC(startKey, endKey) {
   const map = {};
   (DataStore._data.splitBills || []).forEach(b => {
@@ -747,6 +748,24 @@ function renderSplitPeopleList() {
   }).join('');
 }
 
+// Who shares the bill, and what each person typed. The typed amounts only count in
+// "specified" mode: switching back to an even split hides the boxes but leaves what
+// was typed in the state, and it must not keep deciding the shares from there.
+function _addSplitPool(st) {
+  const specifiedMode = st.mode === 'specified';
+  const pool = [];
+  if (st.selfInvolved) {
+    pool.push({ id: 'self', name: __('split.me'), specified: (specifiedMode && !st.selfUnknown) ? _selfSpecified(st) : null });
+  }
+  (st.rows || []).forEach(r => {
+    if (!r.included) return;
+    // Unknown-amount participants cannot type a specified amount; they get the
+    // equal-share remainder like any unspecified person (display-only marker)
+    pool.push({ id: r.contactId, name: r.name, specified: (specifiedMode && !r.unknown) ? r.amount : null });
+  });
+  return pool;
+}
+
 function previewSplitShares() {
   const preview = document.getElementById('splitSharePreview');
   const amountEl = document.getElementById('addAmount');
@@ -757,11 +776,7 @@ function previewSplitShares() {
     preview.innerHTML = '<span class="text-xs text-muted">' + __('split.previewNeedAmount') + '</span>';
     return;
   }
-  const pool = [];
-  if (st.selfInvolved) pool.push({ id: 'self', name: __('split.me'), specified: st.selfUnknown ? null : _selfSpecified(st) });
-  st.rows.forEach(r => {
-    if (r.included) pool.push({ id: r.contactId, name: r.name, specified: r.unknown ? null : r.amount });
-  });
+  const pool = _addSplitPool(st);
   const result = computeShares(total, pool, st.selfInvolved);
   if (result.error) {
     preview.innerHTML = '<span class="text-xs" style="color:var(--danger)">⚠️ ' + result.error + '</span>';
@@ -836,14 +851,7 @@ function _selfSpecified(st) {
 
 function collectSplitBill(args) {
   const st = window._addSplitState || {};
-  const pool = [];
-  if (st.selfInvolved) pool.push({ id: 'self', name: __('split.me'), specified: st.selfUnknown ? null : _selfSpecified(st) });
-  (st.rows || []).forEach(r => {
-    if (!r.included) return;
-    // Unknown-amount participants cannot type a specified amount; they get the
-    // equal-share remainder like any unspecified person (display-only marker)
-    pool.push({ id: r.contactId, name: r.name, specified: r.unknown ? null : r.amount });
-  });
+  const pool = _addSplitPool(st);
   const result = computeShares(args.amount, pool, st.selfInvolved);
   if (result.error) return { ok: false, error: result.error };
   const selfShare = st.selfInvolved
@@ -947,15 +955,15 @@ function _splitCatChip(catId) {
 function _splitPaidControl(billId, contactId, name, paid, opts) {
   const key = contactId || 'anon:' + name;
   const editBtn = `<button class="btn btn-ghost btn-sm split-partial-btn" title="${__('split.pay.setAmountTitle')}"
-      onclick="openSplitPartial('${escHtml(billId)}','${escHtml(key)}')">${__('split.pay.partial')}</button>`;
+      onclick="openSplitPartial(${jsArg(billId)},${jsArg(key)})">${__('split.pay.partial')}</button>`;
   if (paid) {
     return `<span class="split-paid-badge" style="cursor:pointer" title="${__('split.pay.setAmountTitle')}"
-      onclick="openSplitPartial('${escHtml(billId)}','${escHtml(key)}')">✅ ${__('split.paidLabel')}</span>`;
+      onclick="openSplitPartial(${jsArg(billId)},${jsArg(key)})">✅ ${__('split.paidLabel')}</span>`;
   }
   const paidAmt = opts ? (parseFloat(opts.paidAmount) || 0) : 0;
   const progress = paidAmt > 0.005
     ? `<span class="split-partial-chip" title="${__('split.pay.setAmountTitle')}"
-        onclick="openSplitPartial('${escHtml(billId)}','${escHtml(key)}')">${formatMoney(paidAmt)} / ${formatMoney(parseFloat(opts.share) || 0)}</span>`
+        onclick="openSplitPartial(${jsArg(billId)},${jsArg(key)})">${formatMoney(paidAmt)} / ${formatMoney(parseFloat(opts.share) || 0)}</span>`
     : '';
   return `
     ${progress}
@@ -985,11 +993,11 @@ function _splitContactCardHtml(pc) {
   return `
     <div class="card split-contact-card" data-contact="${escHtml(key)}">
       <div class="split-contact-header">
-        <span style="font-weight:600;word-break:break-word;cursor:pointer;flex:1;min-width:0" onclick="toggleSplitContactExpand('${escHtml(key)}')">${expanded ? '▼' : '▶'} 👤 ${escHtml(pc.name)}</span>
+        <span style="font-weight:600;word-break:break-word;cursor:pointer;flex:1;min-width:0" onclick="toggleSplitContactExpand(${jsArg(key)})">${expanded ? '▼' : '▶'} 👤 ${escHtml(pc.name)}</span>
         ${settledAll
           ? `<span class="split-paid-badge">✅ ${__('split.allSettled')}</span>`
-          : `<span style="color:var(--danger);font-weight:700;cursor:pointer" onclick="toggleSplitContactExpand('${escHtml(key)}')">${formatMoney(owe)}${hasUnknown ? ' ❓' : ''}</span>
-             <button class="btn btn-outline btn-sm" style="flex-shrink:0;padding:1px 8px;font-size:0.72rem" onclick="openSplitReceive('${escHtml(key)}')">💰 ${__('split.pay.receive')}</button>`}
+          : `<span style="color:var(--danger);font-weight:700;cursor:pointer" onclick="toggleSplitContactExpand(${jsArg(key)})">${formatMoney(owe)}${hasUnknown ? ' ❓' : ''}</span>
+             <button class="btn btn-outline btn-sm" style="flex-shrink:0;padding:1px 8px;font-size:0.72rem" onclick="openSplitReceive(${jsArg(key)})">💰 ${__('split.pay.receive')}</button>`}
       </div>
       ${expanded ? pc.bills.map(b => {
         const t = _splitBillTitle({ tag: b.billTag, note: b.billNote });
@@ -1340,7 +1348,7 @@ function openSplitPartial(billId, contactKey) {
       <div id="splitPartialPreview" class="split-share-preview" style="margin-top:8px"></div>
       <div class="modal-actions" style="margin-top:10px">
         <button class="btn btn-ghost" onclick="closeModal();openSplitCenter()">${__('split.cancel')}</button>
-        <button class="btn btn-primary" onclick="confirmSplitPartial('${escHtml(billId)}','${escHtml(contactKey)}')">💾 ${__('split.save')}</button>
+        <button class="btn btn-primary" onclick="confirmSplitPartial(${jsArg(billId)},${jsArg(contactKey)})">💾 ${__('split.save')}</button>
       </div>
     </div>
   `);
@@ -1470,7 +1478,7 @@ function _splitPayRowsHtml() {
       <div class="split-pay-row ${on ? '' : 'off'}" data-bill="${escHtml(r.billId)}">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0">
           <input type="checkbox" ${on ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer"
-                 onchange="toggleSplitPayRow('${escHtml(r.billId)}', this.checked)">
+                 onchange="toggleSplitPayRow(${jsArg(r.billId)}, this.checked)">
           <span style="flex:1;min-width:0">
             <span style="word-break:break-word">${escHtml(r.label)}${r.unknown ? ' ❓' : ''}</span>
             <span class="text-xs text-muted" style="display:block">${r.date} · ${__('split.pay.rowRemaining', formatMoney(r.remaining), formatMoney(r.share))}</span>
@@ -1876,9 +1884,15 @@ function saveSplitBillEditor(billId) {
   const shares = window._editSplitComputed;
   if (!shares) { showToast(__('split.previewNeedPeople'), 'error'); return; }
   const selfShare = self ? (shares.find(s => s.id === 'self') || { share: 0 }).share : 0;
+  // Whether each person's box was TOUCHED, not just whether it is ticked: it opens
+  // ticked for anyone who had repaid their share, and leaving it alone must keep
+  // what they actually paid. defaultChecked is the state the box opened with.
   const paidMap = {};
+  const paidTouched = {};
   document.querySelectorAll('#editPaidCheckboxes input[type="checkbox"]').forEach(chk => {
-    paidMap[chk.getAttribute('data-paid-contact')] = chk.checked;
+    const k = chk.getAttribute('data-paid-contact');
+    paidMap[k] = chk.checked;
+    paidTouched[k] = chk.checked !== chk.defaultChecked;
   });
   const participants = shares
     .filter(s => s.id !== 'self')
@@ -1888,13 +1902,14 @@ function saveSplitBillEditor(billId) {
       const unk = (window._editSplitRows || []).find(r => r.contactId === key);
       const base = { contactId: s.id, name: s.name, share: s.share,
                      unknown: unk ? !!unk.unknown : (prev ? !!prev.unknown : false) };
-      const wasSettled = prev ? partSettled(prev) : false;
       const prevPaid = prev ? partPaid(prev) : 0;
-      const checked = paidMap[key] !== undefined ? paidMap[key] : wasSettled;
-      // Unchecking someone who only PARTLY repaid must not wipe what they did pay
-      // — it just means they are not settled yet. The amount is re-clamped to the
-      // (possibly edited) share by withPaidAmount.
-      const amount = checked ? s.share : (wasSettled ? 0 : prevPaid);
+      // Ticking the box means "paid their whole share" (the share as it is now);
+      // unticking one that was ticked means "has not paid". Leaving it alone keeps
+      // what they actually paid: if the total went up they now owe the difference,
+      // and if it went down the amount is clamped to the smaller share by
+      // withPaidAmount. The records page does the same when its amount is edited.
+      const touched = !!paidTouched[key];
+      const amount = touched ? (paidMap[key] ? s.share : 0) : prevPaid;
       return withPaidAmount(base, amount);
     });
   const patch = {

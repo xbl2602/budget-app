@@ -251,7 +251,20 @@ async function rpc(name, body) {
     try { detail = (await res.text()).slice(0, 160); } catch (e) { /* ignore */ }
     throw new SyncError(res.status >= 500 ? 'server' : 'http', 'HTTP ' + res.status + ' ' + detail);
   }
-  try { return await res.json(); } catch (e) { throw new SyncError('server', 'bad JSON'); }
+  let out;
+  try { out = await res.json(); } catch (e) { throw new SyncError('server', 'bad JSON'); }
+  // A version number is the one part of a reply that no encryption covers, and it
+  // is later compared, stored, bound into the ciphertext's AAD and printed into the
+  // settings page. A reply where it is anything but a plain non-negative integer is
+  // refused here, before any of that happens.
+  const isVersion = v => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+  if (out && typeof out === 'object') {
+    if (out.version != null && !isVersion(out.version)) throw new SyncError('server', 'bad version');
+    if (out.versions != null && (!Array.isArray(out.versions) || out.versions.some(v => !v || !isVersion(v.version)))) {
+      throw new SyncError('server', 'bad version list');
+    }
+  }
+  return out;
 }
 
 /* ============================================================
@@ -963,7 +976,7 @@ function renderCardBody() {
     (st.error ? '<div class="text-xs" style="color:var(--danger);margin:6px 0">' + escHtml(errText(st.error.code)) +
       (st.error.detail ? ' <span class="text-muted">(' + escHtml(String(st.error.detail).slice(0, 80)) + ')</span>' : '') + '</div>' : '') +
     (st.awaiting ? '<button class="btn btn-sm btn-primary" style="margin:6px 0" onclick="CloudSync.ui.showAwaiting()">⚠️ ' + __('cloud.needsYou') + '</button>' : '') +
-    '<div class="text-xs text-muted" style="margin:6px 0 10px">' + __('cloud.lastSync', fmtTime(meta.lastSyncAt), meta.version) + '</div>' +
+    '<div class="text-xs text-muted" style="margin:6px 0 10px">' + __('cloud.lastSync', fmtTime(meta.lastSyncAt), escHtml(String(meta.version))) + '</div>' +
     '<div class="flex gap-8" style="flex-wrap:wrap;margin-bottom:10px">' +
       '<button class="btn btn-primary btn-sm" onclick="CloudSync.ui.syncNow()">🔄 ' + __('cloud.syncNow') + '</button>' +
       '<button class="btn btn-outline btn-sm" onclick="CloudSync.ui.showCode()">🔑 ' + __('cloud.showCode') + '</button>' +
@@ -1162,8 +1175,8 @@ const ui = {
     try {
       const list = await listHistory();
       box.innerHTML = '<div class="text-xs text-muted" style="margin:6px 0">' + __('cloud.history.hint') + '</div>' +
-        (list.length ? list.map(v => '<div class="cloud-history-row"><span>v' + v.version + ' · ' + escHtml(fmtTime(v.at)) + '</span>' +
-          '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.exportVersion(' + v.version + ')">📥 ' + __('cloud.history.export') + '</button></div>').join('')
+        (list.length ? list.map(v => '<div class="cloud-history-row"><span>v' + escHtml(String(v.version)) + ' · ' + escHtml(fmtTime(v.at)) + '</span>' +
+          '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.exportVersion(' + (Number(v.version) || 0) + ')">📥 ' + __('cloud.history.export') + '</button></div>').join('')
           : '<div class="text-sm text-muted">' + __('cloud.history.none') + '</div>');
     } catch (e) { box.innerHTML = ui._err(e.code || 'internal', e.detail || e.message); }
   },
@@ -1304,20 +1317,20 @@ const ui = {
       '<input type="text" inputmode="numeric" data-money class="input-field" id="' + idb + '_amount" placeholder="' + __('cloud.conflict.amount') + '" value="' + escHtml(String(amt)) + '">' +
       '<input type="text" class="input-field" id="' + idb + '_note" placeholder="' + __('cloud.conflict.note') + '" value="' + escHtml(note) + '">' +
       '<div class="flex gap-8">' +
-        '<button class="btn btn-primary btn-sm" onclick="CloudSync.ui.cfSaveEdit(\'' + escHtml(conflictKey(p)) + '\')">' + __('cloud.conflict.save') + '</button>' +
-        '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.cfCancelEdit(\'' + escHtml(conflictKey(p)) + '\')">' + __('cloud.cancel') + '</button>' +
+        '<button class="btn btn-primary btn-sm" onclick="CloudSync.ui.cfSaveEdit(' + jsArg(conflictKey(p)) + ')">' + __('cloud.conflict.save') + '</button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="CloudSync.ui.cfCancelEdit(' + jsArg(conflictKey(p)) + ')">' + __('cloud.cancel') + '</button>' +
       '</div></div>';
   },
   _conflictPairRow(p, draft) {
     const key = conflictKey(p);
     const d = draft[key] || (draft[key] = { action: null, value: null, editing: false });
     const btn = (action, label) => '<button class="btn btn-sm btn-outline' + (d.action === action ? ' is-picked' : '') +
-      '" onclick="CloudSync.ui.cfPick(\'' + escHtml(key) + '\',\'' + action + '\')">' + label + '</button>';
+      '" onclick="CloudSync.ui.cfPick(' + jsArg(key) + ',' + jsArg(action) + ')">' + label + '</button>';
     const canNewer = !!(p.local && p.remote);   // "newer" needs a timestamp on both sides to mean anything
     const actionsHtml = (canNewer ? btn('newer', __('cloud.conflict.useNewer')) : '') +
       btn('local', __('cloud.conflict.useLocal')) + btn('remote', __('cloud.conflict.useRemote')) +
       '<button class="btn btn-sm btn-outline' + (d.action === 'edit' ? ' is-picked' : '') +
-        '" onclick="CloudSync.ui.cfEdit(\'' + escHtml(key) + '\')">' + __('cloud.conflict.useEdited') + '</button>' +
+        '" onclick="CloudSync.ui.cfEdit(' + jsArg(key) + ')">' + __('cloud.conflict.useEdited') + '</button>' +
       btn('defer', __('cloud.conflict.defer'));
     return '<div class="conflict-row">' +
       '<div class="conflict-col">' + (p.local
@@ -1571,7 +1584,7 @@ window.CloudSync = {
   _t: {
     crc8, encodeSecret, decodeSecret, deriveKeys, sealLedger, openLedger, packSnapshot, unpackSnapshot,
     prepareCreate, prepareLogin, establish, confirmFirstMerge, deleteCloudCopy, listHistory, fetchVersionJson,
-    getMeta: () => meta, loadMeta, contentHash, isPristine, resolveAwaiting, resolveConflicts, conflictKey, isActive: () => active,
+    rpc, getMeta: () => meta, loadMeta, contentHash, isPristine, resolveAwaiting, resolveConflicts, conflictKey, isActive: () => active,
     resetForTests() { deactivate(); meta = null; keyCache = null; wiz = null; inflight = false; rerun = false; lastFinished = 0; hashCache = { rev: -1, data: null, hash: '' };
       st.phase = 'idle'; st.error = null; st.awaiting = null;
       approvals.merge = null; approvals.empty = false; approvals.bulk = null; approvals.conflicts = null;

@@ -77,6 +77,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 |------|------|------|
 | `COLORS` | `const Array` | 14 种预设颜色 |
 | `escHtml(str)` | `function` | HTML 转义（防 XSS） |
+| `localDateKey(d?)` / `recordDayKey(r)` / `inDayRange(r, start, end)` / `parseLocalDay(s, endOfDay)` | `function` | **日期一律按本地日历，不按 UTC。** `toISOString().slice(0,10)` 在马来西亚（UTC+8）每天 00:00–08:00 是**昨天**，在美洲晚上是**明天**；`new Date('2026-10-28')` 是 UTC 零点（=马来西亚 08:00），拿它当"到 10-28 为止"会丢掉当天 08:00 以后的全部记录。`localDateKey` 取本地年月日；`recordDayKey` 取记录属于哪天（`date` 已是本地串直接截，兜底的 `createdAt` 是 UTC 要转换）；`inDayRange` 按**日期键字符串**比较一条记录在不在 [起, 止] 内（与时区无关，连只有"年-月-日"没有钟点的记录也对）；`parseLocalDay` 把 `YYYY-MM-DD` 变成当天本地第一 / 最后一毫秒（给还在比时间戳的分摊账单用）。**新代码不要再写 `toISOString().slice(0,10)` / `substr(0,10)` / `new Date('YYYY-MM-DD')`**。回归网：`tests/batch2-dates-test.js` |
+| `jsArg(v)` | `function` | **内联事件处理器里的参数一律用它**：`onclick="fn(${jsArg(x)})"`（不要再自己加引号）。只用 `escHtml` 不够——浏览器会把 `&#39;` 还原成 `'` 再执行，`Mom's` 会让按钮报语法错误，`a');evil();//` 会直接执行。它输出 `escHtml(JSON.stringify(x))`。回归网：`tests/batch1-fixes-test.js` 对每个页面扫描所有 `onclick`，逐个 `new Function()` 校验语法 |
 | `DEFAULT_CATEGORIES` | `const Array` | 8 个根分类 + 子分类（默认数据） |
 | `uuid()` | `function` | 生成唯一 ID |
 | `getMonthKey(dateStr)` | `function` | 从日期提取 `YYYY-MM` |
@@ -108,7 +110,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `updateRecord(id, updates)` | 更新（自动设 updatedAt） |
 | `deleteRecord(id)` | 永久删除（处理 pendingDelete） |
 | `softDeleteRecord(id)` | 软删除（5 秒撤销窗口） |
-| `undoDelete()` | 撤销软删除 |
+| `undoDelete(id?)` | 撤销软删除。缓冲区只有一个槽；传 `id` 时只撤销**那一条**，已被后一次删除顶掉的返回 `false`（界面上较早的提示会被摘掉撤销按钮）。不传 `id` 保持旧行为 |
 | `_finalizeDelete(id)` | 确认永久删除 |
 | `getPendingDelete()` | 获取待删除记录 |
 
@@ -118,10 +120,12 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `getCategories()` / `getCategory(id)` | 获取全部/单个 |
 | `getRootCategories()` | 获取根分类（排序后） |
 | `getChildren(parentId)` | 获取直接子分类 |
-| `getDescendantIds(id)` | 获取所有后代 ID（递归） |
+| `getDescendantIds(id)` | 获取所有后代 ID（递归，带 `seen` 防环） |
+| `_breakCategoryCycles(data)` | 分类的 `parentId` 必须构成森林：成环（含自指）时**只断开环上 id 最小的那条链接**，不删除任何分类，结果与设备无关（两台设备修复结果一致）。由 `_sanitizeEntities`（导入 / 加载 / 合并入口）和 `_merge3` 收尾共同调用。孤儿（父级不存在）**不处理**——部分载荷里父级可能只是不在这一份里 |
+| `_keepCorruptCopy(raw)` | 本地账本读不出来时，把原文另存到 `budgetAppDataCorrupt`（只存第一份，不覆盖），`init()` 随后**不再 `save()`**，并设 `window._dataLoadError`，由 `22-init.js` 弹窗告知。PIN 开启时 `_purgePlaintextExtras` 会清掉这份明文 |
 | `addCategory(cat)` | 添加（自动分配颜色） |
 | `updateCategory(id, updates)` | 更新 |
-| `deleteCategory(id, options)` | 删除（可 moveChildren 或 deleteChildren） |
+| `deleteCategory(id, options)` | 删除。有子分类时必须带 `{ moveToParent }` 或 `{ deleteChildren: true }`，否则返回 `false`。`moveToParent` 是**有没有这个键**，值为 `null` 表示被删的是顶层分类、子分类变成顶层（以前判断真假，顶层分类永远走不通） |
 | `getNextColor()` | 获取下一个颜色 |
 
 **账单分类 CRUD：**
@@ -172,7 +176,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 **分类预算：**
 | 方法 | 说明 |
 |------|------|
-| `getCategoryBudget(catId, month)` | 获取（返回 `{value, type}`） |
+| `getCategoryBudget(catId, month)` | 获取（返回 `{value, type}`，**`value` 是用户输入的原值**：`type:'percent'` 时是百分数 30，不是 RM30） |
+| `getCategoryBudgetAmount(catId, month)` / `budgetToAmount(value, type, month)` | **一切"花了多少 vs 预算"的比较都走这里**：返回 RM 金额。`percent` = 当月收入 × 百分比（与预算进度卡同一个基数），没设收入时换不出金额，返回 0（= 不限）。第二个函数用于还没保存的输入值（子分类预算 ≤ 父分类的校验）。报告页分类表、总览 Top5、统计页分类柱状图、`saveCategoryBudget` 都用它；预算进度卡（`12-budget-progress.js`）有自己等价的换算。回归网：`tests/calc-consistency-test.js` |
 | `setCategoryBudget(catId, month, amount, type)` | 设置（支持 `fixed` / `percent`） |
 | `getAllCategoryBudgets()` | 全部 |
 
@@ -224,7 +229,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 |------|------|
 | `_normalize(data)` | **唯一入口**：补齐缺失键 + 清洗非法条目 + 历史迁移。`init()` / `reload()` / `importJSON('replace')` / 局域网 replace 都走它。契约：只补缺失、只剔非法，绝不改写已有合法值 |
 | `_sanitizeEntities(data)` | 只做实体清洗（丢弃畸形 splitBills / purchasePlans、补 `payer`），不补默认键 —— merge 路径专用 |
-| `_mergeData(incoming, opts)` | **唯一合并实现**。不传 `opts.base`：并集语义——记录按 id + `updatedAt` 新者胜；id 集合只新增；键值表逐键覆盖；`allTags` 并集；`colorIndex` 取大（`importJSON('merge')` 与局域网 merge 共用）。传 `{ base }`：**三方合并**（云端同步用），返回 `{ data, conflicts }`；`{ base, dryRun: true }` 只算不写 |
+| `_mergeData(incoming, opts)` | **唯一合并实现**。不传 `opts.base`：并集语义——记录按 id + `updatedAt` 新者胜；id 集合只新增；键值表逐键覆盖（**`billAmounts` 是 月份 → { 账单 → 金额 } 两层，在月份里面再逐项合并**，只带房租的文件不会把本机已设的水电抹掉；两边都设了的同一项仍以导入文件为准）；`allTags` 并集；`colorIndex` 取大（`importJSON('merge')` 与局域网 merge 共用）。传 `{ base }`：**三方合并**（云端同步用），返回 `{ data, conflicts }`；`{ base, dryRun: true }` 只算不写 |
 | `_merge3(base, local, remote)` | 三方合并本体。规则见 §28。`base === null` 时退化为并集 |
 | `_canonStringify(v, cache)` | 与键序、数组顺序无关的规范化序列化，三方合并用它判断「这一侧有没有改」 |
 | `_markBulk(kind)` | 整体替换账本的入口（`clearAll` / `importJSON('replace')` / 局域网 replace）调用它，转给 `CloudSync.markBulk`（同步关闭时无副作用） |
@@ -233,7 +238,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | 方法 | 说明 |
 |------|------|
 | `exportJSON()` | JSON 字符串；`_data` 为 null（PIN 锁定）时返回 `null` 而非字符串 `"null"` |
-| `importJSON(jsonStr, mode)` | 导入（replace / merge）；replace 时先 `_markBulk('import-replace')` |
+| `importJSON(jsonStr, mode)` | 导入（replace / merge）；replace 时先 `_markBulk('import-replace')`。`records` 和 `categories` **必须是数组**（`{}` / `[]` 都是 truthy，以前畸形文件会清空账本）；文件里的记录**全部**被拒时返回 `false` 不动账本；被拒的条数放在 `DataStore.lastImportDropped`，界面据此提示。`_sanitizeEntities` 会把"写成文字的数字"转成数字，金额不是有限数字、或 `date` 与 `createdAt` 都没有的记录丢弃 |
 | `exportCSV()` | CSV 字符串（UTF-8 BOM），11 列含子分类与所属计划 |
 | `clearAll()` | 重置为默认值；先 `_markBulk('clear')` |
 | `getDataHash()` | 指纹码：**全量稳定序列化 + 排除名单**（`_FINGERPRINT_IGNORE`），非白名单。新增字段自动纳入 |
@@ -252,7 +257,13 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 
 | 符号 | 说明 |
 |------|------|
-| `function exportToExcel()` | 生成 XML Spreadsheet 2003（7 个工作表：消费记录 / 分类统计 / 月度统计 / 预算跟踪 / 储蓄统计 / 分摊账单 / 大额计划，含 SUMIF/AVERAGE/IF 公式） |
+| `function buildSpreadsheetXml()` | 生成 XML Spreadsheet 2003 文本（7–8 个工作表：消费记录 / 分类统计 / 月度统计 / 预算跟踪 / 储蓄统计 / 分摊账单 / 大额计划 / 收入分类统计，含 SUM/AVERAGE/IF 公式）；测试通过 `window.buildExcelSpreadsheetXml` 读它 |
+| `function spreadsheetMLToXlsx(xml)` | 把上面的 SpreadsheetML 转成真正的 .xlsx（OOXML + 无压缩 zip，R1C1 公式转 A1，无第三方库） |
+| `function exportToExcel()` | 上两者串起来并触发下载 |
+
+> **公式与缓存值：每个带公式的单元格，重算结果必须等于它旁边写的值**（`tests/xlsx-formula-test.js` 逐个重算）。写法约定：①合计 / 平均**用 `cellNum()`（单元格里实际存的两位小数）算**，比例用 `fmtRatio()`（六位小数，`toFixed(2)` 会把 37.5% 存成 38%）；②页脚公式一律经 `footCell()` 写，**没有数据行时不写公式**（`SUM(R2C2:R1C2)` 会指回自己所在的行，Excel 报循环引用）；③对可能整列都是文字的列（"无预算" / "N/A" / "—"）取平均要先 `IF(COUNT(区间)>0, AVERAGE(区间), "")`，否则 `#DIV/0!`；④分类统计里根分类行之间夹着子分类行，**合计要逐个列出根分类行**（`SUM(R2C2,R6C2,…)`），子分类占比用**绝对行号**指向自己的根分类，不要用 `R[-1]`（"上一行"只对第一个子分类是根）；⑤消费记录页脚是四行（合计 / 平均 / 最高 / 最低），数值都在金额列（D），**只算支出**（`SUMIF` 按类型列）；最高 / 最低用 `SUMPRODUCT(MAX(...))` 免得需要数组公式。
+>
+> ⚠️ 不能把 SpreadsheetML 文本直接存成 `.xlsx`：Excel 按内容而不是扩展名判断格式，会报 “file format or file extension is not valid”。新增样式要同时改 `XLSX_STYLE_INDEX` 与 `XLSX_STYLES`（`tests/xlsx-export-test.js` X7 会卡住数量不一致）。
 
 > ⚠️ 分摊账单 sheet 的参与人子行必须用 `ss:Index` 显式指定列（份额→D、已还→G、状态→H）。
 > SpreadsheetML 的 `<Cell>` 默认顺序填充，漏掉 `ss:Index` 会让金额落进「分类」文字列。
@@ -271,13 +282,15 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `getDailyAverage(month)` | 日均（排除 `excludeFromAvg`） |
 | `getPredictedTotal(month)` | 预测月总 |
 | `getPredictedMonthEndTotal(month)` | 预测月末现金流 = `getPredictedBreakdown(month).predicted`：账单流水 + 没付的月账单 + 信用卡分期 + 大额，全按实际金额，只有日常消费按日均外推。**账单不外推**（固定金额不是日均习惯）；**没付的月账单已包含在内**，所以别再在它上面减「未付账单」 |
-| `getPredictedBreakdown(month)` / `_predictParts(records, daysPassed, daysInPeriod, splitOthers, unpaidBills)` | 预测拆分 `{bills, billsUnpaid, instalments, large, normal, predicted}`，互不重叠、和恒等于 `predicted`。划分与「含固定账单」开关对「固定」的定义一致（账单分类 或 带 `planId` 的分期），关掉开关少掉的恰是 `bills + billsUnpaid + instalments`。他人分摊份额从日常里扣。`getUnpaidPlannedBills(month)` / `getPeriodUnpaidPlannedBills()` 是「没付的月账单」的唯一定义 |
+| `getPredictedBreakdown(month)` / `_predictParts(records, daysPassed, daysInPeriod, unpaidBills)` | 预测拆分 `{bills, billsUnpaid, instalments, large, normal, predicted}`，互不重叠、和恒等于 `predicted`。划分与「含固定账单」开关对「固定」的定义一致（账单分类 或 带 `planId` 的分期），关掉开关少掉的恰是 `bills + billsUnpaid + instalments`。**他人分摊份额从它自己那笔记录所在的那一块里扣**（水电分摊 → `bills` 只算我那份；分摊的"不计日均"大额 → `large` 只算我那份），不再统一从日常里扣。`getUnpaidPlannedBills(month)` / `getPeriodUnpaidPlannedBills()` 是「没付的月账单」的唯一定义 |
+| `splitOthersOf(records)` / `_othersShareOfBill(billId)` | **从一份记录清单求和时，要扣的"他人份额"只能是这份清单里那些记录对应账单的份额**（每张账单只算一次，且不超过记录本身）。`getSplitOthers(month)` 是整月总数，不能拿去扣一个子集——以前日常日均 / 预测 / 假设分析都这么扣，账单类或"不计日均"的分摊把别的记录扣成了偏低甚至负数 |
+| `isPaceRecord(r)` | 这条记录是否决定"日常节奏"：不是账单、不是信用卡分期、没标"不计日均"。其余的是已发生 / 固定的金额，按原价计入，不往后外推 |
 | `getPredictedBreakdownVariable(month)` | 去账单口径的预测拆分（大额 + 日常） |
 | `getPeriodPredictedBreakdown()` / `getPeriodPredictedBreakdownVariable()` / `getPeriodVariablePredictedTrend()` | 近 30 天的同口径拆分 |
 | `getSavingsPrediction(month)` | 预算 - 预测（未扣未付账单、未扣大额计划，只给 `getSavingsForecast` 用） |
 | `getSavingsForecast(month)` | **各页储蓄预测的唯一出口**：`{unpaidBills, surplus 预计结余, planReserved, free 预计储蓄}`。`surplus` = 收入 − 预测月末支出 − 未付账单（可为负）；`free` = `surplus` − 存 / 还类计划拿走的部分（`PlanMath.afterPlans`），储蓄目标、目标环、目标达成率都拿 `free` 比，与计划中心的「预计储蓄」是同一个数。无大额计划时两者相等 |
 | `getRemainingDailyLimit(month)` | 剩余日限额 |
-| `getCategoryBreakdownDeep(month, catId)` | 递归分类分解 |
+| `getCategoryBreakdownDeep(month, catId, excludeInstalments, pool)` | 递归分类分解。`pool` 不传就用该月记录；统计页下钻传 `getHierarchyRecords(...)`（自定义范围 / 近 30 天 / 月份同一个窗口），否则自定义范围（月份为空）下钻是空的，近 30 天下钻只算日历月 |
 | `getCustomRangeTotals(startDate, endDate)` | 自定义范围统计 |
 | `getOverspentCategories(month)` | 超支分类（>80%） |
 | `getLast7Days()` | 近 7 天 `[{date, total, label}]` |
@@ -298,8 +311,10 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 
 | 方法 | 说明 |
 |------|------|
-| `run(month, params)` | 执行模拟，返回 `{projectedTotal, projectedSavings, categoryProjections, ...}` |
+| `run(month, params)` | 执行模拟，返回 `{totalProjected, trendProjected, projectedSavings, categoryProjections, ...}` |
 | `getCurrentTrend(month)` | 获取当前趋势（无假设） |
+
+**日均基数**——分类的"当前日均"只用 `StatsEngine.isPaceRecord` 的记录算（和趋势预测同一个基数）：标了「不计日均」的一次性大额、信用卡分期**已经花了**（计入 `actualSpent` 和分类的 `currentTotal`），但不进日均、不往后外推。`trendProjected` = 已花 + 每个分类按当前日均走完剩余天数（即"不调整"时的预测），假设分析页拿它当基线：`调整后 = 趋势月支出 + (totalProjected − trendProjected)`，所以不调整时恒等于趋势，调整只动日常那一块。（旧基线是 `已花 ÷ 已过天数 × 本月天数`，把大额和分期也当成日均，于是对含大额的分类"取消消费 / −10%"会算出比已花还少甚至为负的月支出。）`actualSpent` 里扣的他人份额同样只扣这份记录对应账单的（`splitOthersOf`）。回归网：`tests/calc-consistency-test.js`。
 
 **调整的归属**——分类调整属于**用户设置它的那个节点**，不属于它下面的每个叶子：每个叶子由「最近的、有设置的祖先（含自己）」管辖，子分类上的单独设置（含显式「保持趋势」）优先于父分类。`±RM/天`、`设日均值`、`固定剩余总额` 三个绝对值模式的值描述的是**整个被管辖的分类**：先算出整组的剩余支出，再按各叶子当前日均占比分摊（都没花过钱就平分），`0` 的下限作用于整组。`± %`、`取消消费` 按比例作用于每个叶子，天然等价。回归网：`tests/whatif-adjustment-test.js`。（反例：旧实现把父级的 `−RM2/天` 交给 4 个叶子各算一次，省下 4 × RM2/天；一个「固定剩余总额 RM100」变成 RM400。）
 
@@ -393,7 +408,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | 符号 | 说明 |
 |------|------|
 | `selectedCategoryId` | 当前选中分类 ID |
-| `function openCategoryPicker(context)` | 打开分类选择弹窗（用于 add/edit） |
+| `function openCategoryPicker(context)` | 打开分类选择弹窗（用于 add/edit）。打开前把当前弹窗的**真实节点**收起来（`_pickerCapture`），选完 / 取消由 `pickerRestore` 原样放回——只存 `innerHTML` 会把已经改过的金额、备注、勾选还原成打开时的样子 |
 | `function buildCategoryTreePicker(cats, depth, context)` | 构建分类树 HTML |
 | `function selectCategory(catId, context)` | 选中分类（更新显示 + 关闭弹窗） |
 
@@ -404,12 +419,12 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | 符号 | 说明 |
 |------|------|
 | `function renderOverview()` | 渲染总览页全部内容 |
+| `toggleOverviewBills()` | 总览「预测月总支出」卡片整张是开关：翻转 `chartBillToggle_overviewBudget`（与「预算进度」卡片上的勾选框是**同一个设置**）后重画整个总览。卡片上有状态胶囊（✅ 含固定账单 / ⬜ 不含固定账单）和「点一下改成…」引导，支持键盘 Enter / 空格。勾选框的 `toggleBillFilter('overviewBudget')` 也改成重画整个总览——以前只重画圆环，上面的卡片还停在旧状态 |
+| `formatPredictedBreakdown(bd)` | 预测明细行「月账单 X ＋ 信用卡分期 Y ＋ 大额消费 Z ＋ 日常消费预估 W」：数额为 0 的部分不显示，少于两项时整行不显示（只剩一项 = 重复上面的总数）。总览与统计页共用 |
 | `isRolling` | `boolean` | 当前是否为近30天模式 |
 | `periodRange` | `object` | 当前统计范围信息 |
 | `StatsEngine.getPeriod*()` | 替代 `getMonth*` 用于滚动统计 |
 
-| `toggleOverviewBills()` | 总览「预测月总支出」卡片整张是开关：翻转 `chartBillToggle_overviewBudget`（与「预算进度」卡片上的勾选框是**同一个设置**）后重画整个总览。卡片上有状态胶囊（✅ 含固定账单 / ⬜ 不含固定账单）和「点一下改成…」引导，支持键盘 Enter / 空格。勾选框的 `toggleBillFilter('overviewBudget')` 也改成重画整个总览——以前只重画圆环，上面的卡片还停在旧状态 |
-| `formatPredictedBreakdown(bd)` | 预测明细行「月账单 X ＋ 信用卡分期 Y ＋ 大额消费 Z ＋ 日常消费预估 W」：数额为 0 的部分不显示，少于两项时整行不显示（只剩一项 = 重复上面的总数）。总览与统计页共用 |
 ---
 
 ### 11. `11-theme-colors.js` — Canvas 主题色
@@ -462,7 +477,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 
 | 符号 | 说明 |
 |------|------|
-| `recordsFilter` | 筛选条件对象 |
+| `recordsFilter` | 筛选条件对象。近 30 天模式下页面自己填进去的日期范围带 `_autoStart` / `_autoEnd` 标记：**每次进流水页按今天重算**（以前填一次就冻住，跨午夜后新记的记录在列表里"消失"），切回按月时清掉；用户在筛选框里确认过（`applyRecordsFilter`）的范围不再是 auto，永不被覆盖 |
 | `recordsPage` | 当前页码 |
 | `compactRecordsView` | 紧凑视图开关 |
 | `recordsPerPage` | 每页条数 |
@@ -476,7 +491,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `function applyRecordsFilter()` | 应用筛选 |
 | `function openCategoryFilterPicker()` | 分类筛选选择器 |
 | `function selectCategoryFilter(catId)` | 选择筛选分类 |
-| `function clearRecordsFilter()` | 清除所有筛选 |
+| `function clearRecordsFilter()` | 清除所有筛选。**原地清空**，不换新对象：`window.recordsFilter` 是同一个对象，统计页的"在流水页查看"通过它设置分类和日期，换对象会让它写进一份没人读的旧副本 |
 | `function renderRecordsList()` | 渲染记录列表（分页 + 删除按钮 + 滑动删除） |
 | `function toggleBatchMode()` | 切换批量模式 |
 | `function toggleRecordSelection(id)` | 切换选定 |
@@ -713,7 +728,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 
 | 符号 | 说明 |
 |------|------|
-| `reportMonth` | 报告月份 |
+| `reportMonth` | 报告月份，**只存真正的 `YYYY-MM`**（以前近 30 天模式下存的是窗口标签"09-29 → 10-28"，之后收入 / 账单 / 预测全查不到，切回按月还留着）。近 30 天模式下读设置（收入、账单、储蓄目标）用的是当月，只有"数哪些记录"随窗口变 |
 | `function renderReport()` | 渲染打印优化的月度报告（环形图 + 分类表 + 预测总结） |
 | `function changeReportMonth(month)` | 切换月份 |
 | `function printReport()` | 触发打印 |
@@ -726,7 +741,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 |------|------|
 | `whatIfExpandStates` | 分类展开状态 |
 | `whatIfCompareExpandStates` | 对比表展开状态 |
-| `function renderWhatIf()` | 渲染假设分析页 |
+| `function renderWhatIf()` | 渲染假设分析页。**永远按日历月算，不跟"近 30 天"走**：30 天窗口没有"本月还剩几天"，每个调整都是空操作（页面写"剩余 0 天"），而左边的参数面板又一直按月算，左右两边对不上。近 30 天模式下页面顶部会写一句说明（`whatif.monthOnlyNote`） |
 | `function renderWhatIfParams(month, savedParams)` | 渲染参数面板（分类调整、全局调整、假设分类） |
 | `function renderWhatIfResults(result)` | 渲染结果面板（对比摘要、储蓄对比、分类明细） |
 | `function drawWhatIfRings(result)` | 绘制比较环形图 |
@@ -747,7 +762,7 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 
 | 函数 | 说明 |
 |------|------|
-| `checkMonthRollover()` | 检测月份切换，自动沿用上月账单设置 |
+| `checkMonthRollover()` | 检测月份切换，沿用上月账单设置；**月收入单独沿用**，不依赖有没有账单（以前只设月收入的用户每月 1 号收入掉成 0，总览随即说"预计超支"）。本月已设过收入的不覆盖；只有沿用了账单才弹提醒 |
 | `showBillRolloverReminder(lastMonth, currentMonth)` | 显示月初提醒弹窗 |
 
 ---
@@ -765,6 +780,8 @@ bash build.sh   # 将 src/ 下所有文件拼合为根目录的 index.html
 | `CanvasRenderingContext2D.prototype.roundRect` | roundRect 兼容性 polyfill |
 | `initApp()` | 重新初始化应用（PIN解锁后） |
 | `_pinRequired` | `boolean` | 是否需要PIN解锁 |
+| `window.addEventListener('storage', …)` | 另一个标签页 / 窗口保存了账本（`budgetAppData`）时，这边 `DataStore.reload()` 并重绘当前页（记账页不重绘，免得冲掉填了一半的表单）。没有它，后保存的标签页会用自己内存里的整本账覆盖先保存的。锁定状态（`_pinRequired`）和"被删除"的事件忽略。回归网：`tests/batch1-fixes-test.js` |
+| `window._dataLoadError` | `DataStore.init()` 读不出本地账本时置 `true`；`_bootstrap` 据此经 `ModalQueue`（优先级 1）弹"账本读取失败"。原文在 `budgetAppDataCorrupt` 里 |
 
 ---
 
@@ -858,7 +875,10 @@ IIFE 自执行，暴露 `window.SyncUI` 和 `window.LANSync`。
 | `parsePlanMonth(key)` | `YYYY-MM` 严格解析。月份必须 1–12、年份必须落在 `PLAN_YEAR_MIN..MAX`（1970–2200），否则返回 `null`。保存前必过这一关，**不信任表单值** |
 | `monthSelectHtml` / `readPlanStartMonth` / `setPlanStartMonth` | 年 + 月两个 `<select>` 组成的起始月选择器，替代 `<input type="month">` |
 | `planMonthShift(key, n)` | 月份偏移（跨年正确），用于「本月 / 下月」快捷键与起止区间计算 |
-| `syncPlanRecords()` | `credit` 模式的真实还款流水回填。从 `startMonth` 循环而非递增计数，跳月/补建历史计划也能逐期补齐；靠 `planId`+`planMonth` 幂等 |
+| `syncPlanRecords()` | `credit` 模式的真实还款流水回填。从 `startMonth` 循环而非递增计数，跳月/补建历史计划也能逐期补齐；靠 `planId`+`planMonth` 幂等。**只增不改**——计划改过之后的旧流水靠 `rebuildPlanRecords` |
+| `backfillPlanRecords(plan, nowMonth)` / `rebuildPlanRecords(planId)` | 前者是 `syncPlanRecords` 里"给一个计划补齐缺的期"的那一段。后者：编辑信用卡计划时，只要总额 / 期数 / 起始月 / 记账分类 / 名字有一样变了（`savePlanEditor` 在更新前比对），就把该计划的旧流水全删再按新计划重写——否则流水、进度条、计划总额各说各的，起始月后移还会留下孤儿流水。只改备注、图标不动流水。回归网：`tests/batch3-fixes-test.js` |
+| `leafCategoryOptions(selectedId)` | 分期计划的记账分类下拉。**只列支出类叶子**（收入类会让每期被记成收入）；旧计划存的是收入类时，下拉第一项是空的"请选择分类"，不悄悄换成列表第一项。`savePlanEditor` 对收入类也直接拒绝 |
+| `payoffPlanNow(planId)` | 逾期弹窗的"一次性补齐"。写入的本月覆盖额 = `getState().remaining` + 本月已自动还的那份（覆盖额**替换**本月自动还款，不是追加） |
 | `checkPlanEvents()` | 完成提示与逾期弹窗（延期 / 一次性补齐 / 放弃）。一次只弹一个，且不覆盖已打开的其他弹窗 |
 | `renderPlanOverviewCard(month)` | 总览页入口卡片，无活跃计划时返回空串 |
 | `planBootstrap()` | 自注册启动钩子。**不能从 `22-init.js` 直接调用**——`build.sh` 按文件名拼接，22 先于 27 执行 |
@@ -888,12 +908,12 @@ IIFE 自执行，暴露 `window.SyncUI` 和 `window.LANSync`。
 | `PlanMath.getVirtualDue(month)` | 本月应从可支配预算中扣除的月供（**不含 `credit`**——它的真实流水已在 `monthTotal` 里起作用，再扣一次是双重计算） |
 | `PlanMath.getVirtualDueByPlan(month)` | 同一个数字逐个计划拆开：`[{plan, due}]`（active 的 save / borrow）。统计页图表勾选「含固定账单」时用它把「大额计划本月预计金额（存 / 还）」列成单独的块 |
 | `PlanMath.getVirtualPaid(month)` | 本月实际被计划消耗的金额（钱不够时小于应付），用于算「可自由支配储蓄」 |
+| `PlanMath._allocate(month, surplus)` | 还债优先瀑布（按结束月升序）：save / borrow 取 `min(应付, 剩余)` 并从结余里扣；信用卡分期取全额但**不**从结余扣（流水已在预计支出里）。`getForecast` 与 `afterPlans` 共用，计划中心和各页的预计储蓄不会各算各的 |
+| `PlanMath.afterPlans(month, surplus)` | 一个（可为负的）月末结余拆成 `{reserved 计划拿走, free 真正算储蓄}`。储蓄目标要在计划之后才算（目标与计划在 `getSpendablePlan` 里是各自独立的预留，瀑布又是还债优先），所以目标环 / 目标达成率 / 假设分析都拿 `free`。`getForecast` 另返回 `reservedPay`（= 总预计还款里真正出自结余的部分） |
 | `StatsEngine.getSpendablePlan(month, opts)` | 可支配额度链的唯一出口，原先在 6 处复制粘贴。`opts` 供 What-If 传入假设收入/账单/储蓄目标 |
 
 结算瀑布（**还债优先**）：`结余 = max(0, 收入 − (当月支出 + 未付计划账单))` → 按结束月升序还债，`本期应还 = 剩余 ÷ 剩余期数` → 余下的才算储蓄。欠款自动摊入剩余期数。
 
-| `PlanMath._allocate(month, surplus)` | 还债优先瀑布（按结束月升序）：save / borrow 取 `min(应付, 剩余)` 并从结余里扣；信用卡分期取全额但**不**从结余扣（流水已在预计支出里）。`getForecast` 与 `afterPlans` 共用，计划中心和各页的预计储蓄不会各算各的 |
-| `PlanMath.afterPlans(month, surplus)` | 一个（可为负的）月末结余拆成 `{reserved 计划拿走, free 真正算储蓄}`。储蓄目标要在计划之后才算（目标与计划在 `getSpendablePlan` 里是各自独立的预留，瀑布又是还债优先），所以目标环 / 目标达成率 / 假设分析都拿 `free`。`getForecast` 另返回 `reservedPay`（= 总预计还款里真正出自结余的部分） |
 ---
 
 ### 28. `28-cloud-sync.js` — 可选云端同步
@@ -1062,13 +1082,18 @@ for t in tests/*.js; do node "$t"; done
 | `tests/money-input-test.js` | 金额输入：从分开始填（逐位 / 退格 / 忽略小数点与字母 / 前导零 / 11 位封顶 / 全选覆盖）、粘贴按数字处理、程序赋值不被改写、聚焦规整；记账页前一天 / 后一天（跨月 / 跨年 / 闰日）与保存后保留日期（含分摊路径）；各处金额框（设置 / 流水筛选 / 编辑 / 预算 RM↔% / 假设分析含 ± 按钮 / 假设分类）；防漏：不得残留 `type="number"` / `inputmode="decimal"` 的金额框（固定时钟，8 个变异验证过） |
 | `tests/split-center-visibility-test.js` | 追账中心只列「还欠钱」的：已归档 / 已还清的账单与人不出现在两个视图里、都在「已结清归档」且入口不丢、`getPendingSummary` 不计归档、勾选后就地刷新可撤销、匿名参与者（固定时钟） |
 | `tests/whatif-adjustment-test.js` | 假设分析：父分类上的 `±RM/天` / 设日均值 / 固定剩余总额按**整个分类**生效而不是每个叶子各一次；子分类优先、0 的下限作用于整体、按日均占比分摊、三层分类（固定时钟：剩 18 天） |
+| `tests/savings-forecast-test.js` | 储蓄 / 预测口径（固定时钟 10-13）：预计结余 vs 预计储蓄（计划吃光结余时总览目标环 = 计划中心 = 0；够付 / 超支 / 信用卡分期不重复扣 / 多计划按截止日先后）；预测里已付账单不外推（含过去月份、近 30 天孪生、三项之和 = 预测数）；统计页本月还剩扣未付账单；近 30 天下统计 / 报告储蓄预测仍是当月口径；假设分析按各自结余重算瀑布；标题 / 公式措辞。7 个变异逐一验证会失败 |
 | `tests/bill-toggle-test.js` | 「含固定账单」开关（含真点开关：矩形图 / 格子图 / 明细表随勾选刷新；勾选后图表里的固定账单归在独立的父级大块「月账单」下、房租水电等是它的子项，设了金额没记流水的按已付算（取较大者），另列「大额计划本月预计金额（存 / 还）」，这些不计入总数、不生成流水）：固定 = 账单分类 或 信用卡分期流水；饼图 / 格子图 / 矩形图 / 总览前五分类勾选含账单、取消去掉；日常可花预算扣分期、「剩余日常」不变；对账只看账单分类；模拟器仍按原口径（固定时钟） |
 | `tests/daily-average-test.js` | 「日均」只有一个定义：报告页与总览 / 统计同值、滚动 30 天尊重「不计日均」、月度 × 已过天数 = 滚动 × 30（固定时钟） |
 | `tests/structure-fixes-test.js` | 分类颜色继承与自定义图标、分摊编辑器字段、饼图标签几何 |
 | `tests/changelog-test.js` | 版本公告：已读标记切片、提示条、左右箭头（只有一条时也渲染但禁用）、**弹窗不抢占**（`107d6e8` 回归网）、**月初结转提醒不吞掉公告**、手动浏览不写标记、注册表不变量（id 唯一 / date 降序 / 无空 items / 无超前版本号） |
-| `tests/savings-forecast-test.js` | 储蓄 / 预测口径（固定时钟 10-13）：预计结余 vs 预计储蓄（计划吃光结余时总览目标环 = 计划中心 = 0；够付 / 超支 / 信用卡分期不重复扣 / 多计划按截止日先后）；预测里已付账单不外推（含过去月份、近 30 天孪生、三项之和 = 预测数）；统计页累计已存扣未付账单；近 30 天下统计 / 报告储蓄预测仍是当月口径；假设分析按各自结余重算瀑布；标题 / 公式措辞。7 个变异逐一验证会失败 |
 | `tests/category-waffle-test.js` | 分类格子图：视图切换与持久化、与饼图共用数据/配色、下钻、密度独立、展开弹窗、标签格子图回归 |
 | `tests/category-treemap-test.js` | 分类矩形图：squarify 布局（面积正比、铺满、长宽比、越界）、按层级嵌套、子框在父框内、下钻、展开弹窗、canvas 分辨率跟随渲染尺寸 |
+| `tests/batch2-dates-test.js` | 审计第二批的回归网（144 条）：日期与时区（今日 / 昨日 / 近 7 天 / 近 30 天、自定义范围的起止两天、清空日期框再保存）、月初结转（只设收入不设账单）、没设月收入时不说"预计超支"、统计页"剩余 N 天"只在看当前月时出现、报告页在近 30 天与按月之间切换、假设分析在近 30 天模式下仍按本月、流水页近 30 天日期范围每次按今天重算。**会自己再启动三次子进程**，分别在本机时区 / `TZ=UTC` / `TZ=EST5EDT` 下各跑一遍（这台 Windows 的 Node 只认 `UTC`、`EST5EDT` 这类名字，认不得 `Asia/Kuala_Lumpur`，所以"马来西亚"那一遍靠本机本身就是 UTC+8），每个时区又用"凌晨 02:30"和"晚上 22:30"两个假时钟各跑一遍——两个方向的错位出现在不同的钟点 |
+| `tests/calc-consistency-test.js` | 审计 H-08 ~ H-12 的回归网（56 条，固定时钟 10-13）：报告页总支出 / 圆环与总览同一个比（总支出对**月收入**，不是对已扣过账单的日常额度）、真超支仍标红、没设收入不标红；假设分析的日均基数不含"不计日均"大额和分期（取消消费 → 月支出恰好等于已花；−10% 只动日常；不调整 = 趋势）；分摊账单的他人份额只扣自己那笔（水电分摊、分摊的大额、午餐很少时日均不为负、近 30 天孪生）；百分比分类预算在报告页 / 总览 Top5 / 子分类校验里按 RM 比较；总览"本月还剩"（原名"累计已存"）不随「含固定账单」开关变化 |
+| `tests/batch3-fixes-test.js` | 审计 H-13 ~ H-17、H-28、H-30 ~ H-33 的回归网（75 条，固定时钟 10-13）：逾期弹窗"一次性补齐"点完剩余为 0（含本月已手动记过一笔的情况）；编辑信用卡分期后旧流水跟着变（金额 / 期数 / 起始月 / 分类 / 名字，只改备注不动流水）；分期分类下拉没有收入类、旧计划存的收入类不被悄悄换掉；记账页分摊切回均分后份额与预览都不再用隐藏的金额；分摊编辑器改总额后已结清的人只算已还的那份（与流水页路径一致，动过勾选框才按新份额）；合并导入不抹掉本机同月的其他账单项（含局域网同步那条路径）；统计页"在流水页查看"、清除筛选后再跳；编辑流水选分类不丢已改的内容；自定义范围 / 近 30 天下改层级、下钻图和表同一批数；卡片视图批量选择不弹编辑框、轻点不滑出删除条、批量模式划过不报错 |
+| `tests/xlsx-formula-test.js` | Excel 导出的每个公式**重算一遍**，必须等于文件里写好的值（`fullCalcOnLoad` 让 Excel 一打开就重算，所以重算出来的才是用户看到的）。内置一个小公式求值器，直接算 SpreadsheetML 里的 R1C1 公式（SUM / AVERAGE / MIN / MAX / COUNT / COUNTIF / SUMIF / SUMPRODUCT / IF 和数组运算）。五个场景：默认分类带子分类 + 两个月 + 收入、储蓄目标大于预算、没设预算、空账本、只有收入；另有几个"独立期望值"断言防止缓存值和公式一起错。`xlsx-export-test.js` X5 只验证 R1C1→A1 的写法，不验证算得对不对 |
+| `tests/batch1-fixes-test.js` | 审计第一批修复的回归网（106 条）：分类合并 / 成环不卡死、外部数据里的文字不许变成页面元素或代码（对 14 个页面 / 弹窗扫描 `[id^="pwn_"]`，并对每个 `onclick` 逐个 `new Function()` 校验语法、点一遍带攻击者名字的按钮）、本地账本损坏不被覆盖、畸形文件不清库、导入记录校验、月收入 0 不被预算改回、删除根分类、连续删除后撤销只撤自己、多标签页同步、云端 `version` 必须是整数。用 `vm.runInContext(..., { timeout })` 跑可能死循环的调用，失败时是断言失败而不是整个测试卡住 |
 | `tests/pin-lock-test.js` | PIN 锁不丢数据：设 PIN → 继续记账 → 锁定 → 解锁 / 改 PIN / 关 PIN / 重新打开标签页，各路径一条不少；读回校验失败时明文原样保留（22 条，驱动真实界面函数） |
 | `tests/cloud-merge-test.js` | 三方合并 `_merge3`：一侧改 / 删、删 vs 改、还款累加与夹取、旧版布尔参与人、账单链修复、计划记录去重、`savingsTarget` 原子性、与合并顺序无关的收敛（52 条） |
 | `tests/cloud-sync-test.js` | 云端同步整体（233 条）：恢复码、加解密与 AAD、内存版服务器 `FakeCloud`（镜像 SQL 语义）上的多设备收敛、失败矩阵（断网 / 超时 / 5xx / 冲突 / 限流 / 超大 / 回退 / 篡改）、G1–G6 防护、触发器与单飞、与 PIN 互斥、向导界面、i18n 键齐全 |

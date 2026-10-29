@@ -52,9 +52,16 @@ const SimulationEngine = {
     // Split bills: records are stored at the full bill amount, but others' shares
     // (paid OR unpaid) are not my spending. Subtract them so the simulation only
     // projects MY real share — consistent with the overview daily avg/prediction.
-    const splitOthers = isRolling ? StatsEngine.getPeriodSplitOthers() : StatsEngine.getSplitOthers(month);
-    const actualSpent = allRecords.reduce((s, r) => s + r.amount, 0) - splitOthers;
+    // Only the shares of the bills behind THESE records: a bill filed under a
+    // bill category is not in this list, and its share must not come off the rest.
+    const actualSpent = allRecords.reduce((s, r) => s + r.amount, 0) - StatsEngine.splitOthersOf(allRecords);
+    // categoryTotals = what has been spent (every record, my share). paceTotals =
+    // the part of it that sets the daily PACE: one-off large purchases flagged
+    // 不计日均 and card instalments have already happened / are fixed, so dividing
+    // them by the days passed and running them forward invented spending that the
+    // trend (StatsEngine.getPredictedBreakdown) never counts.
     const categoryTotals = {};
+    const paceTotals = {};
     const categoryDays = {};
     allRecords.forEach(r => {
       // Split records are stored at the full bill amount; only MY share counts in
@@ -65,6 +72,7 @@ const SimulationEngine = {
         if (bill) amt = parseFloat(bill.selfShare) || 0;
       }
       categoryTotals[r.categoryId] = (categoryTotals[r.categoryId] || 0) + amt;
+      if (StatsEngine.isPaceRecord(r)) paceTotals[r.categoryId] = (paceTotals[r.categoryId] || 0) + amt;
       const d = new Date(r.date || r.createdAt);
       const day = d.getDate();
       if (!categoryDays[r.categoryId]) categoryDays[r.categoryId] = new Set();
@@ -88,7 +96,7 @@ const SimulationEngine = {
     const getCurrentDailyAvg = (catId) => {
       // Fixed: guard against daysPassed=0 (M6)
       if (daysPassed <= 0) return 0;
-      return (categoryTotals[catId] || 0) / daysPassed;
+      return (paceTotals[catId] || 0) / daysPassed;
     };
 
     // For each leaf category, compute projected spending
@@ -219,13 +227,20 @@ const SimulationEngine = {
     });
     totalProjectedRemaining += hypotheticalTotal;
 
-    // Account for spending on non-leaf categories (e.g., records on root categories directly)
-    const leafTotalCurrent = Object.values(categoryProjections).reduce((s, p) => s + p.currentTotal, 0);
-    const unaccounted = Math.max(0, actualSpent - leafTotalCurrent);
-    if (unaccounted > 0.01) {
-      const unaccountedProjection = (unaccounted / Math.max(1, daysPassed)) * remainingDays;
-      totalProjectedRemaining += unaccountedProjection;
-    }
+    // Account for spending on non-leaf categories (e.g., records on root categories
+    // directly) — at the everyday pace, like the leaves
+    const paceAll = Object.values(paceTotals).reduce((s, v) => s + v, 0);
+    const paceLeaf = Object.keys(categoryProjections).reduce((s, id) => s + (paceTotals[id] || 0), 0);
+    const unaccounted = Math.max(0, paceAll - paceLeaf);
+    const unaccountedProjection = unaccounted > 0.01 ? (unaccounted / Math.max(1, daysPassed)) * remainingDays : 0;
+    totalProjectedRemaining += unaccountedProjection;
+
+    // The same model with NO what-if change: spent so far, plus every category at
+    // its current pace. A what-if is measured against this, so "no change" reads
+    // as exactly the trend however the base is made up.
+    let baselineRemaining = unaccountedProjection;
+    Object.keys(categoryProjections).forEach(id => { baselineRemaining += getCurrentDailyAvg(id) * remainingDays; });
+    const trendProjected = actualSpent + baselineRemaining;
 
     // Aggregate to root level
     const rootProjections = {};
@@ -297,6 +312,8 @@ const SimulationEngine = {
 
       // Projection
       totalProjected: totalProjected,
+      // The projection with every adjustment switched off (see baselineRemaining)
+      trendProjected: trendProjected,
       projectedRemaining: totalProjectedRemaining,
       projectedDailyAvg: projectedDailyAvg,
       projectedSavings: projectedSavings,

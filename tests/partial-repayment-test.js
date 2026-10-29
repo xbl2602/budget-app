@@ -255,9 +255,6 @@ async function run() {
   assert('stats reimbursement counts the partial', contrib === 20, String(contrib));
 
   let xml = '';
-  const origBlob = window.Blob;
-  window.Blob = function (parts) { xml = String(parts && parts[0] || ''); return { size: 0, type: '' }; };
-  try { window.exportToExcel(); } catch (e) {}
-  window.Blob = origBlob;
+  try { xml = window.buildExcelSpreadsheetXml(); } catch (e) {}
   assert('Excel marks the row as partially repaid', xml.indexOf('部分已还') !== -1);
 }

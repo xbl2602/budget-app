@@ -14,7 +14,7 @@
 // docs/superpowers/specs/2026-09-28-changelog-announcement-design.md.
 // Do not confuse this with the cloud ledger's monotonic integer `version` in
 // 28-cloud-sync.js — that is a different concept in a different IIFE.
-const APP_VERSION = '3.7.0';
+const APP_VERSION = '3.7.1';
 
 const COLORS = [
   '#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6',
@@ -24,6 +24,56 @@ const COLORS = [
 function escHtml(str) {
   var m = { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;' };
   return String(str).replace(/[&<>"'`]/g, function(c) { return m[c]; });
+}
+
+// For a value that goes INSIDE an inline handler:  onclick="fn(${jsArg(x)})".
+// escHtml() alone is not enough there. The browser decodes &#39; back into ' before
+// the handler runs, so a name like  a');evil();//  closes the string and runs, and
+// an ordinary name like  Mom's  is a syntax error that kills the button. JSON.stringify
+// writes a correct JS string literal (quotes, backslashes, newlines); escHtml then
+// makes that literal safe to sit inside the attribute. Do not wrap it in quotes.
+function jsArg(v) {
+  return escHtml(JSON.stringify(String(v == null ? '' : v)));
+}
+
+// ---- Dates: always the user's own calendar, never UTC -------------------------
+// toISOString().slice(0, 10) is the UTC date. In Kuala Lumpur (UTC+8) that is
+// YESTERDAY between 00:00 and 08:00; in the Americas it is TOMORROW in the evening.
+// A record's `date` is a local 'YYYY-MM-DDTHH:mm' string, so every day key, "today"
+// and date range has to be built from local fields too.
+
+// 'YYYY-MM-DD' of a Date, in local time.
+function localDateKey(d) {
+  d = d || new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// The calendar day a record belongs to. `date` is already local; the createdAt
+// fallback is a UTC timestamp and has to be converted.
+function recordDayKey(r) {
+  if (r && typeof r.date === 'string' && r.date.length >= 10) return r.date.slice(0, 10);
+  const d = new Date(r && r.createdAt);
+  return isNaN(d.getTime()) ? '' : localDateKey(d);
+}
+
+// Is the record's calendar day within [startDate, endDate] (both 'YYYY-MM-DD', inclusive)?
+// Compares day KEYS rather than timestamps, so no time zone enters into it — and a record
+// whose date has no time of day at all ('2026-10-28', which new Date() reads as UTC
+// midnight) still lands on the day it names.
+function inDayRange(r, startDate, endDate) {
+  const k = recordDayKey(r);
+  return k !== '' && k >= String(startDate).slice(0, 10) && k <= String(endDate).slice(0, 10);
+}
+
+// What <input type="date"> hands back ('YYYY-MM-DD') as the first or last moment of
+// that day in local time. new Date('2026-10-28') is UTC midnight = 08:00 in Kuala
+// Lumpur, which cut 'to 2026-10-28' off at 8 am and dropped the rest of the day.
+function parseLocalDay(s, endOfDay) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s));
+  if (!m) return new Date(s);   // not a bare date: leave it as given
+  return endOfDay
+    ? new Date(+m[1], +m[2] - 1, +m[3], 23, 59, 59, 999)
+    : new Date(+m[1], +m[2] - 1, +m[3], 0, 0, 0, 0);
 }
 
 const DEFAULT_CATEGORIES = [
@@ -131,7 +181,7 @@ function getPeriodDateRange() {
       start, end,
       daysInPeriod: 30,
       daysPassed: diffDays,
-      label: start.toISOString().substr(5,5) + ' → ' + end.toISOString().substr(5,5),
+      label: localDateKey(start).slice(5) + ' → ' + localDateKey(end).slice(5),
       key: 'rolling30'
     };
   }
@@ -153,6 +203,11 @@ function getPeriodDateRange() {
   window.expenseRecords = expenseRecords;
   window.incomeRecords = incomeRecords;
   window.escHtml = escHtml;
+  window.jsArg = jsArg;
+  window.localDateKey = localDateKey;
+  window.recordDayKey = recordDayKey;
+  window.parseLocalDay = parseLocalDay;
+  window.inDayRange = inDayRange;
   window.uuid = uuid;
   window.getMonthKey = getMonthKey;
   window.getStatsRange = getStatsRange;

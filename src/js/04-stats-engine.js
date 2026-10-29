@@ -83,8 +83,9 @@ const StatsEngine = {
     const currentMonth = getMonthKey(now.toISOString());
     const daysPassed = month === currentMonth ? today : daysInMonth;
     // Only my real share counts toward daily avg — others' shares (paid or not)
-    // are uncollected/collected money, not my spending
-    return daysPassed ? (records.reduce((s, r) => s + r.amount, 0) - this.getSplitOthers(month)) / daysPassed : 0;
+    // are uncollected/collected money, not my spending. Taken off only for the
+    // records that are in this sum (splitOthersOf), never the whole month's total.
+    return daysPassed ? (records.reduce((s, r) => s + r.amount, 0) - this.splitOthersOf(records)) / daysPassed : 0;
   },
 
   // TREND projection: "at this pace, how much will I spend by month-end". One-off
@@ -105,7 +106,7 @@ const StatsEngine = {
     // Fixed: guard against daysPassed=0 (first day of month) (M5)
     if (daysPassed <= 0) return 0;
     // Projection based on my real share only (others' shares excluded)
-    return ((total - this.getSplitOthers(month)) / daysPassed) * daysInMonth;
+    return ((total - this.splitOthersOf(records)) / daysPassed) * daysInMonth;
   },
 
   // CASH-FLOW projection: "how much will actually have left my wallet by
@@ -135,19 +136,26 @@ const StatsEngine = {
   //   instalments — card-instalment records (planId), at face value
   //   large       — 不计日均 records that are neither of the above, at face value
   //   normal      — my share of everyday spending, projected at its daily pace
-  // Others' split shares come off the everyday spending (they are not mine).
-  _predictParts(records, daysPassed, daysInPeriod, splitOthers, unpaidBills) {
+  // Others' split shares are not mine, and they come off the part their OWN record
+  // sits in: a utility bill split with a flatmate is a smaller bill, not smaller
+  // lunches. (They used to be taken off the everyday pace whatever the record was,
+  // which dragged the daily average down and the forecast with it.)
+  _predictParts(records, daysPassed, daysInPeriod, unpaidBills) {
     let bills = 0, inst = 0, large = 0, pace = 0;
+    const seen = new Set();
     (records || []).forEach(r => {
       if (!r) return;
-      const a = r.amount || 0;
+      let a = r.amount || 0;
+      if (r.splitBillId && !seen.has(r.splitBillId)) {
+        seen.add(r.splitBillId);
+        a = Math.max(0, a - this._othersShareOfBill(r.splitBillId));
+      }
       if (this.isBillCategory(r.categoryId)) bills += a;
       else if (r.planId) inst += a;
       else if (r.excludeFromAvg) large += a;
       else pace += a;
     });
-    const mine = Math.max(0, pace - Math.max(0, splitOthers || 0));
-    const trend = daysPassed > 0 ? (mine / daysPassed) * daysInPeriod : 0;
+    const trend = daysPassed > 0 ? (pace / daysPassed) * daysInPeriod : 0;
     const b = round2(bills), u = round2(Math.max(0, unpaidBills || 0)), i = round2(inst), l = round2(large);
     const predicted = round2(b + u + i + l + trend);
     return { bills: b, billsUnpaid: u, instalments: i, large: l, normal: round2(predicted - b - u - i - l), predicted: predicted };
@@ -166,7 +174,7 @@ const StatsEngine = {
     const daysInMonth = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10), 0).getDate() || 30;
     const now = new Date();
     const daysPassed = month === getMonthKey(now.toISOString()) ? now.getDate() : daysInMonth;
-    return this._predictParts(this.getRecordsInMonth(month), daysPassed, daysInMonth, this.getSplitOthers(month), this.getUnpaidPlannedBills(month));
+    return this._predictParts(this.getRecordsInMonth(month), daysPassed, daysInMonth, this.getUnpaidPlannedBills(month));
   },
 
   // Variable (ex-bills) twin: large (non-bill excludeFromAvg, already happened)
@@ -183,7 +191,7 @@ const StatsEngine = {
   // Rolling-30-day twins (same split, period window).
   getPeriodPredictedBreakdown() {
     const range = getPeriodDateRange();
-    return this._predictParts(this.getPeriodRecords(), range.daysPassed || 0, range.daysInPeriod || 30, this.getPeriodSplitOthers(), this.getPeriodUnpaidPlannedBills());
+    return this._predictParts(this.getPeriodRecords(), range.daysPassed || 0, range.daysInPeriod || 30, this.getPeriodUnpaidPlannedBills());
   },
 
   getPeriodPredictedBreakdownVariable() {
@@ -203,8 +211,7 @@ const StatsEngine = {
     if (!(daysPassed > 0)) return 0;
     const recs = this.getPeriodRecords().filter(r => r && !this.isFixedRecord(r) && !r.excludeFromAvg);
     const total = recs.reduce((s, r) => s + (r.amount || 0), 0);
-    const splitOthers = Math.max(0, this.getPeriodSplitOthers() || 0);
-    return round2(Math.max(0, total - Math.min(splitOthers, total)) / daysPassed * daysInPeriod);
+    return round2(Math.max(0, total - this.splitOthersOf(recs)) / daysPassed * daysInPeriod);
   },
 
   getSavingsPrediction(month) {
@@ -248,10 +255,14 @@ const StatsEngine = {
 
   // `excludeInstalments`: leave out card-instalment records (the 含固定账单
   // toggle is off), which sit inside ordinary categories.
-  getCategoryBreakdownDeep(month, categoryId, excludeInstalments) {
+  //
+  // `pool`: the records to break down, when the window is not a calendar month (a
+  // custom date range, or the rolling 30 days). Without it the month's records are used.
+  getCategoryBreakdownDeep(month, categoryId, excludeInstalments, pool) {
     const cat = DataStore.getCategory(categoryId);
     if (!cat) return null;
-    const records = this.getRecordsInMonth(month).filter(r => r.categoryId === categoryId && !(excludeInstalments && r.planId));
+    const source = pool || this.getRecordsInMonth(month);
+    const records = source.filter(r => r.categoryId === categoryId && !(excludeInstalments && r.planId));
     const children = DataStore.getChildren(categoryId);
     const breakdown = {
       category: cat,
@@ -260,7 +271,7 @@ const StatsEngine = {
       children: []
     };
     children.forEach(child => {
-      const childBreak = this.getCategoryBreakdownDeep(month, child.id, excludeInstalments);
+      const childBreak = this.getCategoryBreakdownDeep(month, child.id, excludeInstalments, source);
       if (childBreak) {
         breakdown.total += childBreak.total;
         breakdown.children.push(childBreak);
@@ -270,22 +281,21 @@ const StatsEngine = {
   },
 
   getCustomRangeTotals(startDate, endDate) {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const inRange = DataStore.getRecords().filter(r => {
-      const d = new Date(r.date || r.createdAt);
-      return d >= start && d <= end;
-    });
+    // Whole days: 'to 10-28' means up to the last minute of the 28th (compared by day, so
+    // the time zone does not matter). The split-bill part below still takes timestamps.
+    const start = parseLocalDay(startDate, false);
+    const end = parseLocalDay(endDate, true);
+    const inRange = DataStore.getRecords().filter(r => inDayRange(r, startDate, endDate));
     const records = expenseRecords(inRange);
     const incomeRecs = incomeRecords(inRange);
     const daily = {};
     records.forEach(r => {
-      const key = (r.date || r.createdAt).substr(0, 10);
+      const key = recordDayKey(r);
       daily[key] = (daily[key] || 0) + r.amount;
     });
     const incomeDaily = {};
     incomeRecs.forEach(r => {
-      const key = (r.date || r.createdAt).substr(0, 10);
+      const key = recordDayKey(r);
       incomeDaily[key] = (incomeDaily[key] || 0) + r.amount;
     });
     const incomeTotal = incomeRecs.reduce((s, r) => s + (r.amount || 0), 0);
@@ -348,6 +358,45 @@ const StatsEngine = {
       });
     });
     return total;
+  },
+
+  // Others' share (paid or not) of ONE split bill — the part of its full-amount
+  // record that was never my spending. 0 for a bill someone else paid (there is no
+  // record of mine behind it) and for an id that matches no bill.
+  _othersShareOfBill(billId) {
+    if (!billId || typeof SplitEngine === 'undefined' || !SplitEngine.getSplitBill) return 0;
+    const b = SplitEngine.getSplitBill(billId);
+    if (!b || b.payer !== 'self') return 0;
+    let total = 0;
+    (b.participants || []).forEach(p => {
+      const amt = parseFloat(p.share) || 0;
+      if (amt > 0) total += amt;
+    });
+    return total;
+  },
+
+  // Others' shares of the split bills behind exactly these records — what to take
+  // off a sum made from this list. A whole-month figure (getSplitOthers) is the
+  // wrong thing to subtract from a SUBSET of the month: with the bill's record in
+  // a bill category, or flagged 不计日均, the share came off records that never
+  // contained it, so daily averages went too low and could go negative. Counted once
+  // per bill, and never more than the record itself.
+  splitOthersOf(records) {
+    const seen = new Set();
+    let total = 0;
+    (records || []).forEach(r => {
+      if (!r || !r.splitBillId || seen.has(r.splitBillId)) return;
+      seen.add(r.splitBillId);
+      total += Math.min(this._othersShareOfBill(r.splitBillId), r.amount || 0);
+    });
+    return total;
+  },
+
+  // A record that sets the everyday spending PACE: not a bill, not a card
+  // instalment, not flagged 不计日均. Everything else is a known amount (already
+  // spent, or fixed) and is added at face value, never extrapolated.
+  isPaceRecord(r) {
+    return !!r && !r.excludeFromAvg && !this.isFixedRecord(r);
   },
 
   // Unpaid others' shares only (未收回账目) — shown in the overview total caption
@@ -430,7 +479,7 @@ const StatsEngine = {
   },
 
   getCustomSplitContrib(startDate, endDate) {
-    return this._splitContribBetween(new Date(startDate), new Date(endDate));
+    return this._splitContribBetween(parseLocalDay(startDate, false), parseLocalDay(endDate, true));
   },
 
   getOverspentCategories(month) {
@@ -455,9 +504,9 @@ const StatsEngine = {
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const key = d.toISOString().substr(0, 10);
+      const key = localDateKey(d);
       const dayTotal = expenseRecords(DataStore.getRecords().filter(r => {
-        const rd = (r.date || r.createdAt).substr(0, 10);
+        const rd = recordDayKey(r);
         return rd === key;
       })).reduce((s, r) => s + r.amount, 0);
       result.push({ date: key, total: dayTotal, label: (d.getMonth()+1)+'/'+d.getDate() });
@@ -563,8 +612,10 @@ const StatsEngine = {
     const currentMonth = getMonthKey(now.toISOString());
     const daysPassed = month === currentMonth ? today : daysInMonth;
     const varTotal = records.reduce((s, r) => s + r.amount, 0);
-    // My real share only (others' shares excluded from daily avg)
-    return daysPassed ? (varTotal - this.getSplitOthers(month)) / daysPassed : 0;
+    // My real share only (others' shares excluded from daily avg) — only the shares
+    // of the bills behind THESE records, so a split utility bill (filed under the
+    // bill category, not in this list) cannot eat into the lunches.
+    return daysPassed ? (varTotal - this.splitOthersOf(records)) / daysPassed : 0;
   },
 
   // Get combined disposable info
@@ -665,7 +716,7 @@ const StatsEngine = {
     const { daysPassed } = getPeriodDateRange();
     const records = this.getPeriodRecords().filter(r => !r.excludeFromAvg);
     // Only my real share counts: others' shares (paid or not) are not my spending
-    const realSpent = records.reduce((s, r) => s + r.amount, 0) - this.getPeriodSplitOthers();
+    const realSpent = records.reduce((s, r) => s + r.amount, 0) - this.splitOthersOf(records);
     return daysPassed > 0 ? realSpent / daysPassed : 0;
   },
   // TREND twin of getPredictedTotal for the rolling-30-day range. Must filter
@@ -677,7 +728,7 @@ const StatsEngine = {
     const { daysPassed, daysInPeriod } = getPeriodDateRange();
     if (daysPassed === 0) return 0;
     const records = this.getPeriodRecords().filter(r => !r.excludeFromAvg);
-    const realSpent = records.reduce((s, r) => s + r.amount, 0) - this.getPeriodSplitOthers();
+    const realSpent = records.reduce((s, r) => s + r.amount, 0) - this.splitOthersOf(records);
     const avg = realSpent / daysPassed;
     return Math.round(avg * daysInPeriod * 100) / 100;
   },
@@ -728,12 +779,11 @@ const StatsEngine = {
       ? this.getPeriodRecords().filter(r => !this.isFixedRecord(r))
       : this.getPeriodRecords();
     records.forEach(r => {
-      const d = new Date(r.date || r.createdAt);
-      const dayKey = d.toISOString().substr(0, 10);
+      const dayKey = recordDayKey(r);
       daily[dayKey] = (daily[dayKey] || 0) + r.amount;
     });
     // Net out split repayments per day
-    const contribP = this._splitContribByDay(d => d.toISOString().substr(0, 10));
+    const contribP = this._splitContribByDay(d => localDateKey(d));
     Object.entries(contribP).forEach(([k, v]) => {
       if (k in daily) daily[k] -= v;
     });
@@ -1062,7 +1112,7 @@ const PlanMath = {
 
   // What self-imposed plans actually consumed this month (may be less than the
   // due amount when the month came up short). Subtracting this from the app's
-  // "累计已存" gives the part of the surplus that is genuinely free.
+  // "本月还剩" gives the part of the surplus that is genuinely free.
   getVirtualPaid(month) {
     const state = this.computeUpTo(month);
     let sum = 0;

@@ -216,7 +216,7 @@ function submitRecord(e) {
   const tags = window._addRecordTags || [];
 
   if (splitMode) {
-    const splitDate = date || new Date().toISOString().slice(0, 16);
+    const splitDate = date || localNowForInput();
     const splitRes = SplitEngine.collectSplitBill({ amount, date: splitDate, note, tags, categoryId });
     if (!splitRes.ok) {
       showToast(splitRes.error, 'error');
@@ -281,7 +281,7 @@ function submitRecord(e) {
     amount,
     categoryId,
     type: recKind,
-    date: date || new Date().toISOString().slice(0, 16),
+    date: date || localNowForInput(),
     note,
     tags,
     excludeFromAvg: recKind === 'income' ? false : document.getElementById('addExcludeAvg').checked,
@@ -323,7 +323,7 @@ function renderAddTagsDisplay() {
     container.innerHTML = tags.map(t => 
       `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">
         ${escHtml(t)}
-        <span style="cursor:pointer;opacity:0.7" onclick="removeAddTag('${escHtml(t)}')">✕</span>
+        <span style="cursor:pointer;opacity:0.7" onclick="removeAddTag(${jsArg(t)})">✕</span>
       </span>`
     ).join('');
   }

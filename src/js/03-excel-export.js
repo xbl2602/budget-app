@@ -2,13 +2,285 @@
    EXCEL EXPORT — Generates a real .xlsx-compatible XML Spreadsheet
    with formulas (SUM, AVERAGE, MAX, MIN, IF, etc.) so the user
    can modify values and have them auto-recalculate.
-   Format: XML Spreadsheet 2003 (SpreadsheetML) — no ZIP needed,
-           opens natively in Excel / LibreOffice / Google Sheets.
+   Sheets are emitted as XML Spreadsheet 2003 (SpreadsheetML), then
+   converted by spreadsheetMLToXlsx() into a genuine .xlsx (OOXML in a
+   store-only zip) — no library needed.
    ============================================================ */
 (function() {
 'use strict';
 
-function exportToExcel() {
+/* ---------- SpreadsheetML → .xlsx (OOXML in a store-only zip) ---------- */
+
+const NS_SS = 'urn:schemas-microsoft-com:office:spreadsheet';
+const NS_X  = 'urn:schemas-microsoft-com:office:excel';
+const NS_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+const NS_REL  = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+// SpreadsheetML ss:ID → cellXfs index in XLSX_STYLES below. Keep both in step:
+// a style missing here silently renders as Default.
+const XLSX_STYLE_INDEX = {
+  Default: 0, header: 1, headerGreen: 2, money: 3, moneyBold: 4,
+  pct: 5, pctBold: 6, total: 7, danger: 8, success: 9, subtotal: 10
+};
+
+const XLSX_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+  '<styleSheet xmlns="' + NS_MAIN + '">' +
+  '<fonts count="5">' +
+    '<font><sz val="11"/><name val="Calibri"/></font>' +
+    '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>' +
+    '<font><b/><sz val="11"/><name val="Calibri"/></font>' +
+    '<font><b/><sz val="11"/><color rgb="FFEF4444"/><name val="Calibri"/></font>' +
+    '<font><b/><sz val="11"/><color rgb="FF10B981"/><name val="Calibri"/></font>' +
+  '</fonts>' +
+  '<fills count="6">' +
+    '<fill><patternFill patternType="none"/></fill>' +
+    '<fill><patternFill patternType="gray125"/></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FF4472C4"/><bgColor indexed="64"/></patternFill></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FF10B981"/><bgColor indexed="64"/></patternFill></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFF0F0F0"/><bgColor indexed="64"/></patternFill></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFE8E8E8"/><bgColor indexed="64"/></patternFill></fill>' +
+  '</fills>' +
+  '<borders count="3">' +
+    '<border><left/><right/><top/><bottom/><diagonal/></border>' +
+    '<border><left/><right/><top/><bottom style="thin"><color auto="1"/></bottom><diagonal/></border>' +
+    '<border><left/><right/><top style="medium"><color auto="1"/></top><bottom/><diagonal/></border>' +
+  '</borders>' +
+  '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+  // numFmtId 4 = #,##0.00 and 10 = 0.00% are built in
+  '<cellXfs count="11">' +
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+    '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
+    '<xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
+    '<xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+    '<xf numFmtId="4" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>' +
+    '<xf numFmtId="10" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+    '<xf numFmtId="10" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>' +
+    '<xf numFmtId="0" fontId="2" fillId="4" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>' +
+    '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+    '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+    '<xf numFmtId="0" fontId="2" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1"/>' +
+  '</cellXfs>' +
+  '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+  '</styleSheet>';
+
+function xmlEsc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+// Control characters are illegal in XML 1.0 and make Excel declare the file corrupt.
+function xmlText(s) {
+  return xmlEsc(String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, ''));
+}
+
+function colLetters(n) {
+  let s = '';
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+// SpreadsheetML formulas are R1C1 (RC[-1], R2C4:R9C4); xlsx wants A1.
+// `row`/`col` are the 1-based position of the cell holding the formula, which
+// relative references hang off. String literals ("正常") are left alone.
+function r1c1ToA1(formula, row, col) {
+  const part = (p, cur) => {
+    if (p === undefined) return { n: cur, abs: false };
+    if (p.charAt(0) === '[') return { n: cur + parseInt(p.slice(1, -1), 10), abs: false };
+    return { n: parseInt(p, 10), abs: true };
+  };
+  const re = /(^|[^A-Za-z0-9_.])R(\[-?\d+\]|\d+)?C(\[-?\d+\]|\d+)?(?![A-Za-z0-9_(])/g;
+  return formula.split(/("(?:[^"]|"")*")/).map((chunk, i) => {
+    if (i % 2 === 1) return chunk;
+    return chunk.replace(re, (m, pre, rp, cp) => {
+      const r = part(rp, row), c = part(cp, col);
+      if (r.n < 1 || c.n < 1) return pre + '#REF!';
+      return pre + (c.abs ? '$' : '') + colLetters(c.n) + (r.abs ? '$' : '') + r.n;
+    });
+  }).join('');
+}
+
+let _crcTable = null;
+function crc32(bytes) {
+  if (!_crcTable) {
+    _crcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      _crcTable[n] = c >>> 0;
+    }
+  }
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) crc = _crcTable[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+// Store-only zip (method 0). The export is a few KB of XML, so compression is
+// not worth a dependency.
+function zipStore(files) {
+  const enc = new TextEncoder();
+  const d = new Date();
+  const dosTime = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  const dosDate = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  const entries = files.map(f => {
+    const name = enc.encode(f.name);
+    const data = typeof f.data === 'string' ? enc.encode(f.data) : f.data;
+    return { name, data, crc: crc32(data), offset: 0 };
+  });
+  let size = 22;
+  entries.forEach(e => { size += 30 + e.name.length + e.data.length + 46 + e.name.length; });
+  const out = new Uint8Array(size);
+  const dv = new DataView(out.buffer);
+  let p = 0;
+  entries.forEach(e => {
+    e.offset = p;
+    dv.setUint32(p, 0x04034b50, true);
+    dv.setUint16(p + 4, 20, true);
+    dv.setUint16(p + 6, 0x0800, true);          // bit 11: UTF-8 names
+    dv.setUint16(p + 8, 0, true);               // stored
+    dv.setUint16(p + 10, dosTime, true);
+    dv.setUint16(p + 12, dosDate, true);
+    dv.setUint32(p + 14, e.crc, true);
+    dv.setUint32(p + 18, e.data.length, true);
+    dv.setUint32(p + 22, e.data.length, true);
+    dv.setUint16(p + 26, e.name.length, true);
+    dv.setUint16(p + 28, 0, true);
+    out.set(e.name, p + 30);
+    out.set(e.data, p + 30 + e.name.length);
+    p += 30 + e.name.length + e.data.length;
+  });
+  const cdStart = p;
+  entries.forEach(e => {
+    dv.setUint32(p, 0x02014b50, true);
+    dv.setUint16(p + 4, 20, true);
+    dv.setUint16(p + 6, 20, true);
+    dv.setUint16(p + 8, 0x0800, true);
+    dv.setUint16(p + 10, 0, true);
+    dv.setUint16(p + 12, dosTime, true);
+    dv.setUint16(p + 14, dosDate, true);
+    dv.setUint32(p + 16, e.crc, true);
+    dv.setUint32(p + 20, e.data.length, true);
+    dv.setUint32(p + 24, e.data.length, true);
+    dv.setUint16(p + 28, e.name.length, true);
+    // extra/comment length, disk number, internal + external attrs stay 0
+    dv.setUint32(p + 42, e.offset, true);
+    out.set(e.name, p + 46);
+    p += 46 + e.name.length;
+  });
+  dv.setUint32(p, 0x06054b50, true);
+  dv.setUint16(p + 8, entries.length, true);
+  dv.setUint16(p + 10, entries.length, true);
+  dv.setUint32(p + 12, p - cdStart, true);
+  dv.setUint32(p + 16, cdStart, true);
+  return out;
+}
+
+function kids(el, localName) {
+  return Array.prototype.filter.call(el.children, c => c.localName === localName);
+}
+
+function spreadsheetMLToXlsx(xml) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) throw new Error('SpreadsheetML is not well-formed');
+
+  const usedNames = {}, names = [];
+  const sheets = kids(doc.documentElement, 'Worksheet').map((ws, si) => {
+    let name = (ws.getAttributeNS(NS_SS, 'Name') || '').replace(/[\\\/?*\[\]:]/g, ' ').trim().slice(0, 31) || ('Sheet' + (si + 1));
+    while (usedNames[name.toLowerCase()]) name = name.slice(0, 28) + '_' + (si + 1);
+    usedNames[name.toLowerCase()] = true;
+    names.push(name);
+
+    const table = kids(ws, 'Table')[0];
+    let colsXml = '';
+    kids(table, 'Column').forEach((c, i) => {
+      const w = parseFloat(c.getAttributeNS(NS_SS, 'Width'));
+      if (w > 0) colsXml += '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + (Math.round(w / 5.25 * 100) / 100) + '" customWidth="1"/>';
+    });
+
+    let rowNo = 0, rowsXml = '';
+    kids(table, 'Row').forEach(row => {
+      rowNo = parseInt(row.getAttributeNS(NS_SS, 'Index'), 10) || rowNo + 1;
+      let colNo = 0, cellsXml = '';
+      kids(row, 'Cell').forEach(cell => {
+        colNo = parseInt(cell.getAttributeNS(NS_SS, 'Index'), 10) || colNo + 1;
+        const ref = colLetters(colNo) + rowNo;
+        const styleIdx = XLSX_STYLE_INDEX[cell.getAttributeNS(NS_SS, 'StyleID')] || 0;
+        const attrs = ' r="' + ref + '"' + (styleIdx ? ' s="' + styleIdx + '"' : '');
+        const data = kids(cell, 'Data')[0];
+        const text = data ? data.textContent : '';
+        const isNum = data && data.getAttributeNS(NS_SS, 'Type') === 'Number';
+        const rawF = cell.getAttributeNS(NS_SS, 'Formula');
+        const f = rawF ? '<f>' + xmlText(r1c1ToA1(rawF.replace(/^=/, ''), rowNo, colNo)) + '</f>' : '';
+        if (isNum) {
+          // NaN / Infinity in <v> is a corrupt-file error in Excel; leave the cell blank instead.
+          const num = Number(text);
+          cellsXml += '<c' + attrs + '>' + f + (text.trim() !== '' && isFinite(num) ? '<v>' + num + '</v>' : '') + '</c>';
+        } else if (f) {
+          cellsXml += '<c' + attrs + ' t="str">' + f + '<v>' + xmlText(text) + '</v></c>';
+        } else if (text === '') {
+          cellsXml += '<c' + attrs + '/>';
+        } else {
+          cellsXml += '<c' + attrs + ' t="inlineStr"><is><t xml:space="preserve">' + xmlText(text) + '</t></is></c>';
+        }
+      });
+      rowsXml += '<row r="' + rowNo + '">' + cellsXml + '</row>';
+    });
+
+    // The only worksheet options the exporter emits: a frozen header row and an autofilter.
+    let pane = '';
+    const opts = kids(ws, 'WorksheetOptions')[0];
+    const split = opts && kids(opts, 'SplitHorizontal')[0];
+    if (split && parseInt(split.textContent, 10) > 0) {
+      const y = parseInt(split.textContent, 10);
+      pane = '<pane ySplit="' + y + '" topLeftCell="A' + (y + 1) + '" activePane="bottomLeft" state="frozen"/>' +
+             '<selection pane="bottomLeft" activeCell="A' + (y + 1) + '" sqref="A' + (y + 1) + '"/>';
+    }
+    const af = kids(ws, 'AutoFilter')[0];
+    const afRange = af && af.getAttributeNS(NS_X, 'Range');
+
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<worksheet xmlns="' + NS_MAIN + '">' +
+      '<sheetViews><sheetView workbookViewId="0"' + (si === 0 ? ' tabSelected="1"' : '') + '>' + pane + '</sheetView></sheetViews>' +
+      '<sheetFormatPr defaultRowHeight="15"/>' +
+      (colsXml ? '<cols>' + colsXml + '</cols>' : '') +
+      '<sheetData>' + rowsXml + '</sheetData>' +
+      (afRange ? '<autoFilter ref="' + r1c1ToA1(afRange, 1, 1).replace(/\$/g, '') + '"/>' : '') +
+      '</worksheet>';
+  });
+
+  const files = [
+    { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      sheets.map((_, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') +
+      '</Types>' },
+    { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="' + NS_REL + '/officeDocument" Target="xl/workbook.xml"/>' +
+      '</Relationships>' },
+    { name: 'xl/workbook.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<workbook xmlns="' + NS_MAIN + '" xmlns:r="' + NS_REL + '">' +
+      '<bookViews><workbookView/></bookViews>' +
+      '<sheets>' + sheets.map((_, i) => '<sheet name="' + xmlEsc(names[i]) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join('') + '</sheets>' +
+      // cached <v> values for formula cells are placeholders; have Excel recompute everything on open
+      '<calcPr calcId="191029" fullCalcOnLoad="1"/>' +
+      '</workbook>' },
+    { name: 'xl/_rels/workbook.xml.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      sheets.map((_, i) => '<Relationship Id="rId' + (i + 1) + '" Type="' + NS_REL + '/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') +
+      '<Relationship Id="rId' + (sheets.length + 1) + '" Type="' + NS_REL + '/styles" Target="styles.xml"/>' +
+      '</Relationships>' },
+    { name: 'xl/styles.xml', data: XLSX_STYLES }
+  ];
+  sheets.forEach((s, i) => files.push({ name: 'xl/worksheets/sheet' + (i + 1) + '.xml', data: s }));
+  return zipStore(files);
+}
+
+function buildSpreadsheetXml() {
   const records = DataStore.getRecords();
   // Sheet 1 lists the whole ledger, but every aggregate below it is a SPENDING
   // question and must not see income. Keeping the two lists apart here is what
@@ -24,14 +296,28 @@ function exportToExcel() {
   cats.forEach(c => { if (c.parentId) parentMap[c.id] = c.parentId; });
   function getRootCatId(id) {
     let cur = id;
-    while (parentMap[cur]) cur = parentMap[cur];
+    const seen = new Set();   // a looped parent chain must not hang the export
+    while (parentMap[cur] && !seen.has(cur)) { seen.add(cur); cur = parentMap[cur]; }
     return cur;
   }
 
   // Helper: escape XML text
-  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const esc = xmlText;
   // Helper: format a number nicely
   const fmtNum = n => Number(n).toFixed(2);
+  // The value a cell actually holds once written (two decimals). Totals, averages and
+  // the "value saved next to each formula" are computed from THIS, so a viewer that
+  // shows the saved value and Excel (which recalculates on open) agree.
+  const cellNum = n => Number(fmtNum(n));
+  const sumOf = a => a.reduce((s, v) => s + v, 0);
+  const r2 = n => Math.round(n * 100) / 100;
+  // Ratios keep six decimals; fmtNum's two turned 37.5% into 38% wherever the saved value is shown.
+  const fmtRatio = n => String(Math.round(Number(n) * 1e6) / 1e6);
+  // One footer cell: the formula only when there are rows to point at (an empty range such
+  // as R2C2:R1C2 reaches back over the formula's own row and Excel reports a circular reference).
+  const footCell = (style, formula, value, asText, index) =>
+    '    <Cell' + (index ? ' ss:Index="' + index + '"' : '') + ' ss:StyleID="' + style + '"' + (formula ? ' ss:Formula="=' + formula + '"' : '') + '>' +
+    (asText ? '<Data ss:Type="String">' + esc(value) + '</Data>' : '<Data ss:Type="Number">' + value + '</Data>') + '</Cell>\n';
 
   // --- Gather all months with records ---
   const monthSet = new Set();
@@ -160,31 +446,41 @@ function exportToExcel() {
     xml += '   </Row>\n';
   });
 
-  // --- Summary footer with formulas (row after data) ---
+  // --- Summary footer with formulas (rows after data) ---
   // R1C1 notation: R{row}C{col}
+  // Four short rows, each figure under the 金额 column. EXPENSES ONLY: the footer used to
+  // SUM / AVERAGE the whole column, so a 3000 salary was added into 合计 and into 平均 —
+  // and the cells were written one after another, so the figures ended up under the
+  // 日期 / 分类 / 备注 headings instead of under 金额.
   const cAmountCol = 4; // column D = 4
   const rFirst = dataStartRow;
   const rLast = dataEndRow;
-
-  xml += `   <Row>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.total')}</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.records')}: ${sortedRecords.length}</Data></Cell>\n`;
-  // =SUM formula
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${rFirst}C${cAmountCol}:R${rLast}C${cAmountCol})"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.average')}</Data></Cell>\n`;
-  // =AVERAGE formula  
-  xml += `    <Cell ss:StyleID="money" ss:Formula="=AVERAGE(R${rFirst}C${cAmountCol}:R${rLast}C${cAmountCol})"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.max')}: </Data></Cell>\n`;
-  // =MAX formula
-  xml += `    <Cell ss:StyleID="money" ss:Formula="=MAX(R${rFirst}C${cAmountCol}:R${rLast}C${cAmountCol})"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.min')}: </Data></Cell>\n`;
-  // =MIN formula
-  xml += `    <Cell ss:StyleID="money" ss:Formula="=MIN(R${rFirst}C${cAmountCol}:R${rLast}C${cAmountCol})"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `   </Row>\n`;
+  const hasRows = sortedRecords.length > 0;
+  const expAmts = sortedRecords.filter(r => !isIncomeRec(r)).map(r => cellNum(r.amount));
+  const expCount = expAmts.length;
+  const expTotal = r2(sumOf(expAmts));
+  const tRng = 'R' + rFirst + 'C2:R' + rLast + 'C2';                       // 类型 column
+  const aRng = 'R' + rFirst + 'C' + cAmountCol + ':R' + rLast + 'C' + cAmountCol;   // 金额 column
+  const isExp = '&quot;' + esc(__('excel.label.expense')) + '&quot;';
+  const sumF = 'SUMIF(' + tRng + ',' + isExp + ',' + aRng + ')';
+  const cntF = 'COUNTIF(' + tRng + ',' + isExp + ')';
+  const footRow = (label, extra, formula, value) =>
+    '   <Row>\n' +
+    '    <Cell ss:StyleID="total"><Data ss:Type="String">' + esc(label) + '</Data></Cell>\n' +
+    (extra ? '    <Cell ss:StyleID="total"><Data ss:Type="String">' + esc(extra) + '</Data></Cell>\n' : '') +
+    footCell('moneyBold', hasRows ? formula : '', fmtNum(value), false, cAmountCol) +
+    '   </Row>\n';
+  xml += footRow(__('excel.summary.total') + __('excel.summary.expenseOnly'), __('excel.summary.records') + ': ' + expCount, sumF, expTotal);
+  xml += footRow(__('excel.summary.average'), '', 'IF(' + cntF + '>0,' + sumF + '/' + cntF + ',0)', expCount ? expTotal / expCount : 0);
+  // MAX / MIN limited to expense rows without array-entered formulas: SUMPRODUCT makes Excel
+  // evaluate the inner expression row by row; for MIN every non-expense row is pushed out of
+  // the way with +1E+15.
+  xml += footRow(__('excel.summary.max'), '', 'SUMPRODUCT(MAX((' + tRng + '=' + isExp + ')*' + aRng + '))', expCount ? expAmts.reduce((a, b) => Math.max(a, b), -Infinity) : 0);
+  xml += footRow(__('excel.summary.min'), '', 'IF(' + cntF + '>0,SUMPRODUCT(MIN(' + aRng + '+(' + tRng + '&lt;&gt;' + isExp + ')*1E+15)),0)', expCount ? expAmts.reduce((a, b) => Math.min(a, b), Infinity) : 0);
 
   xml += '  </Table>\n';
   // Auto-filter on header row
-  xml += '  <x:AutoFilter x:Range="R1C1:R1C' + nCols + '" xmlns="urn:schemas-microsoft-com:office:excel"/>\n';
+  xml += '  <x:AutoFilter x:Range="R1C1:R' + Math.max(1, dataEndRow) + 'C' + nCols + '" xmlns="urn:schemas-microsoft-com:office:excel"/>\n';
   // Freeze header row
   xml += '  <x:WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">\n';
   xml += '   <x:FreezePanes/>\n';
@@ -209,21 +505,30 @@ function exportToExcel() {
   xml += '   </Row>\n';
 
   const catStartRow = 2;
-  sortedCats.forEach((c, idx) => {
-    const rowNum = catStartRow + idx;
-    const catRecs = expenseRecs.filter(r => getRootCatId(r.categoryId) === c.id);
-    const catCount = catRecs.length;
+  // A root row is followed by one row per sub-category, so the root rows are NOT
+  // consecutive. The grand total must add exactly the root rows (the sub-categories are
+  // already inside them), which used to be written as one range R2:R<number of roots+1>
+  // — it stopped short, in the middle of the first few categories' children.
+  const rootRowOf = {};
+  let nextCatRow = catStartRow;
+  sortedCats.forEach(c => { rootRowOf[c.id] = nextCatRow; nextCatRow += 1 + DataStore.getChildren(c.id).length; });
+  const rootRowRefs = col => 'SUM(' + sortedCats.map(c => 'R' + rootRowOf[c.id] + 'C' + col).join(',') + ')';
+  const rootCountOf = {};
+  sortedCats.forEach(c => { rootCountOf[c.id] = expenseRecs.filter(r => getRootCatId(r.categoryId) === c.id).length; });
+  const allCatSum = r2(sumOf(sortedCats.map(c => cellNum(c.total))));
+  sortedCats.forEach((c) => {
+    const catCount = rootCountOf[c.id];
     // Also include sub-breakdown: children
     const children = DataStore.getChildren(c.id);
+    const rootTotal = cellNum(c.total);
     // For the total row of this root cat
     xml += '   <Row>\n';
     xml += `    <Cell><Data ss:Type="String">${esc(c.icon + ' ' + c.name)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(c.total)}</Data></Cell>\n`;
-    // Percentage formula: this amount / total of all categories
-    // =IF(SUM(R2C2:R{last}C2)>0, R{row}C2/SUM(R2C2:R{last}C2), 0)
-    const allCatSum = sortedCats.reduce((s, cc) => s + cc.total, 0);
+    // Percentage: this amount / the sum of the root rows
     if (allCatSum > 0) {
-      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(SUM(R2C2:R${catStartRow + rootCats.length - 1}C2)>0, RC[-1]/SUM(R2C2:R${catStartRow + rootCats.length - 1}C2), 0)"><Data ss:Type="Number">${fmtNum(c.total / allCatSum)}</Data></Cell>\n`;
+      const tot = rootRowRefs(2);
+      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(${tot}&gt;0, RC[-1]/${tot}, 0)"><Data ss:Type="Number">${fmtRatio(rootTotal / allCatSum)}</Data></Cell>\n`;
     } else {
       xml += `    <Cell ss:StyleID="pct"><Data ss:Type="Number">0</Data></Cell>\n`;
     }
@@ -239,9 +544,11 @@ function exportToExcel() {
         xml += '   <Row>\n';
         xml += `    <Cell><Data ss:Type="String">  ↳ ${esc(child.icon + ' ' + child.name)}</Data></Cell>\n`;
         xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(childTotal)}</Data></Cell>\n`;
-        // Subcategory % = this subcategory / this root's total
-        if (c.total > 0) {
-          xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(R[-1]C[-1]>0, RC[-1]/R[-1]C[-1], 0)"><Data ss:Type="Number">${fmtNum(childTotal / c.total)}</Data></Cell>\n`;
+        // Subcategory % = this subcategory / ITS ROOT's row. The old R[-1]C[-1] meant "the row
+        // above", which is the root only for the first child — for the second it was the first
+        // child, so 午餐 60 of 餐饮 200 read as 60 / 40 = 150%.
+        if (rootTotal > 0) {
+          xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(R${rootRowOf[c.id]}C2&gt;0, RC[-1]/R${rootRowOf[c.id]}C2, 0)"><Data ss:Type="Number">${fmtRatio(cellNum(childTotal) / rootTotal)}</Data></Cell>\n`;
         } else {
           xml += `    <Cell ss:StyleID="pct"><Data ss:Type="Number">0</Data></Cell>\n`;
         }
@@ -251,14 +558,13 @@ function exportToExcel() {
     }
   });
 
-  // Total row with formulas
-  const catEndRow = catStartRow + rootCats.length - 1; // only root cats in total
-  const catTotalRow = catStartRow + sortedCats.length + rootCats.reduce((s, c) => s + DataStore.getChildren(c.id).length, 0);
+  // Total row: the root rows only; 100% is simply 100%
+  const hasCats = sortedCats.length > 0;
   xml += '   <Row>\n';
   xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.grandTotal')}</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R2C2:R${catEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=IF(R[-1]C[-1]>0, RC[-1]/R[-1]C[-1], 0)"><Data ss:Type="Number">1</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="total" ss:Formula="=SUM(R2C4:R${catEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
+  xml += footCell('moneyBold', hasCats ? rootRowRefs(2) : '', fmtNum(allCatSum), false);
+  xml += `    <Cell ss:StyleID="pctBold"><Data ss:Type="Number">${allCatSum > 0 ? 1 : 0}</Data></Cell>\n`;
+  xml += footCell('total', hasCats ? rootRowRefs(4) : '', sumOf(sortedCats.map(c => rootCountOf[c.id])), false);
   xml += '   </Row>\n';
 
   xml += '  </Table>\n';
@@ -290,6 +596,9 @@ function exportToExcel() {
   const monthStartRow = 2;
   // Sort months descending (newest first)
   const monthsDesc = [...sortedMonths].sort((a, b) => a > b ? -1 : 1);
+  // What each column holds, kept as we write so the footer can state the right figure next
+  // to its formula (and so a viewer that does not recalculate still shows correct totals).
+  const mCol = { total: [], count: [], daily: [], budget: [], spendable: [], savings: [], usage: [], income: [], net: [] };
   monthsDesc.forEach((m, idx) => {
     const rowNum = monthStartRow + idx;
     const md = monthData[m];
@@ -303,7 +612,10 @@ function exportToExcel() {
     if (targetType === 'fixed') targetAmount += (targetObj.fixedAmount || 0);
     if (targetType === 'percent') targetAmount += budget * ((targetObj.percent || 0) / 100);
     spendable = Math.max(0, budget - targetAmount);
-    savingsAmt = spendable - md.total;
+    // Worked out from the cells as written (two decimals), the way the formulas will
+    const tC = cellNum(md.total), sC = cellNum(spendable), bC = cellNum(budget);
+    savingsAmt = sC > 0 ? r2(sC - tC) : (tC > 0 ? -tC : 0);
+    const netC = r2(cellNum(md.income) - tC);
 
     xml += '   <Row>\n';
     xml += `    <Cell><Data ss:Type="String">${esc(m)}</Data></Cell>\n`;
@@ -316,39 +628,41 @@ function exportToExcel() {
     // If 可支配>0: savings = 可支配 - 支出; else: savings = -支出 (or 0)
     xml += `    <Cell ss:StyleID="money" ss:Formula="=IF(RC[-1]>0, RC[-1]-RC[-5], IF(RC[-5]>0, -RC[-5], 0))"><Data ss:Type="Number">${fmtNum(savingsAmt)}</Data></Cell>\n`;
     // Budget usage rate: B / E (总支出 / 预算)
-    if (budget > 0) {
-      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-3]>0, RC[-6]/RC[-3], 0)"><Data ss:Type="Number">${fmtNum(md.total / budget)}</Data></Cell>\n`;
+    if (bC > 0) {
+      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-3]>0, RC[-6]/RC[-3], 0)"><Data ss:Type="Number">${fmtRatio(tC / bC)}</Data></Cell>\n`;
+      mCol.usage.push(tC / bC);
     } else {
       xml += `    <Cell><Data ss:Type="String">${esc(__('excel.summary.noBudget'))}</Data></Cell>\n`;
     }
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(md.income)}</Data></Cell>\n`;
     // 结余 = 收入记录 − 总支出 (I − B), as a formula so editing a row above updates it
-    xml += `    <Cell ss:StyleID="money" ss:Formula="=RC[-1]-RC[-8]"><Data ss:Type="Number">${fmtNum(md.net)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="money" ss:Formula="=RC[-1]-RC[-8]"><Data ss:Type="Number">${fmtNum(netC)}</Data></Cell>\n`;
     xml += '   </Row>\n';
+    mCol.total.push(tC); mCol.count.push(md.count); mCol.daily.push(cellNum(md.dailyAvg)); mCol.budget.push(bC);
+    mCol.spendable.push(sC); mCol.savings.push(savingsAmt); mCol.income.push(cellNum(md.income)); mCol.net.push(netC);
   });
 
-  // Totals row
+  // Totals row. With no months at all there is nothing to add up, and R2:R1 would point
+  // back at the formula's own row, so the cells are plain zeros then.
   const monthEndRow = monthStartRow + monthsDesc.length - 1;
+  const hasMonths = monthsDesc.length > 0;
+  const mRng = c => 'R' + monthStartRow + 'C' + c + ':R' + monthEndRow + 'C' + c;
+  const avgOf = a => a.length ? sumOf(a) / a.length : 0;
   xml += '   <Row>\n';
   xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.totalAvg')}</Data></Cell>\n`;
-  // Total spending across all months
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C2:R${monthEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Total records
-  xml += `    <Cell ss:StyleID="total" ss:Formula="=SUM(R${monthStartRow}C3:R${monthEndRow}C3)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Average daily average
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=AVERAGE(R${monthStartRow}C4:R${monthEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Average budget
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=AVERAGE(R${monthStartRow}C5:R${monthEndRow}C5)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Average spendable
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=AVERAGE(R${monthStartRow}C6:R${monthEndRow}C6)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Total savings
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C7:R${monthEndRow}C7)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Average usage rate
-  xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=AVERAGE(R${monthStartRow}C8:R${monthEndRow}C8)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Total recorded income
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C9:R${monthEndRow}C9)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  // Net across the window
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C10:R${monthEndRow}C10)"><Data ss:Type="Number">0</Data></Cell>\n`;
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + mRng(2) + ')' : '', fmtNum(sumOf(mCol.total)), false);          // total spending
+  xml += footCell('total', hasMonths ? 'SUM(' + mRng(3) + ')' : '', sumOf(mCol.count), false);                      // total records
+  xml += footCell('moneyBold', hasMonths ? 'AVERAGE(' + mRng(4) + ')' : '', fmtNum(avgOf(mCol.daily)), false);     // average daily average
+  xml += footCell('moneyBold', hasMonths ? 'AVERAGE(' + mRng(5) + ')' : '', fmtNum(avgOf(mCol.budget)), false);    // average budget
+  xml += footCell('moneyBold', hasMonths ? 'AVERAGE(' + mRng(6) + ')' : '', fmtNum(avgOf(mCol.spendable)), false); // average spendable
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + mRng(7) + ')' : '', fmtNum(sumOf(mCol.savings)), false);       // total savings
+  // Average usage rate: months without a budget hold the text 无预算, and AVERAGE of a column
+  // of text is #DIV/0! — the very first export of someone who has not set a budget yet.
+  xml += mCol.usage.length
+    ? footCell('pctBold', 'IF(COUNT(' + mRng(8) + ')&gt;0,AVERAGE(' + mRng(8) + '),&quot;&quot;)', fmtRatio(avgOf(mCol.usage)), false)
+    : footCell('pctBold', hasMonths ? 'IF(COUNT(' + mRng(8) + ')&gt;0,AVERAGE(' + mRng(8) + '),&quot;&quot;)' : '', '', true);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + mRng(9) + ')' : '', fmtNum(sumOf(mCol.income)), false);        // total recorded income
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + mRng(10) + ')' : '', fmtNum(sumOf(mCol.net)), false);          // net across the window
   xml += '   </Row>\n';
 
   xml += '  </Table>\n';
@@ -372,6 +686,8 @@ function exportToExcel() {
   });
   xml += '   </Row>\n';
 
+  const btCol = { budget: [], target: [], spendable: [], actual: [], remaining: [] };
+  const btUsage = [];
   monthsDesc.forEach((m, idx) => {
     const rowNum = monthStartRow + idx;
     const md = monthData[m];
@@ -381,44 +697,53 @@ function exportToExcel() {
     const targetType = targetObj.type || 'fixed';
     if (targetType === 'fixed') targetAmount += (targetObj.fixedAmount || 0);
     if (targetType === 'percent') targetAmount += budget * ((targetObj.percent || 0) / 100);
-    const spendable = Math.max(0, budget - targetAmount);
-    const remaining = spendable - md.total;
-    const usagePct = spendable > 0 ? (md.total / spendable) : 0;
+    // Figures worked out from the cells as written, the way the formulas will
+    const bC = cellNum(budget), tgC = cellNum(targetAmount), eC = cellNum(md.total);
+    const spendable = bC > 0 ? Math.max(0, r2(bC - tgC)) : 0;
+    const remaining = r2(spendable - eC);
     const status = remaining >= 0 ? __('excel.status.normal') : __('excel.status.overspent');
 
     xml += '   <Row>\n';
     xml += `    <Cell><Data ss:Type="String">${esc(m)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(budget)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(targetAmount)}</Data></Cell>\n`;
-    // 可支配 = 预算 - 储蓄目标 (formula: B-C)
-    xml += `    <Cell ss:StyleID="money" ss:Formula="=IF(RC[-2]>0, RC[-2]-RC[-1], 0)"><Data ss:Type="Number">${fmtNum(spendable)}</Data></Cell>\n`;
+    // 可支配 = 预算 - 储蓄目标 (formula: B-C), never below 0 — a savings target bigger than
+    // the budget used to make the formula negative while the saved value said 0
+    xml += `    <Cell ss:StyleID="money" ss:Formula="=IF(RC[-2]>0, MAX(0, RC[-2]-RC[-1]), 0)"><Data ss:Type="Number">${fmtNum(spendable)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(md.total)}</Data></Cell>\n`;
     // 剩余 = 可支配 - 实际支出 (formula: D-E)
     xml += `    <Cell ss:StyleID="money" ss:Formula="=RC[-2]-RC[-1]"><Data ss:Type="Number">${fmtNum(remaining)}</Data></Cell>\n`;
     // 使用率 = 实际 / 可支配 (formula: E/D)
     if (spendable > 0) {
-      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-3]>0, RC[-2]/RC[-3], 0)"><Data ss:Type="Number">${fmtNum(usagePct)}</Data></Cell>\n`;
+      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-3]>0, RC[-2]/RC[-3], 0)"><Data ss:Type="Number">${fmtRatio(eC / spendable)}</Data></Cell>\n`;
+      btUsage.push(eC / spendable);
     } else {
       xml += `    <Cell><Data ss:Type="String">N/A</Data></Cell>\n`;
     }
-    // 状态 = IF(剩余>=0, "正常", "超支")
-    const fRow = rowNum;
+    // 状态 = IF(剩余>=0, "正常", "超支"). 剩余 is column F, i.e. two to the left (RC[-2]);
+    // RC[-1] is 使用率, which is never negative, so every month — overspent or not —
+    // came out as 正常.
     const statusOk = __('excel.status.normal');
     const statusFail = __('excel.status.overspent');
-    xml += `    <Cell ss:StyleID="${remaining >= 0 ? 'success' : 'danger'}" ss:Formula="=IF(RC[-1]>=0, &quot;${esc(statusOk)}&quot;, &quot;${esc(statusFail)}&quot;)"><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
+    xml += `    <Cell ss:StyleID="${remaining >= 0 ? 'success' : 'danger'}" ss:Formula="=IF(RC[-2]>=0, &quot;${esc(statusOk)}&quot;, &quot;${esc(statusFail)}&quot;)"><Data ss:Type="String">${esc(status)}</Data></Cell>\n`;
     xml += '   </Row>\n';
+    btCol.budget.push(bC); btCol.target.push(tgC); btCol.spendable.push(spendable); btCol.actual.push(eC); btCol.remaining.push(remaining);
   });
 
   // Totals
   const btEndRow = monthStartRow + monthsDesc.length - 1;
+  const btRng = c => 'R' + monthStartRow + 'C' + c + ':R' + btEndRow + 'C' + c;
   xml += '   <Row>\n';
   xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.total')}</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C2:R${btEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C3:R${btEndRow}C3)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C4:R${btEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C5:R${btEndRow}C5)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C6:R${btEndRow}C6)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=AVERAGE(R${monthStartRow}C7:R${btEndRow}C7)"><Data ss:Type="Number">0</Data></Cell>\n`;
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + btRng(2) + ')' : '', fmtNum(sumOf(btCol.budget)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + btRng(3) + ')' : '', fmtNum(sumOf(btCol.target)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + btRng(4) + ')' : '', fmtNum(sumOf(btCol.spendable)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + btRng(5) + ')' : '', fmtNum(sumOf(btCol.actual)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + btRng(6) + ')' : '', fmtNum(sumOf(btCol.remaining)), false);
+  // Average usage: months with nothing to spend show N/A, and a column of only text is #DIV/0!
+  xml += btUsage.length
+    ? footCell('pctBold', 'IF(COUNT(' + btRng(7) + ')&gt;0,AVERAGE(' + btRng(7) + '),&quot;&quot;)', fmtRatio(avgOf(btUsage)), false)
+    : footCell('pctBold', hasMonths ? 'IF(COUNT(' + btRng(7) + ')&gt;0,AVERAGE(' + btRng(7) + '),&quot;&quot;)' : '', '', true);
   xml += `    <Cell ss:StyleID="total"><Data ss:Type="String"></Data></Cell>\n`;
   xml += '   </Row>\n';
 
@@ -441,6 +766,8 @@ function exportToExcel() {
   });
   xml += '   </Row>\n';
 
+  const svCol = { budget: [], target: [], actual: [], savings: [] };
+  const svRate = [];
   monthsDesc.forEach((m, idx) => {
     const rowNum = monthStartRow + idx;
     const md = monthData[m];
@@ -450,35 +777,46 @@ function exportToExcel() {
     const targetType = targetObj.type || 'fixed';
     if (targetType === 'fixed') targetAmount += (targetObj.fixedAmount || 0);
     if (targetType === 'percent') targetAmount += budget * ((targetObj.percent || 0) / 100);
-    const spendable = Math.max(0, budget - targetAmount);
-    const actualSavings = spendable - md.total;
+    // Figures worked out from the cells as written, the way the formulas will
+    const bC = cellNum(budget), tgC = cellNum(targetAmount), eC = cellNum(md.total);
+    const spendable = Math.max(0, r2(bC - tgC));
+    const actualSavings = r2(spendable - eC);
 
     xml += '   <Row>\n';
     xml += `    <Cell><Data ss:Type="String">${esc(m)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(budget)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(targetAmount)}</Data></Cell>\n`;
     xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(md.total)}</Data></Cell>\n`;
-    // 实际储蓄 = 可支配 - 支出 = (预算 - 目标) - 支出  → formula: B - C - D
-    xml += `    <Cell ss:StyleID="money" ss:Formula="=RC[-3]-RC[-2]-RC[-1]"><Data ss:Type="Number">${fmtNum(actualSavings)}</Data></Cell>\n`;
-    // 目标达成率 = 实际储蓄 / 储蓄目标, capped at 100%
-    if (targetAmount > 0) {
-      const rate = Math.min(100, Math.max(0, actualSavings / targetAmount));
-      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-1]>0, MIN(1, MAX(0, RC[-1]/RC[-4])), 0)"><Data ss:Type="Number">${fmtNum(rate)}</Data></Cell>\n`;
+    // 实际储蓄 = 可支配 - 支出 = max(0, 预算 - 目标) - 支出  → formula: MAX(0, B - C) - D
+    // (the max keeps a target bigger than the budget from going negative here while the
+    // saved value says otherwise)
+    xml += `    <Cell ss:StyleID="money" ss:Formula="=MAX(0, RC[-3]-RC[-2])-RC[-1]"><Data ss:Type="Number">${fmtNum(actualSavings)}</Data></Cell>\n`;
+    // 目标达成率 = 实际储蓄 / 储蓄目标, capped at 100%. 储蓄目标 is column C, three to the
+    // left (RC[-3]); RC[-4] is the budget, which made 200 saved of a 200 target read as
+    // 20% when the budget was 1000.
+    if (tgC > 0) {
+      const rate = actualSavings > 0 ? Math.min(1, actualSavings / tgC) : 0;
+      xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(RC[-1]>0, MIN(1, MAX(0, RC[-1]/RC[-3])), 0)"><Data ss:Type="Number">${fmtRatio(rate)}</Data></Cell>\n`;
+      svRate.push(rate);
     } else {
       xml += `    <Cell><Data ss:Type="String">—</Data></Cell>\n`;
     }
     xml += '   </Row>\n';
+    svCol.budget.push(bC); svCol.target.push(tgC); svCol.actual.push(eC); svCol.savings.push(actualSavings);
   });
 
   // Totals
   const svEndRow = monthStartRow + monthsDesc.length - 1;
+  const svRng = c => 'R' + monthStartRow + 'C' + c + ':R' + svEndRow + 'C' + c;
   xml += '   <Row>\n';
   xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.total')}</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C2:R${svEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C3:R${svEndRow}C3)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C4:R${svEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${monthStartRow}C5:R${svEndRow}C5)"><Data ss:Type="Number">0</Data></Cell>\n`;
-  xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=AVERAGE(R${monthStartRow}C6:R${svEndRow}C6)"><Data ss:Type="Number">0</Data></Cell>\n`;
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + svRng(2) + ')' : '', fmtNum(sumOf(svCol.budget)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + svRng(3) + ')' : '', fmtNum(sumOf(svCol.target)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + svRng(4) + ')' : '', fmtNum(sumOf(svCol.actual)), false);
+  xml += footCell('moneyBold', hasMonths ? 'SUM(' + svRng(5) + ')' : '', fmtNum(sumOf(svCol.savings)), false);
+  xml += svRate.length
+    ? footCell('pctBold', 'IF(COUNT(' + svRng(6) + ')&gt;0,AVERAGE(' + svRng(6) + '),&quot;&quot;)', fmtRatio(avgOf(svRate)), false)
+    : footCell('pctBold', hasMonths ? 'IF(COUNT(' + svRng(6) + ')&gt;0,AVERAGE(' + svRng(6) + '),&quot;&quot;)' : '', '', true);
   xml += '   </Row>\n';
 
   xml += '  </Table>\n';
@@ -651,7 +989,7 @@ function exportToExcel() {
       .map(c => ({ id: c.id, name: c.name, icon: c.icon, total: incomeCatTotals[c.id] || 0 }))
       .filter(c => c.total > 0)
       .sort((a, b) => b.total - a.total);
-    const incomeGrandTotal = sortedIncomeCats.reduce((s, c) => s + c.total, 0);
+    const incomeGrandTotal = r2(sumOf(sortedIncomeCats.map(c => cellNum(c.total))));
 
     xml += ' <Worksheet ss:Name="' + __('excel.sheet.incomeBreakdown') + '">\n';
     xml += '  <Table>\n';
@@ -672,7 +1010,7 @@ function exportToExcel() {
       xml += `    <Cell><Data ss:Type="String">${esc(c.icon + ' ' + c.name)}</Data></Cell>\n`;
       xml += `    <Cell ss:StyleID="money"><Data ss:Type="Number">${fmtNum(c.total)}</Data></Cell>\n`;
       if (incomeGrandTotal > 0) {
-        xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(SUM(R2C2:R${incStartRow + sortedIncomeCats.length - 1}C2)>0, RC[-1]/SUM(R2C2:R${incStartRow + sortedIncomeCats.length - 1}C2), 0)"><Data ss:Type="Number">${fmtNum(c.total / incomeGrandTotal)}</Data></Cell>\n`;
+        xml += `    <Cell ss:StyleID="pct" ss:Formula="=IF(SUM(R2C2:R${incStartRow + sortedIncomeCats.length - 1}C2)&gt;0, RC[-1]/SUM(R2C2:R${incStartRow + sortedIncomeCats.length - 1}C2), 0)"><Data ss:Type="Number">${fmtRatio(cellNum(c.total) / incomeGrandTotal)}</Data></Cell>\n`;
       } else {
         xml += `    <Cell ss:StyleID="pct"><Data ss:Type="Number">0</Data></Cell>\n`;
       }
@@ -680,21 +1018,31 @@ function exportToExcel() {
       xml += '   </Row>\n';
     });
 
+    // Total row. 100% is just 100%: the old formula divided by "the cell above", which is the
+    // last category and not a total (two incomes of 3000 and 1000 gave 400%).
     const incEndRow = incStartRow + sortedIncomeCats.length - 1;
+    const hasIncCats = sortedIncomeCats.length > 0;
     xml += '   <Row>\n';
     xml += `    <Cell ss:StyleID="total"><Data ss:Type="String">${__('excel.summary.grandTotal')}</Data></Cell>\n`;
-    xml += `    <Cell ss:StyleID="moneyBold" ss:Formula="=SUM(R${incStartRow}C2:R${incEndRow}C2)"><Data ss:Type="Number">0</Data></Cell>\n`;
-    xml += `    <Cell ss:StyleID="pctBold" ss:Formula="=IF(R[-1]C[-1]>0, RC[-1]/R[-1]C[-1], 0)"><Data ss:Type="Number">1</Data></Cell>\n`;
-    xml += `    <Cell ss:StyleID="total" ss:Formula="=SUM(R${incStartRow}C4:R${incEndRow}C4)"><Data ss:Type="Number">0</Data></Cell>\n`;
+    xml += footCell('moneyBold', hasIncCats ? `SUM(R${incStartRow}C2:R${incEndRow}C2)` : '', fmtNum(incomeGrandTotal), false);
+    xml += `    <Cell ss:StyleID="pctBold"><Data ss:Type="Number">${incomeGrandTotal > 0 ? 1 : 0}</Data></Cell>\n`;
+    xml += footCell('total', hasIncCats ? `SUM(R${incStartRow}C4:R${incEndRow}C4)` : '', sumOf(sortedIncomeCats.map(c => incomeRecs.filter(r => getRootCatId(r.categoryId) === c.id).length)), false);
     xml += '   </Row>\n';
     xml += '  </Table>\n';
     xml += ' </Worksheet>\n';
   }
 
   xml += '</Workbook>';
+  return xml;
+}
 
-  // Trigger download as .xlsx (the XML Spreadsheet format — Excel opens it fine)
-  const blob = new Blob([xml], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+function exportToExcel() {
+  // Excel sniffs the content, not the extension: SpreadsheetML bytes saved as
+  // .xlsx is refused with "file format or extension is not valid". The sheets
+  // are still built as SpreadsheetML (easy to emit), then packed into a real
+  // OOXML zip here.
+  const bytes = spreadsheetMLToXlsx(buildSpreadsheetXml());
+  const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -711,6 +1059,9 @@ function exportToExcel() {
 
   // === EXPORTS ===
   window.exportToExcel = exportToExcel;
+  // Exposed so tests can inspect the sheet content without unzipping the download.
+  window.buildExcelSpreadsheetXml = buildSpreadsheetXml;
+  window.spreadsheetMLToXlsx = spreadsheetMLToXlsx;
 
   // === I18N ENTRIES ===
   addI18nEntries({
@@ -782,6 +1133,7 @@ function exportToExcel() {
     'excel.split.status.unpaid': { zh: '⏳ 待收', en: '⏳ Unpaid' },
     'excel.split.status.unknown': { zh: '❓ 金额不明（待收）', en: '❓ Unknown (unpaid)' },
     'excel.summary.total': { zh: '合计', en: 'Total' },
+    'excel.summary.expenseOnly': { zh: '（只算支出）', en: ' (expenses only)' },
     'excel.summary.totalAvg': { zh: '合计/平均', en: 'Total / Avg' },
     'excel.summary.grandTotal': { zh: '总计', en: 'Grand Total' },
     'excel.summary.records': { zh: '记录数', en: 'Records' },

@@ -165,7 +165,7 @@ function renderSettings() {
                 <span>${escHtml(tag)}</span>
                 <div class="flex items-center gap-8">
                   <span class="text-xs text-muted">${__('settings.tags.recordCount', stats.count, formatMoney(stats.total))}</span>
-                  <button class="btn btn-ghost btn-sm" style="color:var(--danger);font-size:0.65rem" onclick="deleteTag('${escHtml(tag)}')">${__('settings.tags.delete')}</button>
+                  <button class="btn btn-ghost btn-sm" style="color:var(--danger);font-size:0.65rem" onclick="deleteTag(${jsArg(tag)})">${__('settings.tags.delete')}</button>
                 </div>
               </div>
             `;
@@ -287,9 +287,22 @@ function importJSON(event) {
   const reader = new FileReader();
   reader.onload = function(e) {
     importJSONContent = e.target.result;
+    // Look inside before asking: a file that is not a ledger should say so right
+    // now, and "Replace" should show what it is about to swap.
+    let fileRecords = null;
+    try {
+      const peek = JSON.parse(importJSONContent);
+      if (peek && Array.isArray(peek.records) && Array.isArray(peek.categories)) fileRecords = peek.records.length;
+    } catch (err) { /* reported just below */ }
+    if (fileRecords === null) {
+      importJSONContent = null;
+      showToast(__('settings.toast.importFailed'), 'error');
+      return;
+    }
     showModal(`
       <div class="modal-title">${__('settings.import.title')}</div>
       <p class="text-sm text-secondary mb-16">${__('settings.import.description')}</p>
+      <p class="text-sm mb-16" style="font-weight:600">${__('settings.import.counts', fileRecords, DataStore.getRecords().length)}</p>
       <div class="flex flex-col gap-8">
         <button class="btn btn-primary btn-block" onclick="confirmImportJSON('replace')">🔄 ${__('settings.import.replace')}</button>
         <button class="btn btn-outline btn-block" onclick="confirmImportJSON('merge')">🔀 ${__('settings.import.merge')}</button>
@@ -308,6 +321,8 @@ function confirmImportJSON(mode) {
   closeModal();
   if (success) {
     showToast(__('settings.toast.importSuccess'));
+    // Never drop records without saying so
+    if (DataStore.lastImportDropped > 0) showToast(__('settings.toast.importSkipped', DataStore.lastImportDropped), 'warning');
     renderSettings();
   } else {
     showToast(__('settings.toast.importFailed'), 'error');
@@ -359,7 +374,7 @@ function renderLogPreview() {
   if (!log || log.length === 0) return '<span style="color:var(--text-muted)">' + __('settings.noRecords') + '</span>';
   return log.slice(-20).reverse().map(e => {
     const time = e.t.substring(11, 23);
-    return `<div>${time} [${e.a}] ${e.d}  | ${__('settings.diag.logRecords')}${e.recordsCount} ${__('settings.diag.logPending')}${e.pendingId || '—'}</div>`;
+    return `<div>${escHtml(time)} [${escHtml(e.a)}] ${escHtml(e.d)}  | ${__('settings.diag.logRecords')}${escHtml(e.recordsCount)} ${__('settings.diag.logPending')}${escHtml(e.pendingId || '—')}</div>`;
   }).join('');
 }
 
@@ -457,9 +472,9 @@ function renderDataInspector() {
         html += '<div style="padding:2px 4px;border-bottom:1px solid var(--border);display:flex;gap:4px">' +
           '<span style="color:var(--text-muted);min-width:80px" title="' + r.id + '">' + r.id.substring(0, 8) + '</span>' +
           '<span style="min-width:60px">RM' + r.amount.toFixed(2) + '</span>' +
-          '<span style="min-width:60px">' + (cat ? cat.icon + cat.name : '?') + '</span>' +
-          '<span style="color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis">' + (r.note || '') + '</span>' +
-          '<span style="color:var(--text-muted);min-width:80px">' + (r.date || '') + '</span>' +
+          '<span style="min-width:60px">' + (cat ? escHtml(cat.icon + cat.name) : '?') + '</span>' +
+          '<span style="color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis">' + escHtml(r.note || '') + '</span>' +
+          '<span style="color:var(--text-muted);min-width:80px">' + escHtml(r.date || '') + '</span>' +
         '</div>';
       });
       html += '</div>';
@@ -512,11 +527,11 @@ function renderDataInspector() {
       html += '<div style="display:flex;padding:3px 6px;border-bottom:1px solid var(--border);align-items:center' + (!inAudit ? ';background:rgba(239,68,68,0.05)' : '') + '">';
       html += '<span style="width:70px;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted)" title="' + r.id + '">' + r.id.substring(0, 6) + '</span>';
       html += '<span style="width:45px;font-weight:500;color:' + (isIncomeRec(r) ? 'var(--success)' : 'inherit') + '">' + (isIncomeRec(r) ? '+' : '') + formatMoney(r.amount) + '</span>';
-      html += '<span style="width:55px;overflow:hidden;text-overflow:ellipsis" title="catId=' + r.categoryId + '">' + (cat ? cat.icon + cat.name.substring(0,3) : '❓' + r.categoryId.substring(0,4)) + '</span>';
-      html += '<span style="width:80px;color:var(--text-muted)">' + (r.date ? r.date.substring(0, 10) : '-') + '</span>';
-      html += '<span style="width:70px;color:var(--text-muted)">' + (r.createdAt ? r.createdAt.substring(0, 10) : '-') + '</span>';
+      html += '<span style="width:55px;overflow:hidden;text-overflow:ellipsis" title="catId=' + escHtml(r.categoryId) + '">' + (cat ? escHtml(cat.icon + cat.name.substring(0,3)) : '❓' + escHtml(String(r.categoryId).substring(0,4))) + '</span>';
+      html += '<span style="width:80px;color:var(--text-muted)">' + (r.date ? escHtml(String(r.date).substring(0, 10)) : '-') + '</span>';
+      html += '<span style="width:70px;color:var(--text-muted)">' + (r.createdAt ? escHtml(String(r.createdAt).substring(0, 10)) : '-') + '</span>';
       html += '<span style="width:15px;color:var(--text-muted)">' + (r.excludeFromAvg ? '📌' : '') + '</span>';
-      html += '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted)">' + (r.note || '') + '</span>';
+      html += '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted)">' + escHtml(r.note || '') + '</span>';
       html += '<button class="btn btn-ghost" style="padding:1px 4px;font-size:0.6rem;flex-shrink:0;opacity:0.5" onclick="showRecordRaw(\'' + r.id + '\')" title="' + __('settings.diag.viewRaw') + '">🔍</button>';
       html += '</div>';
     });
@@ -707,9 +722,9 @@ function refreshStatsAudit() {
       auditHtml += '<div style="padding:2px 4px;border-bottom:1px solid var(--border);display:flex;gap:4px">' +
         '<span style="color:var(--text-muted);min-width:80px" title="' + r.id + '">' + r.id.substring(0, 8) + '</span>' +
         '<span style="min-width:60px">RM' + r.amount.toFixed(2) + '</span>' +
-        '<span style="min-width:60px">' + (cat ? cat.icon + cat.name : '?') + '</span>' +
-        '<span style="color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis">' + (r.note || '') + '</span>' +
-        '<span style="color:var(--text-muted);min-width:80px">' + (r.date || '') + '</span>' +
+        '<span style="min-width:60px">' + (cat ? escHtml(cat.icon + cat.name) : '?') + '</span>' +
+        '<span style="color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis">' + escHtml(r.note || '') + '</span>' +
+        '<span style="color:var(--text-muted);min-width:80px">' + escHtml(r.date || '') + '</span>' +
       '</div>';
     });
     auditHtml += '</div>';
@@ -835,6 +850,8 @@ function deleteTag(tag) {
     // Import modal
     'settings.import.title': { zh: '导入数据', en: 'Import Data' },
     'settings.import.description': { zh: '选择导入方式：', en: 'Choose import method:' },
+    'settings.import.counts': { zh: '这个文件里有 {0} 条记录，你现在有 {1} 条。选"替换"后，现在的记录会被文件里的取代。', en: 'This file has {0} records and you have {1} right now. "Replace" swaps your current records for the file\'s.' },
+    'settings.toast.importSkipped': { zh: '有 {0} 条记录因为金额或日期不对，没有导入', en: '{0} records were skipped because their amount or date was not valid' },
     'settings.import.replace': { zh: '🔄 替换当前数据', en: '🔄 Replace current data' },
     'settings.import.merge': { zh: '🔀 合并到当前数据', en: '🔀 Merge into current data' },
     'settings.import.cancel': { zh: '取消', en: 'Cancel' },

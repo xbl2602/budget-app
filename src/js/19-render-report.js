@@ -9,15 +9,14 @@ function renderReport() {
   const el = document.getElementById('page-report');
   const now = new Date();
   const isRolling = getStatsRange() === 'rolling30';
-  if (!reportMonth) {
-    if (isRolling) {
-      const { start, end, label } = getPeriodDateRange();
-      reportMonth = label; // Use label as pseudo month identifier
-    } else {
-      reportMonth = getMonthKey(now.toISOString());
-    }
-  }
-  const month = reportMonth;
+  // `reportMonth` only ever holds a real 'YYYY-MM'. It used to be set to the last-30-days
+  // label ("09-29 → 10-28") as a stand-in, and then every income / bills / forecast
+  // lookup for that "month" found nothing — and, never being reset, the label was still
+  // there after switching back to month mode.
+  if (!/^\d{4}-\d{2}$/.test(reportMonth)) reportMonth = getMonthKey(now.toISOString());
+  // The settings behind the report (income, bills, savings target) belong to the calendar
+  // month; the last-30-days mode only changes which records are counted.
+  const month = isRolling ? getMonthKey(now.toISOString()) : reportMonth;
   const periodRange = isRolling ? getPeriodDateRange() : null;
 
   const monthTotal = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month);
@@ -34,8 +33,11 @@ function renderReport() {
   const netDisposable = spRep.netDisposable;
   const targetAmount = spRep.targetAmount;
   const planDueVirtual = spRep.planDueVirtual;
-  // This page sets the budget against the month's FULL total (instalments
-  // included), so it must not have them carved out of the budget a second time.
+  // Shown as 每日可花 / in the savings summary only. It is NOT what the 总支出 colour
+  // and the ring are held against: 总支出 includes the paid bills, and this figure
+  // has the bills (and the savings target) taken off already, so comparing the two
+  // counted the bills twice and called 3,600 of 5,000 income an overspend. The
+  // total is held against the income, like the overview and this table's footer do.
   const spendableBudget = spRep.spendableBudget + (spRep.planDueCredit || 0);
   const variableSpending = isRolling ? StatsEngine.getPeriodVariableSpending() : StatsEngine.getVariableSpending(month);
   const actualSavings = Math.max(0, budget - (monthTotal + unpaidPlannedBillsRep));
@@ -79,7 +81,7 @@ function renderReport() {
   const rootCats = DataStore.getExpenseRootCategories();
   const catTableRows = rootCats.map(c => {
     const spent = rootTotals[c.id] || 0;
-    const catBudget = DataStore.getCategoryBudget(c.id, month).value || 0;
+    const catBudget = DataStore.getCategoryBudgetAmount(c.id, month);   // RM, also for a % budget
     const remaining = catBudget > 0 ? catBudget - spent : 0;
     const pct = catBudget > 0 ? (spent / catBudget * 100) : 0;
     const status = catBudget > 0 ? (spent <= catBudget ? __('report.withinBudget') : __('report.overspent')) : __('report.dash');
@@ -99,7 +101,7 @@ function renderReport() {
         <div class="flex items-center gap-12" style="flex-wrap:wrap">
           <div class="flex items-center gap-8">
           <label class="text-sm text-secondary">${isRolling ? __('report.selectPeriod') : __('report.selectMonth')}</label>
-          <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${month}" onchange="changeReportMonth(this.value)">
+          <input type="month" id="reportMonthInput" class="input-field" style="width:160px" value="${isRolling ? '' : month}" onchange="changeReportMonth(this.value)">
           </div>
           <button class="btn btn-outline" onclick="printReport()">${__('report.printReport')}</button>
         </div>
@@ -114,7 +116,7 @@ function renderReport() {
         </div>
         <div class="card" style="text-align:center">
           <div class="card-title">${__('report.totalExpenditure')}</div>
-          <div class="text-xl font-bold" style="color:${monthTotal <= spendableBudget ? 'var(--success)' : 'var(--danger)'}">${formatMoney(monthTotal)}</div>
+          <div class="text-xl font-bold" style="${budget > 0 ? 'color:' + (monthTotal <= budget ? 'var(--success)' : 'var(--danger)') : ''}">${formatMoney(monthTotal)}</div>
           ${(() => {
             const billActual = isRolling ? StatsEngine.getPeriodFixedSpending() : StatsEngine.getFixedSpendingActual(month);
             if (billActual > 0) {
@@ -282,7 +284,7 @@ function renderReport() {
 
   // Draw rings and sparkline
   setTimeout(() => {
-    const budgetPct = spendableBudget > 0 ? (monthTotal / spendableBudget) : (budget > 0 ? monthTotal / budget : 0);
+    const budgetPct = budget > 0 ? monthTotal / budget : 0;   // the same ratio the text under the ring prints
     drawRing('reportBudgetRing', Math.min(budgetPct, 1), budgetPct > 1 ? '#EF4444' : '#6366F1',
       (budgetPct * 100).toFixed(0) + '%', '#EF4444');
     const savingsPct = targetAmount > 0 ? Math.max(0, Math.min(savingsPred / targetAmount, 1)) : 0;

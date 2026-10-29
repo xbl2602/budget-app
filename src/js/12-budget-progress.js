@@ -335,7 +335,7 @@ function renderBudgetProgressCardInner(month) {
       html += '<span class="text-xs text-muted" style="flex-shrink:0">↳</span>';
       html += '<span>' + escHtml(cr.cat.icon) + '</span>';
       html += '<span class="font-semibold" style="font-size:0.78rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(cr.cat.name) + '</span>';
-      html += '<span class="text-xs text-muted" style="flex-shrink:0">(' + cr.parentName + ')</span>';
+      html += '<span class="text-xs text-muted" style="flex-shrink:0">(' + escHtml(cr.parentName) + ')</span>';
       html += '<span style="font-size:0.78rem;font-weight:600">' + formatMoney(cr.spent) + '</span>';
       html += '<span class="text-xs text-muted">/ ' + formatMoney(cr.budget) + '</span>';
       html += '<span style="font-size:0.8rem;font-weight:700;color:' + cBarColor + ';width:48px;text-align:right">' + cr.pct.toFixed(0) + '%</span>';

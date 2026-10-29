@@ -17,19 +17,25 @@ function checkMonthRollover() {
     const lastAmounts = DataStore.getBillAmounts(lastMonth);
     const currentAmounts = DataStore.getBillAmounts(currentMonth);
 
-    if (Object.keys(currentAmounts).length === 0 && Object.keys(lastAmounts).length > 0) {
+    const carriedBills = Object.keys(currentAmounts).length === 0 && Object.keys(lastAmounts).length > 0;
+    if (carriedBills) {
       Object.entries(lastAmounts).forEach(([billId, amount]) => {
         DataStore.setBillAmount(currentMonth, billId, amount);
       });
-
-      const lastIncome = DataStore.getMonthlyIncome(lastMonth);
-      if (lastIncome > 0 && DataStore.getMonthlyIncome(currentMonth) === 0) {
-        DataStore.setMonthlyIncome(currentMonth, lastIncome);
-      }
-
-      DataStore.save();
-      setTimeout(() => showBillRolloverReminder(lastMonth, currentMonth), 500);
     }
+
+    // Income is carried on its own, not as a side effect of the bills: someone who
+    // only ever set a monthly income (no bills) used to start every month at 0, and
+    // the overview then called that "est. overspend".
+    const lastIncome = DataStore.getMonthlyIncome(lastMonth);
+    const carriedIncome = lastIncome > 0 && DataStore.getMonthlyIncome(currentMonth) === 0;
+    if (carriedIncome) {
+      DataStore.setMonthlyIncome(currentMonth, lastIncome);
+    }
+
+    if (carriedBills || carriedIncome) DataStore.save();
+    // The reminder is about the bills; an income-only carry-over has nothing to review
+    if (carriedBills) setTimeout(() => showBillRolloverReminder(lastMonth, currentMonth), 500);
 
     DataStore.setLastActiveMonth(currentMonth);
   }

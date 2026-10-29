@@ -52,6 +52,7 @@
   **不得再加第二个域名、不得用通配符**；要换域名必须同时改 `28-cloud-sync.js` 的 `CFG.URL`、CSP、`supabase/` 与文档，并经人类确认
 - 云端同步默认关闭：未启用时**不得发出任何网络请求**，也不得注册监听器 / 定时器
 - 新增功能后确保仍可离线打开运行
+- **内联事件处理器里的参数用 `jsArg(x)`，不要写 `'${escHtml(x)}'`**：浏览器会把 `&#39;` 还原成 `'` 再执行，名字里有撇号（`Mom's`）按钮就报语法错误，恶意名字还能直接执行代码（CSP 允许内联脚本）。写法见 `STRUCTURE.md` 的 `jsArg`，回归网是 `tests/batch1-fixes-test.js`
 
 ### #5 构建纪律
 **永远修改 `src/` 下的源文件，然后运行 `bash build.sh`。**
@@ -68,6 +69,7 @@
 - 只通过 `window.*` 导出被其他文件或 HTML onclick 引用的符号
 - 不要直接访问其他文件的 IIFE 内部变量
 - 不要在文件外部或全局作用域声明变量
+- **导出的是对象时，改它要"原地改"，别把内部变量重新赋成新对象**：`window.recordsFilter = recordsFilter` 之后，别的文件拿到的是那一个对象；`recordsFilter = {...}` 会让它们手里的变成没人读的旧副本（统计页"在流水页查看"曾因此失效）。要清空就 `delete` 键再 `Object.assign`
 
 ---
 
@@ -143,9 +145,17 @@
 ### #11 统计范围联动
 **本月 / 近30天模式影响所有页面。**
 - 当前模式通过 `getStatsRange()` 获取（`'month'` / `'rolling30'`）
-- 受影响的页面：总览(overview)、统计(stats)、报告(report)、流水(records)、假设分析(whatif)
+- 受影响的页面：总览(overview)、统计(stats)、报告(report)、流水(records)
+- **例外：假设分析(whatif) 永远按日历月算**——它预测的是"本月还剩几天会怎样"，30 天窗口没有未来天数，每个调整都是空操作。近 30 天模式下页面会写一句说明
 - 新增页面如果涉及时间范围筛选，也必须联动
 - 预算和储蓄环图始终保持月口径，不受范围切换影响
+- 报告页等页面里"月份"变量只放真正的 `YYYY-MM`，**不要把窗口标签（"09-29 → 10-28"）当月份存**；收入、账单、储蓄目标这些设置永远按日历月读
+- **日期一律按本地日历**：今天、昨天、某天的记录、"到某日为止"，用 `localDateKey` / `recordDayKey` / `inDayRange`（`01-constants.js`）。不要写 `toISOString().slice(0,10)` 或 `new Date('YYYY-MM-DD')`——它们是 UTC，马来西亚每天 00:00–08:00 会错一天。新测试要在 `TZ=UTC` 和 `TZ=EST5EDT` 下也跑一遍（见 `tests/batch2-dates-test.js`）
+- **只拿同类的数互相比**：总支出（含已付账单）对月收入；去掉账单的日常支出对"日常可花"（收入 − 账单 − 储蓄目标）。别拿含账单的总数去比已经扣过账单的额度（报告页曾因此把 3600 / 5000 判成超支）
+- **扣"他人份额"用 `StatsEngine.splitOthersOf(records)`**，只扣你手里这份记录对应账单的份额；不要拿整月的 `getSplitOthers(month)` 去扣一个子集（日常 / 不计日均 / 账单分类各是子集）
+- **分类预算比较前先换成 RM**：`DataStore.getCategoryBudgetAmount(catId, month)`。`getCategoryBudget().value` 是用户输入的原值，百分比预算时是 30 不是 RM30
+- **假设分析的日均基数只用 `StatsEngine.isPaceRecord` 的记录**，大额（不计日均）和信用卡分期已经发生，按原价计入但不外推
+- **统计页重画图表，日期窗口一律用 `statsRangeArgs()`**，不要写死 `null, null`。自定义范围下 `statsMonth` 是空串，写死会画出空图；下钻的分解要传 `getHierarchyRecords(...)` 给 `getCategoryBreakdownDeep`，保证自定义范围 / 近 30 天 / 月份和第一层是同一批记录
 
 ### #14 文档配套
 **新增函数/文件/功能后必须更新相关文档。**

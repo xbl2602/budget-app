@@ -55,17 +55,22 @@ function renderWhatIf() {
     if (changed) DataStore.setWhatIfParams(savedParams);
   }
 
-  const periodOpts = isRolling ? getPeriodDateRange() : null;
+  // What-if always works on the calendar month, whatever the stats range says. A
+  // last-30-days window has no "rest of the month" left to change, so every adjustment
+  // was a no-op ("0 days left") — and the parameter panel on the left, which was
+  // always month-based, disagreed with the results on the right.
+  const periodOpts = null;
 
   const descToday = new Date().getDate();
   const descMonthDays = new Date(parseInt(month.split('-')[0]), parseInt(month.split('-')[1]), 0).getDate();
-  const descPeriodLabel = isRolling ? __('whatif.period') : __('whatif.month');
-  const descPeriodValue = isRolling ? periodOpts.label : month;
-  const descDaysRemaining = Math.max(0, isRolling ? periodOpts.daysInPeriod - periodOpts.daysPassed : descMonthDays - descToday);
+  const descPeriodLabel = __('whatif.month');
+  const descPeriodValue = month;
+  const descDaysRemaining = Math.max(0, descMonthDays - descToday);
 
   let html = `<div class="whatif-container">
     <div class="section-title">🔮 ${__('whatif.title')}</div>
     <p class="text-sm text-muted" style="margin-bottom:16px">${__('whatif.descTemplate', descPeriodLabel, descPeriodValue, descDaysRemaining)}</p>
+    ${isRolling ? `<p class="text-xs text-muted" style="margin:-8px 0 16px">${__('whatif.monthOnlyNote')}</p>` : ''}
     <div class="whatif-two-col">
       <div class="whatif-left">`;
   html += renderWhatIfParams(month, savedParams, periodOpts);
@@ -93,7 +98,7 @@ function renderWhatIf() {
 }
 
 function renderWhatIfParams(month, savedParams, periodOpts) {
-  const isRolling = periodOpts && periodOpts.isRolling;
+  const isRolling = periodOpts && periodOpts.key === 'rolling30';
   // What-If reasons only about cutting SPENDING: income categories have no
   // spendable behaviour to project, so they are excluded here (not just zero).
   const allCats = DataStore.getCategories().filter(c => c && c.kind !== 'income');
@@ -114,6 +119,7 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
     : DataStore.getRecords()
         .filter(r => getMonthKey(r.date || r.createdAt) === month && !StatsEngine.isBillCategory(r.categoryId)));
   const catActual = {};
+  const catPace = {};
   records.forEach(r => {
     // Split records store the full bill amount; only my share is my real spending
     let amt = r.amount;
@@ -122,11 +128,14 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
       if (bill) amt = parseFloat(bill.selfShare) || 0;
     }
     catActual[r.categoryId] = (catActual[r.categoryId] || 0) + amt;
+    // The daily average is the everyday pace: one-off 不计日均 purchases and card
+    // instalments are spent, but they are not a daily habit (same base the engine uses)
+    if (StatsEngine.isPaceRecord(r)) catPace[r.categoryId] = (catPace[r.categoryId] || 0) + amt;
   });
 
   // Compute daily avg per category
   const catDailyAvg = {};
-  Object.entries(catActual).forEach(([catId, total]) => {
+  Object.entries(catPace).forEach(([catId, total]) => {
     catDailyAvg[catId] = daysPassed > 0 ? total / daysPassed : 0;
   });
 
@@ -215,7 +224,7 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
           <option value="adjust" ${nodeAdj.mode === 'adjust' ? 'selected' : ''}>${__('whatif.mode.adjust')}</option>
           <option value="zero" ${nodeAdj.mode === 'zero' ? 'selected' : ''}>${__('whatif.mode.zero')}</option>
         </select>
-        <input ${valueAttrs} class="input-field whatif-value-input" data-cat="${node.id}" value="${nodeAdj.value || ''}" placeholder="${__('whatif.valuePlaceholder')}" ${valueHidden ? 'style="display:none"' : ''}>
+        <input ${valueAttrs} class="input-field whatif-value-input" data-cat="${node.id}" value="${escHtml(nodeAdj.value || '')}" placeholder="${__('whatif.valuePlaceholder')}" ${valueHidden ? 'style="display:none"' : ''}>
         ${nodeAdj.mode === 'adjust' && !valueHidden ? `<button type="button" class="btn btn-ghost btn-sm whatif-sign-btn" onclick="toggleMoneySign(this)" title="${__('money.toggleSign')}" aria-label="${__('money.toggleSign')}">±</button>` : ''}
         <span class="text-xs text-muted" style="min-width:60px;text-align:right">${__('whatif.dailyAvg', formatMoney(nodeDailyAvg))}</span>
       </div>`;
@@ -247,7 +256,7 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
         <option value="percent" ${globalAdj.mode === 'percent' ? 'selected' : ''}>${__('whatif.globalModePercent')}</option>
         <option value="amount" ${globalAdj.mode === 'amount' ? 'selected' : ''}>${__('whatif.globalModeAmount')}</option>
       </select>
-      <input ${globalAdj.mode === 'amount' ? 'type="text" inputmode="numeric" data-money="signed"' : 'type="number" min="0" step="0.01"'} class="input-field" id="wi-global-value" value="${globalAdj.value || ''}" placeholder="${__('whatif.valuePlaceholder')}" style="width:100px">
+      <input ${globalAdj.mode === 'amount' ? 'type="text" inputmode="numeric" data-money="signed"' : 'type="number" min="0" step="0.01"'} class="input-field" id="wi-global-value" value="${escHtml(globalAdj.value || '')}" placeholder="${__('whatif.valuePlaceholder')}" style="width:100px">
       ${globalAdj.mode === 'amount' ? `<button type="button" class="btn btn-ghost btn-sm whatif-sign-btn" onclick="toggleMoneySign(this)" title="${__('money.toggleSign')}" aria-label="${__('money.toggleSign')}">±</button>` : ''}
       <span class="text-xs text-muted">${__('whatif.globalHint')}</span>
     </div>
@@ -260,9 +269,9 @@ function renderWhatIfParams(month, savedParams, periodOpts) {
     <div id="wi-hypo-list">
       ${hypos.map((h, i) => `
         <div class="whatif-hypo-row" data-index="${i}">
-          <input type="text" class="input-field wi-hypo-icon" value="${h.icon || ''}" placeholder="${__('whatif.hypoIcon')}" style="width:50px">
-          <input type="text" class="input-field wi-hypo-name" value="${h.name || ''}" placeholder="${__('whatif.hypoName')}" style="flex:1">
-          <input type="text" inputmode="numeric" data-money class="input-field wi-hypo-amount" value="${h.amount || ''}" placeholder="${__('whatif.hypoAmount')}" style="width:100px">
+          <input type="text" class="input-field wi-hypo-icon" value="${escHtml(h.icon || '')}" placeholder="${__('whatif.hypoIcon')}" style="width:50px">
+          <input type="text" class="input-field wi-hypo-name" value="${escHtml(h.name || '')}" placeholder="${__('whatif.hypoName')}" style="flex:1">
+          <input type="text" inputmode="numeric" data-money class="input-field wi-hypo-amount" value="${escHtml(h.amount || '')}" placeholder="${__('whatif.hypoAmount')}" style="width:100px">
           <select class="input-field wi-hypo-type" style="width:auto">
             <option value="daily" ${h.type === 'daily' ? 'selected' : ''}>${__('whatif.perDay')}</option>
             <option value="total" ${h.type === 'total' ? 'selected' : ''}>${__('whatif.perMonth')}</option>
@@ -300,10 +309,13 @@ function renderWhatIfResults(result) {
 
   // Adjusted values: base on trend methodology + what-if variable adjustment
   // This ensures zero adjustments => adjusted = trend (apples-to-apples).
-  // Baseline uses actualSpent (my real share only — same scope as totalProjected),
-  // NOT getVariableSpending which still includes uncollected split amounts; otherwise
-  // all-trend would shift the adjusted total by the unpaid portion.
-  const varTrendTotal = daysPassed > 0 ? actualSpent / daysPassed * daysInMonth : 0;
+  // The baseline is the engine's own "no change" projection (trendProjected: my
+  // real share spent so far + every category at its current pace), built from the
+  // same records and the same pace base as totalProjected. It used to be
+  // actualSpent ÷ days × days-in-month, which counted one-off large purchases and
+  // card instalments as daily pace, so adjusting a category that held one of them
+  // moved the total by a multiple of it — and could land below what was already spent.
+  const varTrendTotal = result.trendProjected;
   const varAdjustment = totalProjected - varTrendTotal;
   const adjustedTotal = trendTotal + varAdjustment;
   const adjustedDailyAvg = adjustedTotal / daysInMonth;
@@ -656,8 +668,7 @@ function toggleWhatIfCompareExpand(catId) {
   whatIfCompareExpandStates[key] = !whatIfCompareExpandStates[key];
   // Re-render only the results section (params stay intact)
   const month = getMonthKey(new Date().toISOString());
-  const isRolling = getStatsRange() === 'rolling30';
-  const periodOpts = isRolling ? getPeriodDateRange() : null;
+  const periodOpts = null;   // month-only, see renderWhatIf()
   const savedParams = DataStore.getWhatIfParams();
   const result = savedParams ? SimulationEngine.run(month, savedParams, { period: periodOpts }) : null;
   const rightEl = document.querySelector('#page-whatif .whatif-right');
@@ -825,6 +836,7 @@ function attachWhatIfListeners(month) {
   addI18nEntries({
     'whatif.title': { zh: '假设分析', en: 'What-If Simulation' },
     'whatif.period': { zh: '周期', en: 'Period' },
+    'whatif.monthOnlyNote': { zh: '假设分析只按本月来算，不受"近 30 天"设置影响。', en: 'What-if always works on the current month, whatever the "last 30 days" setting says.' },
     'whatif.month': { zh: '月份', en: 'Month' },
     'whatif.descTemplate': { zh: '调整未来消费假设，预测月末结果。当前{0}：{1}，剩余 {2} 天', en: 'Adjust future spending assumptions to predict end-of-month results. Current {0}: {1}, {2} days remaining' },
     'whatif.noResults': { zh: '调整参数后点击「生成预测」查看结果', en: 'Adjust parameters and click Generate Prediction to see results' },

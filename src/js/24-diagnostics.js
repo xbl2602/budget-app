@@ -288,9 +288,9 @@ window.showRecordRaw = function showRecordRaw(id) {
         <div class="font-semibold" style="margin-bottom:6px">${__('diag.recordStatus')}</div>
         <div>${__('diag.inStatsEngine')}${inStatsEngine ? __('diag.yes') : __('diag.no')}</div>
         <div>${__('diag.inFiltered')}${inFilteredRecords ? __('diag.yes') : __('diag.no')}</div>
-        <div>getMonthKey(日期) = ${monthKey}</div>
-        <div>${__('diag.datePrefix')}"${datePrefix}"</div>
-        <div>${__('diag.category')}${cat ? cat.icon + ' ' + cat.name + ' (id=' + cat.id + ', parentId=' + cat.parentId + ')' : __('diag.deleted', record.categoryId)}</div>
+        <div>getMonthKey(日期) = ${escHtml(monthKey)}</div>
+        <div>${__('diag.datePrefix')}"${escHtml(datePrefix)}"</div>
+        <div>${__('diag.category')}${cat ? escHtml(cat.icon + ' ' + cat.name + ' (id=' + cat.id + ', parentId=' + cat.parentId + ')') : escHtml(__('diag.deleted', record.categoryId))}</div>
         ${cat && cat.parentId ? '<div style="color:var(--warning)">' + __('diag.hasParentWarning') + '</div>' : ''}
         ${record.excludeFromAvg ? '<div>📌 excludeFromAvg = true</div>' : ''}
         <div>${__('diag.recordType')}${isIncomeRec(record) ? __('excel.label.income') : __('excel.label.expense')} · kind = ${cat ? (cat.kind === 'income' ? 'income' : 'expense') : '—'}</div>

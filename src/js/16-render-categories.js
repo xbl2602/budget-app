@@ -127,23 +127,26 @@ function saveCategoryBudget(catId, month, value, type) {
   const amount = parseFloat(value) || 0;
   const budgetType = type || 'fixed';
   
-  // Validate: child budget cannot exceed parent's budget (m9)
+  // Validate: child budget cannot exceed parent's budget (m9). Everything is
+  // compared in RM — a '%' budget is a share of the month's income, and comparing
+  // "30" with "RM200" refused budgets that fit and let ones that did not through.
   const cat = DataStore.getCategory(catId);
   if (cat && cat.parentId && amount > 0) {
-    const parentBudget = DataStore.getCategoryBudget(cat.parentId, month).value || 0;
+    const parentBudget = DataStore.getCategoryBudgetAmount(cat.parentId, month);
+    const newAmount = DataStore.budgetToAmount(amount, budgetType, month);
     // Recursively sum all descendant budgets (not just direct children) (m9)
     var descendantBudgetSum = 0;
     (function sumDescendantBudgets(parentId) {
       var children = DataStore.getChildren(parentId);
       children.forEach(function(child) {
         if (child.id === catId) return; // exclude current
-        var cb = DataStore.getCategoryBudget(child.id, month).value || 0;
+        var cb = DataStore.getCategoryBudgetAmount(child.id, month);
         descendantBudgetSum += cb;
         sumDescendantBudgets(child.id); // recurse into grandchildren
       });
     })(cat.parentId);
-    if (descendantBudgetSum + amount > parentBudget) {
-      showToast(__('categories.budgetExceedParent', formatMoney(descendantBudgetSum + amount), formatMoney(parentBudget)), 'error');
+    if (descendantBudgetSum + newAmount > parentBudget) {
+      showToast(__('categories.budgetExceedParent', formatMoney(descendantBudgetSum + newAmount), formatMoney(parentBudget)), 'error');
       return;
     }
   }
@@ -215,7 +218,7 @@ function buildMergeTargetTree(cats, depth, sourceId, excludeIds) {
     html += `
       <div style="padding:6px 10px;cursor:pointer;border-radius:var(--radius-sm);transition:var(--transition-fast);display:flex;align-items:center;gap:6px;margin-left:${indent}px"
            onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''"
-           onclick="selectMergeTarget('${cat.id}','${escHtml(cat.icon)} ${escHtml(cat.name)}')">
+           onclick="selectMergeTarget(${jsArg(cat.id)},${jsArg(cat.icon + ' ' + cat.name)})">
         <span style="width:10px;height:10px;border-radius:50%;background:${cat.color};display:inline-block"></span>
         <span>${escHtml(cat.icon)}</span>
         <span class="text-sm">${escHtml(cat.name)}</span>
@@ -231,6 +234,17 @@ let _mergeSourceId = null;
 let _mergeTargetId = null;
 
 function selectMergeTarget(catId, displayName) {
+  // The picker only hides the source's subtree at the top level, so a deeper
+  // descendant can still be clicked. Merging a category into something below it
+  // would make that thing its own parent and freeze every page that walks up the
+  // tree — refuse here, and again in confirmMergeCategory().
+  if (_mergeSourceId && DataStore.getDescendantIds(_mergeSourceId).includes(catId)) {
+    _mergeTargetId = null;
+    const blocked = document.getElementById('mergeConfirmBtn');
+    if (blocked) { blocked.disabled = true; blocked.textContent = __('categories.merge.selectFirst'); }
+    showToast(__('categories.merge.cannotDescendant'), 'error');
+    return;
+  }
   _mergeTargetId = catId;
   const btn = document.getElementById('mergeConfirmBtn');
   if (btn) {
@@ -248,6 +262,10 @@ function confirmMergeCategory() {
   }
   if (sourceId === targetId) {
     showToast(__('categories.merge.cannotSelf'), 'error');
+    return;
+  }
+  if (DataStore.getDescendantIds(sourceId).includes(targetId)) {
+    showToast(__('categories.merge.cannotDescendant'), 'error');
     return;
   }
 
@@ -586,7 +604,7 @@ function showMoveBeforeDelete(id) {
   const parentId = cat.parentId;
   showModal(`
     <div class="modal-title">${__('categories.delete.moveTitle')}</div>
-    <p class="text-sm text-secondary mb-8">${__('categories.delete.willMoveTo', parentId ? DataStore.getCategory(parentId).icon + ' ' + DataStore.getCategory(parentId).name : __('categories.rootLevel'))}</p>
+    <p class="text-sm text-secondary mb-8">${__('categories.delete.willMoveTo', parentId ? escHtml(DataStore.getCategory(parentId).icon + ' ' + DataStore.getCategory(parentId).name) : __('categories.rootLevel'))}</p>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="deleteCategoryConfirm('${id}')">${__('categories.back')}</button>
       <button class="btn btn-danger" onclick="confirmDeleteCategory('${id}','moveToParent')">${__('categories.delete.confirm')}</button>
@@ -595,13 +613,17 @@ function showMoveBeforeDelete(id) {
 }
 
 function confirmDeleteCategory(id, mode) {
+  let done = true;
   if (mode === 'delete' || mode === 'deleteChildren') {
-    DataStore.deleteCategory(id, { deleteChildren: true });
+    done = DataStore.deleteCategory(id, { deleteChildren: true });
   } else if (mode === 'moveToParent') {
     const cat = DataStore.getCategory(id);
-    DataStore.deleteCategory(id, { moveToParent: cat.parentId });
+    // A top-level category has no parent: null means "the children become top-level"
+    done = DataStore.deleteCategory(id, { moveToParent: (cat && cat.parentId) || null });
   }
   closeModal();
+  // Say so when nothing was deleted — a "deleted" toast over an untouched list is a lie
+  if (!done) { showToast(__('categories.deleteFailed'), 'error'); return; }
   showToast(__('categories.deleted'));
   renderCategories();
 }
@@ -798,6 +820,8 @@ function saveCategoryEdit(catId) {
     'categories.merge.mergeInto': { zh: '合并到 {0}', en: 'Merge into {0}' },
     'categories.merge.selectTargetFirst': { zh: '请选择目标分类', en: 'Please select a target category' },
     'categories.merge.cannotSelf': { zh: '不能合并到自身', en: 'Cannot merge into itself' },
+    'categories.merge.cannotDescendant': { zh: '不能合并到它自己的子分类里', en: 'Can\'t merge a category into one of its own sub-categories' },
+    'categories.deleteFailed': { zh: '没能删除这个分类，请再试一次', en: 'Couldn\'t delete this category. Please try again.' },
     'categories.notFound': { zh: '分类不存在', en: 'Category not found' },
     'categories.merge.complete': { zh: '✅ 合并完成，已更新 {0} 条记录', en: '✅ Merge complete, updated {0} records' },
     'categories.addRootModal.title': { zh: '添加根分类', en: 'Add root category' },

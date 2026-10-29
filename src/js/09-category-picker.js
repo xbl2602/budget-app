@@ -23,7 +23,11 @@ function _pickerCapture() {
   const wasOpen = overlay && overlay.classList.contains('open');
   if (wasOpen) {
     const content = document.getElementById('modalContent');
-    _pickerPrev = { html: content.innerHTML };
+    // Keep the live nodes, not just the markup: innerHTML only carries each input's
+    // ORIGINAL value, so restoring from it threw away everything typed since the
+    // form opened (the amount, the note, ticked boxes). The nodes are simply set
+    // aside while the picker is showing and put back, typed values and all.
+    _pickerPrev = { html: content.innerHTML, nodes: Array.from(content.childNodes) };
   } else {
     _pickerPrev = null;
   }
@@ -35,7 +39,14 @@ function pickerRestore() {
   if (_pickerPrev && _pickerPrev.html !== null) {
     const content = document.getElementById('modalContent');
     const overlay = document.getElementById('modalOverlay');
-    if (content) content.innerHTML = _pickerPrev.html;
+    if (content) {
+      if (_pickerPrev.nodes && _pickerPrev.nodes.length) {
+        content.textContent = '';
+        _pickerPrev.nodes.forEach(n => content.appendChild(n));
+      } else {
+        content.innerHTML = _pickerPrev.html;
+      }
+    }
     if (_pickerDisp) {
       _applyDisplay(document.getElementById('editCategoryDisplay'), _pickerDisp.cat, _pickerDisp.suffix || '');
       _applyDisplay(document.getElementById('addCategoryDisplay'), _pickerDisp.cat, '');

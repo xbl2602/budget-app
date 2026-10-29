@@ -61,6 +61,7 @@ const DataStore = {
   },
 
   init() {
+    window._dataLoadError = false;
     // Check if data is encrypted and needs PIN
     const isProtected = !!localStorage.getItem('budgetAppPinHash');
     const hasEncrypted = !!localStorage.getItem('budgetAppDataEncrypted');
@@ -86,7 +87,15 @@ const DataStore = {
       try {
         this._data = this._normalize(JSON.parse(raw));
       } catch(e) {
+        // Unreadable is not the same as empty. Starting from a blank ledger is fine,
+        // but writing that blank ledger over the stored text (the save() below)
+        // destroyed the only copy of the user's data. Keep the text exactly as it
+        // is, set it aside once, and let the UI tell the user (see 22-init.js).
+        this._keepCorruptCopy(raw);
+        window._dataLoadError = true;
         this._data = this._normalize(this._defaults());
+        this._log('init', 'LOAD_ERROR ' + e.message);
+        return;
       }
     } else {
       // Routed through _normalize like the restored branch, so a brand-new store
@@ -100,6 +109,43 @@ const DataStore = {
     this._processPendingDeletes();
 
     this.save();
+  },
+
+  // Set the unreadable stored ledger aside, once. The FIRST copy is kept: a later
+  // failure is more likely to be the blank ledger that replaced it than the real one.
+  _keepCorruptCopy(raw) {
+    try {
+      if (localStorage.getItem('budgetAppDataCorrupt') === null) localStorage.setItem('budgetAppDataCorrupt', raw);
+    } catch (e) { /* storage full — nothing more we can do */ }
+  },
+
+  // Parent links must form a forest. A loop (X under Y under X, or a category
+  // under itself) makes every "walk up to the root" in the app run forever, and
+  // because the loop is saved with the ledger, reloading does not help.
+  //
+  // Only the link that closes a loop is cut; nothing is deleted. The choice is
+  // deterministic — the category with the smallest id in the loop becomes a
+  // top-level category — so two devices holding the same loop repair it the same
+  // way and still converge. Safe on partial payloads: a loop is a loop no matter
+  // which other categories are missing.
+  _breakCategoryCycles(data) {
+    if (!data || !Array.isArray(data.categories)) return;
+    const byId = new Map();
+    data.categories.forEach(c => { if (c && c.id) byId.set(c.id, c); });
+    const parentOf = c => (c.parentId ? byId.get(c.parentId) : null);
+    // Each round cuts one loop, so the number of categories bounds the rounds.
+    for (let round = byId.size + 1; round > 0; round--) {
+      let loop = null;
+      for (const start of byId.values()) {
+        const seenAt = new Map(), path = [];
+        let cur = start;
+        while (cur && !seenAt.has(cur.id)) { seenAt.set(cur.id, path.length); path.push(cur); cur = parentOf(cur); }
+        if (cur) { loop = path.slice(seenAt.get(cur.id)); break; }
+      }
+      if (!loop) return;
+      const victim = loop.reduce((a, b) => (String(b.id) < String(a.id) ? b : a));
+      victim.parentId = null;
+    }
   },
 
   // Entity-level cleanup that is safe to run on ANY data object, including one
@@ -130,6 +176,7 @@ const DataStore = {
     if (Array.isArray(data.categories)) {
       data.categories = data.categories.filter(c => c && safeId(c.id) && (c.parentId == null || safeId(c.parentId)))
         .map(c => cleanEntity(c, '#6366F1'));
+      this._breakCategoryCycles(data);
       // `kind` splits the two trees. Drop anything that is neither value rather
       // than defaulting it: absence already means expense, so normalising would
       // only rewrite every pre-income category and churn the sync fingerprint.
@@ -145,6 +192,16 @@ const DataStore = {
     }
     if (Array.isArray(data.records)) {
       data.records = data.records.filter(r => r && safeId(r.id));
+      // Money has to be a finite number, and a record has to say when it happened.
+      // Without either, every total turns into NaN and the CSV / Excel export throws
+      // on the first such row. A number written as text ("12.5") is still readable,
+      // so it is converted rather than thrown away; anything else cannot be placed
+      // and is dropped (importJSON() tells the user how many).
+      data.records = data.records.filter(r => {
+        if (typeof r.amount === 'string' && r.amount.trim() !== '' && isFinite(Number(r.amount))) r.amount = Number(r.amount);
+        if (typeof r.amount !== 'number' || !isFinite(r.amount)) return false;
+        return (typeof r.date === 'string' && r.date !== '') || (typeof r.createdAt === 'string' && r.createdAt !== '');
+      });
       data.records.forEach(r => {
         if (r.categoryId != null && !safeId(r.categoryId)) r.categoryId = 'uncategorized';
         if (r.splitBillId != null && !safeId(r.splitBillId)) delete r.splitBillId;
@@ -155,7 +212,16 @@ const DataStore = {
     }
     if (Array.isArray(data.splitBills)) {
       data.splitBills = data.splitBills.filter(b => b && safeId(b.id));
-      data.splitBills.forEach(b => { if (b.categoryId != null && !safeId(b.categoryId)) b.categoryId = 'uncategorized'; });
+      data.splitBills.forEach(b => {
+        if (b.categoryId != null && !safeId(b.categoryId)) b.categoryId = 'uncategorized';
+        // A participant's contactId is a lookup key that the UI pastes into inline
+        // handlers. People without a saved contact have none and are keyed by name,
+        // so dropping an unsafe one turns the person into an anonymous participant
+        // instead of leaving script-shaped text in the key.
+        if (Array.isArray(b.participants)) {
+          b.participants.forEach(p => { if (p && p.contactId != null && !safeId(p.contactId)) delete p.contactId; });
+        }
+      });
     }
     if (Array.isArray(data.purchasePlans)) {
       data.purchasePlans = data.purchasePlans.filter(p => p && safeId(p.id));
@@ -260,7 +326,10 @@ const DataStore = {
     this._migrateSplitRecordCategories(data);
     this._migrateIncomeCategories(data);
     const currentMonth = getMonthKey(new Date().toISOString());
-    if (data.budgets && data.budgets[currentMonth] && !data.monthlyIncome[currentMonth]) {
+    // Only when no income was ever entered for the month. A saved 0 is an answer
+    // ("nothing came in"), and writing the budget over it on every load re-created
+    // income the user had just removed — and synced it to the cloud.
+    if (data.budgets && data.budgets[currentMonth] && (data.monthlyIncome[currentMonth] === undefined || data.monthlyIncome[currentMonth] === null)) {
       data.monthlyIncome[currentMonth] = data.budgets[currentMonth];
     }
     if (!data.lastActiveMonth) data.lastActiveMonth = currentMonth;
@@ -495,9 +564,15 @@ const DataStore = {
     return record;
   },
 
-  // Undo a pending delete
-  undoDelete() {
+  // Undo a pending delete. There is only one slot, so a caller that knows which
+  // record it means passes the id: an "Undo" button left over from an earlier
+  // delete must not quietly bring back a different record.
+  undoDelete(id) {
     if (!this._pendingDelete) { this._log('undoDelete', 'NOTHING_PENDING'); return false; }
+    if (id !== undefined && this._pendingDelete.id !== id) {
+      this._log('undoDelete', 'STALE id=' + id + ' pending=' + this._pendingDelete.id);
+      return false;
+    }
     this._log('undoDelete', 'id=' + this._pendingDelete.id);
     clearTimeout(this._pendingDelete.timeoutId);
     // Restore the split chain (bill + its linked records) first, then the record
@@ -607,10 +682,15 @@ const DataStore = {
   },
 
   getDescendantIds(id) {
-    const ids = [id];
-    this.getChildren(id).forEach(child => {
-      ids.push(...this.getDescendantIds(child.id));
-    });
+    // `seen` keeps a looped parent chain from recursing forever (see _breakCategoryCycles)
+    const ids = [], seen = new Set();
+    const walk = cid => {
+      if (seen.has(cid)) return;
+      seen.add(cid);
+      ids.push(cid);
+      this.getChildren(cid).forEach(child => walk(child.id));
+    };
+    walk(id);
     return ids;
   },
 
@@ -654,8 +734,11 @@ const DataStore = {
   deleteCategory(id, options = {}) {
     const children = this.getChildren(id);
     if (children.length) {
-      if (options.moveToParent) {
-        const parentId = options.moveToParent;
+      if (Object.prototype.hasOwnProperty.call(options, 'moveToParent')) {
+        // null / '' = the deleted category was top-level, so there is no parent to
+        // hand the children to: they become top-level themselves. Checking for a
+        // truthy value here used to turn that case into "do nothing, return false".
+        const parentId = options.moveToParent || null;
         children.forEach(child => {
           child.parentId = parentId;
         });
@@ -828,6 +911,23 @@ const DataStore = {
     if (typeof raw === 'object') return { value: raw.value || 0, type: raw.type || 'fixed' };
     return { value: 0, type: 'fixed' };
   },
+  // A category budget as RM. getCategoryBudget returns what the user typed, and
+  // for a '%' budget that is the percentage (30), not money — anything that
+  // compares spending with a budget has to come through here, or "30%" reads as
+  // RM30. A % is of the month's income (the same base the budget-progress card
+  // uses); with no income set it cannot be turned into money, so it is 0 = no limit.
+  getCategoryBudgetAmount(catId, month) {
+    const b = this.getCategoryBudget(catId, month);
+    return this.budgetToAmount(b.value, b.type, month);
+  },
+  // The same conversion for a value that is not saved yet (the budget being typed).
+  budgetToAmount(value, type, month) {
+    const v = Number(value) || 0;
+    if (v <= 0) return 0;
+    if (type !== 'percent') return v;
+    const income = this.getMonthlyIncome(month) || this.getBudget(month) || 0;
+    return income > 0 ? Math.round(income * v) / 100 : 0;
+  },
   setCategoryBudget(catId, month, amount, type) {
     const key = catId + ':' + month;
     if (!amount || amount <= 0) {
@@ -966,11 +1066,24 @@ const DataStore = {
     });
 
     // Keyed maps: incoming wins per key.
-    ['budgets', 'categoryBudgets', 'monthlyIncome', 'billAmounts', 'tagColors'].forEach(k => {
+    ['budgets', 'categoryBudgets', 'monthlyIncome', 'tagColors'].forEach(k => {
       if (!incoming[k] || typeof incoming[k] !== 'object') return;
       if (!cur[k] || typeof cur[k] !== 'object') cur[k] = {};
       Object.assign(cur[k], incoming[k]);
     });
+    // billAmounts is month -> { bill -> amount }, one level deeper than the maps
+    // above. Replacing a whole month made a file that only mentioned the rent wipe
+    // out the water bill already set here; merge inside the month instead. For a
+    // bill both sides set, incoming still wins, like every other keyed map.
+    if (incoming.billAmounts && typeof incoming.billAmounts === 'object') {
+      if (!cur.billAmounts || typeof cur.billAmounts !== 'object') cur.billAmounts = {};
+      Object.keys(incoming.billAmounts).forEach(month => {
+        const theirs = incoming.billAmounts[month];
+        const mine = cur.billAmounts[month];
+        const plain = x => x !== null && typeof x === 'object' && !Array.isArray(x);
+        cur.billAmounts[month] = (plain(theirs) && plain(mine)) ? Object.assign({}, mine, theirs) : theirs;
+      });
+    }
 
     // Tag library: union, kept sorted the way addTagUsage() maintains it.
     if (Array.isArray(incoming.allTags)) {
@@ -1117,6 +1230,9 @@ const DataStore = {
     // Detach from the inputs: the closing steps below edit in place.
     const res = JSON.parse(JSON.stringify(merged));
 
+    // 0. Each device may have moved a category under the other's: merged, that is a loop.
+    this._breakCategoryCycles(res);
+
     // 1. Repayment totals are clamped into [0, share] and `paid` follows them. Only
     //    participants that carry paidAmount — a legacy boolean-only one is left alone.
     if (typeof SplitEngine !== 'undefined' && Array.isArray(res.splitBills)) {
@@ -1185,14 +1301,23 @@ const DataStore = {
   },
 
   importJSON(jsonStr, mode = 'replace') {
+    this.lastImportDropped = 0;
     try {
       const data = JSON.parse(jsonStr);
-      if (!data.records || !data.categories) return false;
+      // Arrays, not just "something truthy": {} and [] both pass a plain truthiness
+      // check, and _normalize() then swaps a non-array `records` for an empty list —
+      // so a file that merely LOOKED like a backup used to wipe the whole ledger.
+      if (!data || !Array.isArray(data.records) || !Array.isArray(data.categories)) return false;
+      const incomingCount = data.records.length;
       // replace takes over the whole store, so it needs the full normalisation.
       // merge only contributes entities — backfilling defaults into it would let
       // a default savingsTarget / percentBase overwrite the local one.
       if (mode === 'replace') this._normalize(data);
       else this._sanitizeEntities(data);
+      // Every record rejected means the file is wrong, not that the user wants an
+      // empty ledger (a genuinely empty backup has no records to reject).
+      if (incomingCount > 0 && data.records.length === 0) return false;
+      this.lastImportDropped = incomingCount - data.records.length;
       if (mode === 'replace') {
         this._data = data;
         this._markBulk('import-replace');
@@ -1555,6 +1680,7 @@ const DataStore = {
     try {
       localStorage.removeItem('budgetBackupBeforeSync');
       localStorage.removeItem('budgetBackupTime');
+      localStorage.removeItem('budgetAppDataCorrupt');   // a plaintext copy of the ledger too
     } catch (e) { /* ignore */ }
     const scrub = e => {
       if (e && typeof e.d === 'string') {

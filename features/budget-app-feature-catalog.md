@@ -540,7 +540,7 @@ All charts are Canvas-based, drawn with `getContext('2d')`, with DPR-aware sizin
 - Downloads `budget-records-{date}.csv`
 
 ### Excel Export (XML Spreadsheet 2003)
-- **No ZIP/library required** — generates raw XML SpreadsheetML
+- **No external library** — builds SpreadsheetML, then packs it into a genuine .xlsx (OOXML in a store-only zip) with a built-in converter
 - Native open in Excel / LibreOffice / Google Sheets
 - **5 sheets:**
 

@@ -38,12 +38,12 @@ function renderOverview() {
   // Today's and yesterday's spending — expenses only. Income recorded today is
   // money coming in, and folding it into 今日消费 would make a payday look like
   // the most extravagant day of the month.
-  const todayKey = now.toISOString().substr(0, 10);
+  const todayKey = localDateKey(now);
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayKey = yesterday.toISOString().substr(0, 10);
-  const todayTotal = expenseRecords(DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === todayKey)).reduce((s, r) => s + r.amount, 0);
-  const yesterdayTotal = expenseRecords(DataStore.getRecords().filter(r => (r.date || r.createdAt).substr(0, 10) === yesterdayKey)).reduce((s, r) => s + r.amount, 0);
+  const yesterdayKey = localDateKey(yesterday);
+  const todayTotal = expenseRecords(DataStore.getRecords().filter(r => recordDayKey(r) === todayKey)).reduce((s, r) => s + r.amount, 0);
+  const yesterdayTotal = expenseRecords(DataStore.getRecords().filter(r => recordDayKey(r) === yesterdayKey)).reduce((s, r) => s + r.amount, 0);
 
   // Actual cash flow from the records themselves. Deliberately kept separate from
   // 月收入 (a per-month setting that drives the whole budget chain) — this is what
@@ -61,7 +61,12 @@ function renderOverview() {
   const totalBills = sp.totalBills;
   const paidBills = StatsEngine.getBillSpendingActual(month);
   const unpaidPlannedBills = Math.max(0, totalBills - paidBills);
-  const effectiveTotal = monthTotal + unpaidPlannedBills;
+  // What has really gone out (bills and instalments included) plus the bills still
+  // to pay. 本月还剩 is money in the bank, so it cannot depend on the 含固定账单
+  // switch — monthTotal above does, and using it here showed RM1,400 with the
+  // switch on and RM2,400 with it off, for the same month.
+  const allSpent = isRolling ? StatsEngine.getPeriodTotal() : StatsEngine.getMonthTotal(month);
+  const effectiveTotal = allSpent + unpaidPlannedBills;
   // 预计储蓄 = what is left AFTER the purchase plans took their share — the same
   // figure the plan panel shows, and the one the savings target is held against.
   // 预计结余 (before plans) is kept alongside so the gap is explained, not hidden.
@@ -300,8 +305,8 @@ function renderOverview() {
         </div>
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('overview.estimatedMonthEndSavings')}</div>
-          <div class="text-lg font-bold" style="color:${savingsPred >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatMoney(savingsPred)}</div>
-          ${planReservedPred > 0 ? `<div class="text-xs text-muted" style="margin-top:2px" title="${__('plan.afterPlansHint')}">${__('plan.afterPlansRow', formatMoney(surplusPred), formatMoney(planReservedPred))}</div>` : ''}
+          <div class="text-lg font-bold" style="color:${budget > 0 ? (savingsPred >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--text-muted)'}">${budget > 0 ? formatMoney(savingsPred) : '—'}</div>
+          ${planReservedPred > 0 && budget > 0 ? `<div class="text-xs text-muted" style="margin-top:2px" title="${__('plan.afterPlansHint')}">${__('plan.afterPlansRow', formatMoney(surplusPred), formatMoney(planReservedPred))}</div>` : ''}
         </div>
         <div style="padding:4px">
           <div class="text-xs text-secondary">${__('overview.targetAchievement')}</div>
@@ -314,10 +319,12 @@ function renderOverview() {
         </div>` : ''}
       </div>
       <div class="text-sm text-secondary mb-8">
-        ${savingsPred >= 0
-          ? __('overview.predictionPositive', formatMoney(savingsPred))
-          : __('overview.predictionNegative', formatMoney(Math.abs(savingsPred)))}
-        ${planReservedPred > 0 && savingsPred >= 0 ? ' ' + __('plan.predictionPlanNote', formatMoney(planReservedPred)) : ''}
+        ${budget <= 0
+          ? __('overview.predictionNeedIncome')
+          : (savingsPred >= 0
+            ? __('overview.predictionPositive', formatMoney(savingsPred))
+            : __('overview.predictionNegative', formatMoney(Math.abs(savingsPred))))}
+        ${budget > 0 && planReservedPred > 0 && savingsPred >= 0 ? ' ' + __('plan.predictionPlanNote', formatMoney(planReservedPred)) : ''}
       </div>
       ${budget > 0 ? `
         ${(() => {
@@ -364,7 +371,7 @@ function renderOverview() {
     <div class="card mb-16">
       <div class="card-title">${__('overview.top5')}</div>
       ${topCats.length ? topCats.map((item, i) => {
-        const catBudget = item.cat.id && !item.isBill ? (DataStore.getCategoryBudget(item.cat.id, month).value || 0) : 0;
+        const catBudget = item.cat.id && !item.isBill ? DataStore.getCategoryBudgetAmount(item.cat.id, month) : 0;   // RM, also for a % budget
         const exceeded = catBudget > 0 && item.total > catBudget;
         return `
         <div class="flex items-center justify-between" style="padding:8px 0;border-bottom:1px solid var(--border)">
@@ -553,11 +560,12 @@ function refreshOverviewBudget() {
     'overview.targetAchieved': { zh: '✅ 预计可达成目标', en: '✅ On track to meet target' },
     'overview.estimatedSave': { zh: '预计储蓄', en: 'Est. savings' },
     'overview.savingsPrediction': { zh: '💵 储蓄预测', en: '💵 Savings Forecast' },
-    'overview.currentSaved': { zh: '累计已存', en: 'Cumulative Saved' },
+    'overview.currentSaved': { zh: '本月还剩', en: 'Left This Month' },
     'overview.estimatedMonthEndSavings': { zh: '预计月末储蓄', en: 'Est. Month-End Savings' },
     'overview.targetAchievement': { zh: '目标达成', en: 'Target Progress' },
     'overview.predictionPositive': { zh: '📈 如果维持当前消费习惯，本月末预计可存 {0}', en: '📈 At this rate, est. to save {0} by month end' },
     'overview.predictionNegative': { zh: '⚠️ 预计超支 {0}，请注意控制支出', en: '⚠️ Est. overspend {0}, please control spending' },
+    'overview.predictionNeedIncome': { zh: '先设置本月收入，才能预测月末大概能存多少', en: 'Set this month\'s income first to see how much you may save by month end' },
     'overview.remainingTotalPerDay': { zh: '剩余可花/天（未扣储蓄目标）', en: 'Left to spend / day (pre-savings)' },
     'overview.dailySpendablePerDay': { zh: '日常可花/天（已扣账单+储蓄）', en: 'Daily spendable / day (ex-bills & savings)' },
     'overview.perDay': { zh: '/天', en: '/day' },

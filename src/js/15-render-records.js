@@ -16,15 +16,24 @@ function renderRecords() {
   const el = document.getElementById('page-records');
   const cats = DataStore.getCategories();
 
-  // Set default date range for rolling30 mode
+  // Default date range for rolling30 mode. A value the page filled in itself is
+  // flagged (_autoStart / _autoEnd) so that it can be refreshed to today's window on
+  // every visit — filled once and kept, it froze at the day you first opened the page
+  // and new entries vanished from the list — and cleared again when you go back to
+  // month mode. A range the user typed in (applyRecordsFilter) is never touched.
   if (getStatsRange() === 'rolling30') {
     const { start, end } = getPeriodDateRange();
-    if (!recordsFilter.dateStart) {
-      recordsFilter.dateStart = start.toISOString().substr(0, 10);
+    if (!recordsFilter.dateStart || recordsFilter._autoStart) {
+      recordsFilter.dateStart = localDateKey(start);
+      recordsFilter._autoStart = true;
     }
-    if (!recordsFilter.dateEnd) {
-      recordsFilter.dateEnd = end.toISOString().substr(0, 10);
+    if (!recordsFilter.dateEnd || recordsFilter._autoEnd) {
+      recordsFilter.dateEnd = localDateKey(end);
+      recordsFilter._autoEnd = true;
     }
+  } else {
+    if (recordsFilter._autoStart) { recordsFilter.dateStart = ''; recordsFilter._autoStart = false; }
+    if (recordsFilter._autoEnd) { recordsFilter.dateEnd = ''; recordsFilter._autoEnd = false; }
   }
 
   const filterCat = recordsFilter.categoryId ? DataStore.getCategory(recordsFilter.categoryId) : null;
@@ -39,7 +48,7 @@ function renderRecords() {
         <label class="text-sm text-secondary">${__('records.filter.tags')}</label>
         <div style="display:flex;flex-wrap:wrap;gap:4px" id="recordsTagFilterDisplay">
           ${recordsFilter.tags && recordsFilter.tags.length > 0
-            ? recordsFilter.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 6px;background:var(--primary);color:white;border-radius:10px;font-size:0.7rem">${escHtml(t)}<span style="cursor:pointer" onclick="removeRecordsTagFilter('${escHtml(t)}')">✕</span></span>`).join('')
+            ? recordsFilter.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:1px 6px;background:var(--primary);color:white;border-radius:10px;font-size:0.7rem">${escHtml(t)}<span style="cursor:pointer" onclick="removeRecordsTagFilter(${jsArg(t)})">✕</span></span>`).join('')
             : '<span class="text-xs text-muted">' + __('records.filter.all') + '</span>'}
         </div>
         <button type="button" class="btn btn-sm btn-outline" style="font-size:0.72rem" onclick="openTagPickerForRecords()">${__('records.filter.filterTags')}</button>
@@ -263,6 +272,9 @@ function applyRecordsFilter() {
   recordsFilter.keyword = document.getElementById('filterKeyword').value;
   recordsFilter.dateStart = document.getElementById('filterDateStart').value;
   recordsFilter.dateEnd = document.getElementById('filterDateEnd').value;
+  // Whatever is in the boxes now was confirmed by the user, so it stops being "auto"
+  recordsFilter._autoStart = false;
+  recordsFilter._autoEnd = false;
   recordsFilter.amountMin = document.getElementById('filterAmountMin').value;
   recordsFilter.amountMax = document.getElementById('filterAmountMax').value;
   window.recordsPage = 0;
@@ -310,7 +322,12 @@ function selectCategoryFilter(catId) {
 }
 
 function clearRecordsFilter() {
-  recordsFilter = { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, kind: 'all' };
+  // Emptied in place, never replaced: window.recordsFilter is the SAME object, and
+  // the stats page's "view in records" button sets its category and dates through
+  // it. A fresh object here left that button writing into a dead copy, so the
+  // records page showed everything.
+  Object.keys(recordsFilter).forEach(k => { delete recordsFilter[k]; });
+  Object.assign(recordsFilter, { keyword: '', categoryId: '', dateStart: '', dateEnd: '', amountMin: '', amountMax: '', overspentOnly: false, tags: [], kind: 'all' });
   renderRecords();
 }
 
@@ -456,7 +473,10 @@ function renderRecordsList() {
 
   container.innerHTML = html;
 
-  // Attach per-card events (normal view only for swipe; compact handles its own)
+  // Attach per-card events (normal view only for swipe; compact handles its own).
+  // Clicking a card is NOT bound here: each card already carries an inline onclick
+  // that either toggles its selection (batch mode) or opens the editor. A second,
+  // unconditional listener opened the editor on top of the selection.
   container.querySelectorAll('.record-card').forEach(card => {
     const isCompact = card.classList.contains('compact');
 
@@ -470,32 +490,36 @@ function renderRecordsList() {
         const btn = card.querySelector('.record-del-btn');
         if (btn) btn.style.opacity = '0';
       });
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('.record-delete-btn') || e.target.closest('.record-del-btn')) return;
-        openRecordOrSplitEditor(card.dataset.id);
-      });
 
-      // Swipe to delete (normal view only)
-      let startX = 0, currentX = 0, isDragging = false;
+      // Swipe to delete (normal view, not in batch mode — batch mode draws no delete strip)
+      if (batchMode) return;
+      let startX = 0, startY = 0, currentX = 0, currentY = 0, isDragging = false;
+      // Start and current are the same point until the finger actually moves, so a
+      // plain tap is a swipe of 0 — not "a swipe of startX pixels".
+      const swipeLeft = () => startX - currentX;
+      // Mostly sideways only: scrolling the page with a slight leftward drift is not a delete swipe
+      const isSideways = () => swipeLeft() > Math.abs(startY - currentY);
       card.addEventListener('touchstart', (e) => {
-        startX = e.touches[0].clientX;
+        startX = currentX = e.touches[0].clientX;
+        startY = currentY = e.touches[0].clientY;
         isDragging = true;
       });
       card.addEventListener('touchmove', (e) => {
         if (!isDragging) return;
         currentX = e.touches[0].clientX;
-        const diff = startX - currentX;
-        if (diff > 0) {
-          const deleteBtn = card.querySelector('.record-delete-btn');
-          deleteBtn.style.right = Math.max(-80 + Math.min(diff, 80)) + 'px';
+        currentY = e.touches[0].clientY;
+        const diff = swipeLeft();
+        const deleteBtn = card.querySelector('.record-delete-btn');
+        if (diff > 0 && isSideways() && deleteBtn) {
+          deleteBtn.style.right = (-80 + Math.min(diff, 80)) + 'px';
           card.style.transform = `translateX(${-Math.min(diff, 80)}px)`;
         }
       });
       card.addEventListener('touchend', () => {
         isDragging = false;
-        const diff = startX - currentX;
         const deleteBtn = card.querySelector('.record-delete-btn');
-        if (diff > 40) {
+        if (!deleteBtn) return;
+        if (swipeLeft() > 40 && isSideways()) {
           deleteBtn.style.right = '0';
           card.style.transform = 'translateX(-80px)';
           deleteBtn.onclick = (e) => {
@@ -647,7 +671,7 @@ function deleteRecordConfirm(id) {
     <p style="color:var(--text-secondary);margin-bottom:16px">${__('records.deleteConfirm.text')}</p>
     <div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-        <span>${cat ? cat.icon : '❓'}</span>
+        <span>${cat ? escHtml(cat.icon) : '❓'}</span>
         <span>${cat ? escHtml(cat.name) : __('records.unknownCategory')}</span>
         <span style="margin-left:auto;font-weight:700">${formatMoney(record.amount)}</span>
       </div>
@@ -668,9 +692,18 @@ function confirmDeleteRecord(id) {
   if (record) {
     // Show undo toast
     const container = document.getElementById('toastContainer');
+    // Only the newest delete can be undone (the store has a single slot, and the
+    // previous one was just made permanent). An older toast's button would now
+    // bring back the WRONG record, so take the buttons off the older toasts.
+    Array.from(container.querySelectorAll('.toast')).forEach(old => {
+      if (old._pendingId && old._pendingId !== id) {
+        const stale = old.querySelector('button');
+        if (stale) stale.remove();
+      }
+    });
     const toast = document.createElement('div');
     toast.className = 'toast warning';
-    toast.innerHTML = `<span>🗑️</span>${__('records.undoDeleted')}<button class="btn btn-sm btn-primary" style="padding:2px 10px;font-size:0.8rem" onclick="undoDelete(this)">${__('records.undoBtn')}</button>`;
+    toast.innerHTML = `<span>🗑️</span>${__('records.undoDeleted')}<button class="btn btn-sm btn-primary" style="padding:2px 10px;font-size:0.8rem" onclick="undoDelete(this, ${jsArg(id)})">${__('records.undoBtn')}</button>`;
     container.appendChild(toast);
     toast._pendingId = id;
     // Auto-dismiss after 5s
@@ -698,10 +731,11 @@ function confirmHardDeleteRecord(id) {
   refreshCurrentPage();
 }
 
-function undoDelete(btn) {
+function undoDelete(btn, id) {
   const toast = btn.closest('.toast');
   if (!toast) return;
-  const success = DataStore.undoDelete();
+  // `id` says which delete this button belongs to; the store refuses a stale one
+  const success = DataStore.undoDelete(id);
   if (success) {
     toast.innerHTML = `<span>✅</span>${__('records.undoSuccess')}`;
     toast.classList.add('success');
@@ -775,7 +809,7 @@ function openEditRecord(id) {
         <label class="input-label">${__('records.edit.amount')}</label>
         <div style="position:relative">
           <span id="editAmountPrefix" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;color:${isIncome ? 'var(--success)' : 'var(--primary)'}">RM</span>
-          <input type="text" inputmode="numeric" data-money id="editAmount" class="input-field" value="${record.amount}" style="padding-left:44px;font-size:1.2rem;font-weight:700" autocomplete="off">
+          <input type="text" inputmode="numeric" data-money id="editAmount" class="input-field" value="${escHtml(String(record.amount))}" style="padding-left:44px;font-size:1.2rem;font-weight:700" autocomplete="off">
         </div>
       </div>
       <div class="input-group">
@@ -786,7 +820,7 @@ function openEditRecord(id) {
       </div>
       <div class="input-group">
         <label class="input-label">${__('records.edit.dateTime')}</label>
-        <input type="datetime-local" id="editDateTime" class="input-field" value="${(record.date || record.createdAt).slice(0, 16)}">
+        <input type="datetime-local" id="editDateTime" class="input-field" value="${escHtml((record.date || record.createdAt).slice(0, 16))}">
       </div>
       <div class="input-group">
         <label class="input-label">${__('records.edit.note')}</label>
@@ -797,11 +831,11 @@ function openEditRecord(id) {
         <label class="input-label">${__('records.edit.tags')}</label>
         <div id="editTagsDisplay" style="display:flex;flex-wrap:wrap;gap:4px;min-height:28px;padding:4px 0">
           ${record.tags && record.tags.length > 0
-            ? record.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag('${escHtml(t)}')">✕</span></span>`).join('')
+            ? record.tags.map(t => `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag(${jsArg(t)})">✕</span></span>`).join('')
             : '<span class="text-xs text-muted">' + __('records.edit.noTags') + '</span>'}
         </div>
         <button type="button" class="btn btn-sm btn-outline" onclick="openEditTagPicker()">${__('records.edit.addTag')}</button>
-        <input type="hidden" id="editTagsInput" value='${JSON.stringify(record.tags || [])}'>
+        <input type="hidden" id="editTagsInput" value="${escHtml(JSON.stringify(record.tags || []))}">
       </div>
       ${isSplit ? '' : `
       <div class="input-group" id="editExcludeAvgRow">
@@ -1001,7 +1035,7 @@ function renderEditTagsDisplay() {
     container.innerHTML = '<span class="text-xs text-muted">' + __('records.edit.noTags') + '</span>';
   } else {
     container.innerHTML = tags.map(t =>
-      `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag('${escHtml(t)}')">✕</span></span>`
+      `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--primary);color:white;border-radius:12px;font-size:0.75rem">${escHtml(t)}<span style="cursor:pointer;opacity:0.7" onclick="removeEditTag(${jsArg(t)})">✕</span></span>`
     ).join('');
   }
 }

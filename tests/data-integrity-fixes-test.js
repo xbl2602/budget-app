@@ -336,7 +336,7 @@ ok('收入齐全时 hasEstimates 为假', bs && bs.hasEstimates===false, bs?Stri
 DS.clearAll();DS.importJSON(JSON.stringify(borrowFx),'replace');
 let capX=null; const oc=w.URL.createObjectURL;
 w.URL.createObjectURL=b=>{capX=b;return 'x';}; w.HTMLAnchorElement.prototype.click=function(){};
-w.exportToExcel(); const xmlX=await capX.text(); w.URL.createObjectURL=oc;
+const xmlX=w.buildExcelSpreadsheetXml(); w.URL.createObjectURL=oc;
 ok('Excel 逐月子行含「实测」', xmlX.indexOf('实测')!==-1);
 ok('Excel 逐月子行含「推定」', xmlX.indexOf('推定')!==-1);
 ok('Excel 状态列附注推定月数', /无收入记录/.test(xmlX));
@@ -402,7 +402,7 @@ L('【P1-12 / P2-15】Excel 分摊 sheet');
 DS.clearAll();DS.importJSON(JSON.stringify(archFx(false)),'replace');
 let capE=null; const oe=w.URL.createObjectURL;
 w.URL.createObjectURL=b=>{capE=b;return 'x';}; w.HTMLAnchorElement.prototype.click=function(){};
-w.exportToExcel(); const xE=await capE.text(); w.URL.createObjectURL=oe;
+const xE=w.buildExcelSpreadsheetXml(); w.URL.createObjectURL=oe;
 {
   const st=xE.indexOf('<Worksheet ss:Name="分摊账单">');
   const sheet=xE.slice(st,xE.indexOf('</Worksheet>',st));
