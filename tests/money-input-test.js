@@ -52,8 +52,9 @@ const dom = new JSDOM(html, {
     w.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/png;base64,AAA';
     w.CanvasRenderingContext2D = function () {};
     w.CanvasRenderingContext2D.prototype.roundRect = function () { return this; };
+    w.matchMedia = () => ({ matches: true, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });   // 触屏：显示符号键
     const q = () => {};
-    w.console = { log: q, warn: q, error: q, info: q, debug: q };
+    w.console ={ log: q, warn: q, error: q, info: q, debug: q };
   }
 });
 const { window: w } = dom;
@@ -362,6 +363,129 @@ setTimeout(() => {
   ok('没有漏改的金额框（新增金额输入请用 data-money，别再写 type="number"）', stray.length === 0, stray.map(s => s.slice(0, 110)));
   const decimal = (html.match(/<input[^>]*inputmode="decimal"[^>]*>/g) || []).concat(html.match(/'<input[^']*inputmode=\\?"decimal[^']*'/g) || []);
   ok('没有残留的 inputmode="decimal" 金额框（那是旧的「自己输小数点」方式）', decimal.length === 0, decimal.map(s => s.slice(0, 110)));
+
+  /* ---------- 9. 以 = 开头的算式（像 Excel） ---------- */
+  section('【算式：以 = 开头，离开输入框时变成结果，只存结果】');
+  const FIELD = signed => {
+    const el = w.document.createElement('input');
+    el.type = 'text'; el.setAttribute('inputmode', 'numeric'); el.setAttribute('data-money', signed ? 'signed' : '');
+    w.document.body.appendChild(el);
+    return el;
+  };
+  const toasts = () => w.document.querySelectorAll('#toastContainer .toast.error').length;
+  const calc = (el, src) => { el.value = ''; el.focus(); type(el, src); el.blur(); return el.value; };
+
+  w.navigateTo('add');
+  const fa = $('addAmount');
+  clear(fa); fa.focus(); type(fa, '=');
+  ok('第一个字符输 = 进入算式模式（框里就是 "="）', fa.value === '=', fa.value);
+  type(fa, '(12+8)*3');
+  ok('算式期间是自由文本，不按分填：=(12+8)*3', fa.value === '=(12+8)*3', fa.value);
+  press(fa, 'a'); press(fa, '!');
+  ok('字母和乱符号被挡掉', fa.value === '=(12+8)*3', fa.value);
+  press(fa, '=');
+  ok('第二个 = 被挡掉（只有开头那个算数）', fa.value === '=(12+8)*3', fa.value);
+  fa.blur();
+  ok('离开输入框 → 变成结果 60.00', fa.value === '60.00', fa.value);
+  ok('结果里没有 = 也没有算式', fa.value.indexOf('=') === -1);
+
+  clear(fa); type(fa, '23642'); press(fa, '=');
+  ok('已有数字后再按 = 不起作用，仍是 236.42（原来的输入方式没变）', fa.value === '236.42', fa.value);
+  clear(fa); type(fa, '23642');
+  ok('不以 = 开头：仍是从分开始填 23642 → 236.42', fa.value === '236.42', fa.value);
+
+  section('【算式：先乘除后加减、括号、小数】');
+  const cases = [
+    ['=2+3*4', '14.00'], ['=(2+3)*4', '20.00'], ['=10-4-3', '3.00'], ['=100/4/5', '5.00'],
+    ['=2*3+4*5', '26.00'], ['=12+8*3', '36.00'], ['=((1+2)*(3+4))', '21.00'], ['=1.5*4', '6.00'],
+    ['=10/3', '3.33'], ['=0.1+0.2', '0.30'], ['=2/3*3', '2.00'], ['=1,200+300', '1500.00'],
+    ['=6x7', '42.00'], ['=6X7', '42.00'], ['=20/4', '5.00'], ['=-(2+3)+10', '5.00'], ['=.5+.25', '0.75']
+  ];
+  for (const [src, want] of cases) { const f = FIELD(false); const got = calc(f, src); ok('"' + src + '" → ' + want, got === want, got); f.remove(); }
+  { const f = FIELD(false); f.value = '=（1＋2）×3'; w.MoneyInput.resolve(f); ok('全角括号 / 加号 / 乘号：=（1＋2）×3 → 9.00', f.value === '9.00', f.value); f.remove(); }
+  ok('evaluate 返回数字本身（不取整）', w.MoneyInput.evaluate('2+3*4') === 14 && w.MoneyInput.evaluate('(1') === null);
+
+  section('【算式：算不出来就清空并提示，不存错数】');
+  for (const bad of ['=3+', '=5/0', '=(1+2', '=1+2)', '=()', '=3(4)', '=2-5', '=1..2', '=12 34+', '=999999999999*9']) {
+    const f = FIELD(false); const before = toasts();
+    const got = calc(f, bad);
+    ok('"' + bad + '" 清空 + 弹提示', got === '' && toasts() === before + 1, [got, toasts() - before]);
+    f.remove();
+  }
+  { const f = FIELD(false); const before = toasts(); const got = calc(f, '='); ok('只有 "=" 没写算式：静默清空，不弹提示', got === '' && toasts() === before, got); f.remove(); }
+  { const f = FIELD(false); ok('结果为 0 → 空（和原来输入 0 一样）', calc(f, '=5-5') === ''); f.remove(); }
+  { const f = FIELD(true); ok('带符号的框允许负结果：=2-5 → -3.00', calc(f, '=2-5') === '-3.00'); f.remove(); }
+
+  section('【算式：什么时候算出结果】');
+  { // 回车
+    const f = FIELD(false); f.focus(); type(f, '=7*8');
+    f.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    ok('按回车 → 56.00（不离开输入框也算）', f.value === '56.00', f.value); f.remove();
+  }
+  { // 点别处 / 保存
+    w.navigateTo('add');
+    const a = $('addAmount'); clear(a); a.focus(); type(a, '=(12+8)*3');
+    w.selectCategory(lunch.id, 'add');
+    a.focus();
+    w.document.body.click();
+    ok('点页面别处（不触发 blur）也算出来：60.00', a.value === '60.00', a.value);
+    clear(a); a.focus(); type(a, '=(12+8)*3');
+    w.document.body.click();
+    w.submitRecord({ preventDefault() {} });
+    const r = DS.getRecords()[0];
+    ok('保存下来的是数字 60，不是算式', r && r.amount === 60 && typeof r.amount === 'number', r && r.amount);
+    ok('记录里没有任何地方存着算式', r && JSON.stringify(r).indexOf('=') === -1, r);
+  }
+  { // 字段自己的 onchange 读到的是结果
+    const f = FIELD(false); f.setAttribute('onchange', 'window.__seen = this.value');
+    f.focus(); type(f, '=(12+8)*3');
+    f.dispatchEvent(new w.Event('change', { bubbles: true }));
+    ok('字段自己的 onchange 读到结果 60.00，不是算式', w.__seen === '60.00', w.__seen);
+    f.remove();
+  }
+  { // 字段自己的 oninput 看不到写到一半的算式
+    const f = FIELD(false); w.__ins = []; f.setAttribute('oninput', 'window.__ins.push(this.value)');
+    f.focus(); type(f, '=12+');
+    ok('写算式期间，字段自己的 oninput 一次都没被叫到（"12+" 读成 12 就错了）', w.__ins.length === 0, w.__ins);
+    type(f, '3'); f.blur();
+    ok('算出结果后补发一次 input，值是 15.00', w.__ins.length === 1 && w.__ins[0] === '15.00', w.__ins);
+    f.remove();
+  }
+  { // 粘贴
+    const f = FIELD(false); f.focus(); paste(f, '=2*(3+4)');
+    ok('粘贴 "=…" 当算式保留', f.value === '=2*(3+4)', f.value);
+    f.blur(); ok('离开后 14.00', f.value === '14.00', f.value); f.remove();
+  }
+  { // ± 按钮不会对着一个没算完的算式翻号
+    const wrap = w.document.createElement('div'); const f = FIELD(true); wrap.appendChild(f); w.document.body.appendChild(wrap);
+    const b = w.document.createElement('button'); wrap.appendChild(b);
+    f.focus(); type(f, '=2+3'); w.toggleMoneySign(b);
+    ok('算式状态下点 ±：先算出 5.00，再变成 -5.00', f.value === '-5.00', f.value); wrap.remove();
+  }
+
+  section('【触屏：键盘上方的符号键】');
+  { // 防止上面遗留的聚焦状态影响
+    w.document.activeElement && w.document.activeElement.blur();
+    const f = FIELD(false); f.focus();
+    const bar = w.document.querySelector('.money-bar');
+    ok('聚焦金额框 → 出现符号键', bar && !bar.hidden);
+    const keys = Array.from(bar.querySelectorAll('button')).map(b => b.textContent).join('');
+    ok('键：= ( ) + − × ÷ .', keys === '=()+−×÷.', keys);
+    const tap = k => bar.querySelector('button[data-k="' + k + '"]').click();
+    tap('=');
+    ok('空框点 = → "="', f.value === '=', f.value);
+    tap('(');
+    ok('接着点 ( → "=("', f.value === '=(', f.value);
+    f.value = ''; f.blur(); f.focus();
+    type(f, '23642'); tap('+');
+    ok('已有 236.42 点 + → 接着算 "=236.42+"', f.value === '=236.42+', f.value);
+    type(f, '5'); tap('*'); type(f, '2');
+    ok('再输 5、点 ×、输 2 → "=236.42+5*2"', f.value === '=236.42+5*2', f.value);
+    f.blur();
+    ok('离开后 246.42', f.value === '246.42', f.value);
+    ok('离开金额框 → 符号键收起', bar.hidden === true);
+    f.remove();
+  }
 
   console.log('\n===== RESULT: ' + pass + ' PASS / ' + fail + ' FAIL =====');
   process.exit(fail > 0 ? 1 : 0);

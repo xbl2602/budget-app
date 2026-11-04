@@ -56,6 +56,17 @@ const PRIORITY = 9;          // yields to sync conflicts (1), plan due (2), roll
    25-page-guides.js) so a runtime locale switch is picked up. */
 const CHANGELOG = [
   {
+    id: '2026-11-04',
+    version: '3.8.0',
+    date: '2026-11-04',
+    title: 'changelog.a11.title',
+    items: [
+      { icon: '🧮', text: 'changelog.a11.item1' },
+      { icon: '📱', text: 'changelog.a11.item2' },
+      { icon: '👌', text: 'changelog.a11.item3' }
+    ]
+  },
+  {
     id: '2026-10-25',
     version: '3.7.0',
     date: '2026-10-25',
@@ -392,6 +403,20 @@ function close() {
     'changelog.settingsHint': { zh: '随时回看历次更新内容', en: 'Browse every past update' },
     'changelog.banner.multi': { zh: '你错过了多个版本！', en: "You've missed several versions!" },
     'changelog.banner.same': { zh: '你错过了 {0} 次更新 · v{1}', en: "You've missed {0} updates · v{1}" },
+
+    'changelog.a11.title': { zh: '金额框可以直接算数了', en: 'Amount boxes can do the sum for you' },
+    'changelog.a11.item1': {
+      zh: '<strong>在金额框里先输入 =，再写算式</strong>，比如 =12+8*3（乘、除先算，括号里的先算）。点一下空白处或保存，框里就变成算好的结果，只会存结果。',
+      en: '<strong>Type = first in an amount box, then write a sum</strong>, like =12+8*3 (× and ÷ go first, then anything in brackets). Tap anywhere else or save, and the box turns into the answer. Only the answer is saved.'
+    },
+    'changelog.a11.item2': {
+      zh: '<strong>手机上</strong>，点金额框时键盘上方会出现一排符号键（= ( ) + − × ÷），因为数字键盘上没有它们。',
+      en: '<strong>On a phone</strong>, a row of keys (= ( ) + − × ÷) appears above the keyboard, because the number keypad does not have them.'
+    },
+    'changelog.a11.item3': {
+      zh: '<strong>平时的输入方式没变</strong>：输入 23642 还是 236.42。',
+      en: '<strong>Normal typing has not changed</strong>: type 23642 and you still get 236.42.'
+    },
 
     'changelog.a10.title': { zh: 'v3.7.0 预测更准了，总览的数字对得上了', en: 'v3.7.0: better forecasts, and the overview numbers add up' },
     'changelog.a10.item1': {

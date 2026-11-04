@@ -1,4 +1,4 @@
-# 记账软件 · Budget App v3.7.2
+# 记账软件 · Budget App v3.8.0
 
 > Personal Budget Tracker — Zero-dependency single-page HTML app. Fully offline, runs entirely in your browser.
 
@@ -123,6 +123,13 @@ Dark/light mode toggle, monthly budget configuration, 2-mode savings target (fix
 ### 📱 手机版 Mobile Companion
 轻量级手机专用版本 `money-wise-mobile.html`，支持完整的记账增删改查、分类管理、JSON 导入导出。
 适合在手机上快速记录，导出 JSON 后在主应用导入。单 HTML 文件，零依赖。
+
+### v3.8.0 金额框支持 Excel 式算式（中版本，带公告）
+
+- **🧮 以 `=` 开头就是算式**：所有金额框（记账、编辑记录、预算、分摊、账单、计划……）里，第一个字符输入 `=` 后可以自由输入算式，如 `=(12+8)*3`，支持 `+ - × ÷`（也可打 `* / x`）、括号、小数，先乘除后加减。离开输入框、按回车、点任何别处（包括保存）时，算式被替换成结果（`60.00`），**只存结果，不存算式本身**。不以 `=` 开头时，仍是原来的「从分开始填」（输 23642 即 236.42），一点没变。
+- **算不出来就清空**：`=3+`、除以 0、不带符号的框算出负数，会清空并提示「算式看不懂，请重新输入」，不会存进错数。带符号的框（假设分析的 ± 金额）允许负结果。
+- **📱 触屏键盘上方的符号键**：手机数字键盘没有 `=` 和运算符，触屏设备聚焦金额框时，键盘上方出现 `= ( ) + − × ÷ .` 一排键（`src/css/18-money-bar.css`）；在已有金额上点运算符会以它为起点接着算（`236.42` → `=236.42+`）。
+- **实现**：`08-money-input.js` 的 `MoneyInput.evaluate` 是递归下降解析器，不用 `eval` / `Function`。算式文本期间不会触发框自己的 `oninput`；在 `change`（捕获阶段）、`focusout`、回车、点击时转成数字，所以各处的 `parseFloat(el.value)` 读到的都是数。回归网：`tests/money-input-test.js`（第 9 节）。
 
 ### v3.7.2 合并分类的确认按钮（小版本，无公告）
 

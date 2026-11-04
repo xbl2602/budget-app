@@ -347,7 +347,7 @@ function removeAddTag(tag) {
     'addRecord.dateLabel': { zh: '日期时间', en: 'Date & Time' },
     'addRecord.prevDay': { zh: '前一天', en: 'Previous day' },
     'addRecord.nextDay': { zh: '后一天', en: 'Next day' },
-    'addRecord.amountHint': { zh: '从分开始输入：输入 23642 即 236.42', en: 'Digits fill in from the cents: type 23642 for 236.42' },
+    'addRecord.amountHint': { zh: '从分开始输入：输入 23642 即 236.42。想算式？先输入 =，如 =12+8×3', en: 'Digits fill in from the cents: type 23642 for 236.42. Want a sum? Start with =, like =12+8×3' },
     'addRecord.noteLabel': { zh: '备注', en: 'Note' },
     'addRecord.notePlaceholder': { zh: '例如：Nasi Lemak', en: 'e.g. Nasi Lemak' },
     'addRecord.tagsLabel': { zh: '🏷️ 标签', en: '🏷️ Tags' },

@@ -1,0 +1,27 @@
+/* Key bar above a touch keyboard while a money field is focused (see 08-money-input.js) */
+.money-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10000;
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--card-bg);
+  border-top: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+}
+.money-bar[hidden] { display: none; }
+.money-bar button {
+  flex: 1;
+  min-height: 42px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  -webkit-tap-highlight-color: transparent;
+}
+.money-bar button:active { transform: scale(0.95); background: var(--bg-hover); }
